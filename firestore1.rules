@@ -1,0 +1,198 @@
+
+/**
+ * @file Firestore Security Rules for Restaurant Staff Management System
+ *
+ * Core Philosophy:
+ * This ruleset enforces a user-ownership model for user profiles and public access with owner-only writes for most other collections.
+ *
+ * Data Structure:
+ * - User profiles are stored under `/users/{userId}`, where `{userId}` matches the Firebase Auth UID.
+ * - Other collections like `/rooms`, `/reservations`, `/menuItems`, `/tables`, `/orders`, `/bills` are top-level collections.
+ *
+ * Key Security Decisions:
+ * - User listing is implicitly controlled via path-based ownership on `/users/{userId}`.
+ * - Write access to user profiles is restricted to the owning user.
+ * - Top-level collections can be made publicly readable by default.
+ *
+ *  Denormalization for Authorization: There is no need to denormalize data as only the authenticated user should have access to user profiles, supporting the required QAPs through structural segregation.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Secure access to user profiles.
+     * @path /users/{userId}
+     * @allow (create) User with UID 'user123' can create their profile at /users/user123.
+     * @allow (get) User with UID 'user123' can read their profile at /users/user123.
+     * @allow (update) User with UID 'user123' can update their profile at /users/user123.
+     * @allow (delete) User with UID 'user123' can delete their profile at /users/user123.
+     * @deny (create) User with UID 'user123' cannot create a profile at /users/user456.
+     * @deny (get) User with UID 'user123' cannot read the profile at /users/user456.
+     * @deny (update) User with UID 'user123' cannot update the profile at /users/user456.
+     * @deny (delete) User with UID 'user123' cannot delete the profile at /users/user456.
+     * @principle Enforces document ownership for all operations.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Listing users should not be allowed.
+      allow create: if isOwner(userId);
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Allow public read access to room data and restrict writes.
+     * @path /rooms/{roomId}
+     * @allow (get) Any user can read room data.
+     * @allow (list) Any user can list rooms.
+     * @deny (create) No one can create a room through client-side rules.
+     * @deny (update) No one can update a room through client-side rules.
+     * @deny (delete) No one can delete a room through client-side rules.
+     * @principle Restricts writes to the room collection
+     */
+    match /rooms/{roomId} {
+      allow get, list: if true;
+      allow create, update, delete: if hasAnyRole(['admin']);
+    }
+
+    /**
+     * @description Allow public read access to reservation data and restrict writes.
+     * @path /reservations/{reservationId}
+     * @allow (get) Any user can read reservation data.
+     * @allow (list) Any user can list reservations.
+     * @deny (create) No one can create a reservation through client-side rules.
+     * @deny (update) No one can update a reservation through client-side rules.
+     * @deny (delete) No one can delete a reservation through client-side rules.
+     * @principle Restricts writes to the reservation collection.
+     */
+    match /reservations/{reservationId} {
+      allow get, list: if true;
+      allow write: if hasAnyRole(['admin']);
+    }
+
+    /**
+     * @description Allow public read access to menu item data and restrict writes.
+     * @path /menuItems/{menuItemId}
+     * @allow (get) Any user can read menu item data.
+     * @allow (list) Any user can list menu items.
+     * @deny (create) No one can create a menu item through client-side rules.
+     * @deny (update) No one can update a menu item through client-side rules.
+     * @deny (delete) No one can delete a menu item through client-side rules.
+     * @principle Restricts writes to the menuItems collection.
+     */
+    match /menuItems/{menuItemId} {
+      allow get, list: if true;
+      allow write: if hasAnyRole(['admin']);
+    }
+
+    /**
+     * @description Allow public read access to table data and restrict writes.
+     * @path /tables/{tableId}
+     * @allow (get) Any user can read table data.
+     * @allow (list) Any user can list tables.
+     * @deny (create) No one can create a table through client-side rules.
+     * @deny (update) No one can update a table through client-side rules.
+     * @deny (delete) No one can delete a table through client-side rules.
+     * @principle Restricts writes to the tables collection.
+     */
+    match /tables/{tableId} {
+      allow get, list: if true;
+      allow write: if hasAnyRole(['admin']);
+    }
+
+    /**
+     * @description Allow public read access to order data and restrict writes.
+     * @path /orders/{orderId}
+     * @allow (get) Any user can read order data.
+     * @allow (list) Any user can list orders.
+     * @deny (create) No one can create an order through client-side rules.
+     * @deny (update) No one can update an order through client-side rules.
+     * @deny (delete) No one can delete an order through client-side rules.
+     * @principle Restricts writes to the orders collection.
+     */
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['admin', 'waiter']);
+
+       match /items/{orderItemId} {
+        allow read: if isSignedIn();
+        allow write: if hasAnyRole(['admin', 'waiter']);
+      }
+    }
+
+    /**
+     * @description Secure order items by restricting all access for now.
+     * @path /orders/{orderId}/items/{orderItemId}
+     * @deny (get) No one can read order item data.
+     * @deny (list) No one can list order items.
+     * @deny (create) No one can create an order item through client-side rules.
+     * @deny (update) No one can update an order item through client-side rules.
+     * @deny (delete) No one can delete an order item through client-side rules.
+     */
+    match /orders/{orderId}/items/{orderItemId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    /**
+     * @description Allow public read access to bill data and restrict writes.
+     * @path /bills/{billId}
+     * @allow (get) Any user can read bill data.
+     * @allow (list) Any user can list bills.
+     * @deny (create) No one can create a bill through client-side rules.
+     * @deny (update) No one can update a bill through client-side rules.
+     * @deny (delete) No one can delete a bill through client-side rules.
+     * @principle Restricts writes to the bills collection.
+     */
+    match /bills/{billId} {
+      allow get, list: if true;
+      allow write: if hasAnyRole(['admin', 'waiter', 'payment']);
+    }
+
+    match /expenses/{expenseId} {
+      allow read, list: if isSignedIn();
+      allow write: if hasAnyRole(['admin', 'payment']);
+    }
+
+    match /otherIncomes/{otherIncomeId} {
+      allow read, list: if isSignedIn();
+      allow write: if hasAnyRole(['admin', 'payment']);
+    }
+
+    match /activities/{activityId} {
+        allow read, list: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    match /experiences/{experienceId} {
+        allow read, list: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+    
+    match /blogs/{blogId} {
+        allow read, list: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function hasAnyRole(roles) {
+      return isSignedIn() && getUserRole() in roles;
+    }
+  }
+}

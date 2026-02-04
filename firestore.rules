@@ -1,0 +1,91 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function hasAnyRole(roles) {
+      return isSignedIn() && getUserRole() in roles;
+    }
+    
+    match /users/{userId} {
+      allow read, write: if hasAnyRole(['admin']) || request.auth.uid == userId;
+      allow list: if hasAnyRole(['admin']);
+    }
+
+    match /menuItems/{menuItemId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['admin']);
+    }
+
+    match /tables/{tableId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['admin']);
+    }
+
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['admin', 'waiter']);
+    }
+
+    match /orders/{orderId}/items/{orderItemId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['admin', 'waiter']);
+    }
+    
+    match /bills/{billId} {
+        allow read: if isSignedIn();
+        allow write: if hasAnyRole(['admin', 'payment', 'waiter']);
+    }
+
+    match /rooms/{roomId} {
+        allow read: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+    
+    match /reservations/{reservationId} {
+        allow read: if isSignedIn();
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    match /activities/{activityId} {
+        allow read: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    match /experiences/{experienceId} {
+        allow read: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    match /blogs/{blogId} {
+        allow read: if true;
+        allow write: if hasAnyRole(['admin']);
+    }
+
+    match /expenses/{expenseId} {
+        allow read: if isSignedIn();
+        allow write: if hasAnyRole(['admin', 'payment']);
+    }
+    
+    match /otherIncomes/{otherIncomeId} {
+        allow read: if isSignedIn();
+        allow write: if hasAnyRole(['admin', 'payment']);
+    }
+
+    match /loyaltyCustomers/{customerId} {
+        allow read: if isSignedIn();
+        // Allow creating/updating points by waiters/payment staff, and full control for admin
+        allow create: if hasAnyRole(['admin', 'payment', 'waiter']);
+        allow update: if hasAnyRole(['admin', 'payment', 'waiter']);
+        allow delete: if hasAnyRole(['admin']);
+    }
+  }
+}

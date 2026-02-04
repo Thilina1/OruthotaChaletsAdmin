@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuth();
+      allow list: if isAuth() && isRole('admin');
+      
+      // Allow create if user is an admin
+      allow create: if isAuth() && isRole('admin')
+        // Ensure required fields are present and creator is tracked
+        && 'name' in request.resource.data
+        && 'birthday' in request.resource.data
+        && 'role' in request.resource.data
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // Allow update if user is an admin
+      allow update: if isAuth() && isRole('admin')
+        // Ensure updater is tracked and timestamps are correct
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        // Prevent modification of creation details
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+        
+      // Allow delete if user is an admin
+      allow delete: if isAuth() && isRole('admin');
+    }
+  }
+}
