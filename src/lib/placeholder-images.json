@@ -1,0 +1,34 @@
+{
+  "placeholderImages": [
+    {
+      "id": "login-background",
+      "description": "A warm and inviting restaurant interior with wooden tables and soft lighting",
+      "imageUrl": "https://images.unsplash.com/photo-1729394405518-eaf2a0203aa7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxyZXN0YXVyYW50JTIwaW50ZXJpb3J8ZW58MHx8fHwxNzU5NjE3MDc2fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "restaurant interior"
+    },
+    {
+      "id": "avatar-1",
+      "description": "Avatar placeholder image 1",
+      "imageUrl": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxwZXJzb24lMjBwb3J0cmFpdHxlbnwwfHx8fDE3NTk2MjQ1ODZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person portrait"
+    },
+    {
+      "id": "avatar-2",
+      "description": "Professional male admin avatar",
+      "imageUrl": "https://api.dicebear.com/9.x/avataaars/png?seed=Alexander&clothing=blazerAndShirt&top=shortHair&accessories=glasses",
+      "imageHint": "male admin avatar"
+    },
+    {
+      "id": "avatar-3",
+      "description": "Avatar placeholder image 3",
+      "imageUrl": "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxwZXJzb24lMjBwb3J0cmFpdHxlbnwwfHx8fDE3NTk2MjQ1ODZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person portrait"
+    },
+    {
+      "id": "avatar-4",
+      "description": "Avatar placeholder image 4",
+      "imageUrl": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxwZXJzb24lMjBwb3J0cmFpdHxlbnwwfHx8fDE3NTk2MjQ1ODZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person portrait"
+    }
+  ]
+}

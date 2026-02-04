@@ -1,0 +1,436 @@
+
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the restaurant staff management system.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity. This corresponds to the Firebase Firestore document ID.",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "description": "The user's name. Must be unique across all users."
+        },
+        "birthday": {
+          "type": "string",
+          "description": "The user's birthday.",
+          "format": "date"
+        },
+        "role": {
+          "type": "string",
+          "description": "The user's role within the system.  Allowed values: 'admin', 'waiter', 'payment'.",
+          "enum": ["admin", "waiter", "payment"]
+        },
+        "createdAt": {
+            "type": "string",
+            "description": "Timestamp when the user was created.",
+            "format": "date-time"
+        },
+        "updatedAt": {
+            "type": "string",
+            "description": "Timestamp when the user was last updated.",
+            "format": "date-time"
+        },
+        "createdBy": {
+            "type": "string",
+            "description": "UID of the user who created this user."
+        },
+        "updatedBy": {
+            "type": "string",
+            "description": "UID of the user who last updated this user."
+        }
+      },
+      "required": [
+        "name",
+        "birthday",
+        "role",
+        "createdAt",
+        "createdBy",
+        "updatedAt",
+        "updatedBy"
+      ]
+    },
+    "MenuItem": {
+        "title": "Menu Item",
+        "description": "Represents an item on the restaurant menu.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "Document ID." },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "price": { "type": "number" },
+            "category": { "type": "string", "enum": ["Sri Lankan", "Western", "Bar"] },
+            "availability": { "type": "boolean" },
+            "stockType": {
+              "type": "string",
+              "enum": ["Inventoried", "Non-Inventoried"],
+              "description": "The type of stock management for the item."
+            },
+            "stock": {
+              "type": "number",
+              "description": "The current stock level for the item, if applicable."
+            },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["name", "price", "category", "availability", "stockType"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Represents a table in the restaurant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Document ID." },
+        "tableNumber": { "type": "string", "description": "The number of the table." },
+        "section": { "type": "string", "description": "Section of the restaurant where the table is located.", "enum": ["Sri Lankan", "Western", "Outdoor", "Bar"] },
+        "capacity": { "type": "number", "description": "Number of people the table can accommodate." },
+        "status": { "type": "string", "description": "Current status of the table.", "enum": ["available", "occupied", "reserved"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tableNumber", "section", "capacity", "status"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a customer's order for a specific table.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Document ID." },
+        "tableId": { "type": "string", "description": "ID of the table this order belongs to." },
+        "status": { "type": "string", "enum": ["open", "billed", "paid", "cancelled"] },
+        "totalPrice": { "type": "number", "description": "The total price of the order." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tableId", "status", "totalPrice"]
+    },
+    "OrderItem": {
+        "title": "Order Item",
+        "description": "Represents a single item within an order.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "Document ID." },
+            "orderId": { "type": "string", "description": "ID of the order this item belongs to." },
+            "menuItemId": { "type": "string", "description": "ID of the menu item." },
+            "name": { "type": "string", "description": "Name of the menu item at the time of order." },
+            "price": { "type": "number", "description": "Price of the menu item at the time of order." },
+            "quantity": { "type": "number", "description": "Quantity of the item ordered." }
+        },
+        "required": ["orderId", "menuItemId", "name", "price", "quantity"]
+    },
+    "Bill": {
+        "title": "Bill",
+        "description": "Represents a finalized bill for an order, including discounts, items, and totals.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "Document ID." },
+            "orderId": { "type": "string", "description": "The ID of the corresponding order." },
+            "tableId": { "type": "string", "description": "The ID of the table." },
+            "tableNumber": { "type": "string", "description": "The number of the table." },
+            "customerMobileNumber": { "type": "string", "description": "The mobile number of the customer for loyalty points." },
+            "items": {
+              "type": "array",
+              "description": "A list of all items included in the bill.",
+              "items": { "$ref": "#/entities/OrderItem" }
+            },
+            "status": { "type": "string", "enum": ["unpaid", "paid"], "description": "The payment status of the bill." },
+            "paymentMethod": { "type": "string", "enum": ["cash", "card"], "description": "The method of payment." },
+            "subtotal": { "type": "number", "description": "The total price of all items before discount." },
+            "discount": { "type": "number", "description": "The discount percentage applied to the bill (0-100)." },
+            "total": { "type": "number", "description": "The final amount to be paid after discount." },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "paidAt": { "type": "string", "format": "date-time", "description": "Timestamp when the bill was paid." }
+        },
+        "required": ["orderId", "tableId", "tableNumber", "items", "status", "subtotal", "discount", "total", "createdAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Represents a hotel room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "roomNumber": { "type": "string" },
+        "title": { "type": "string", "description": "The title or name of the room." },
+        "description": { "type": "string", "description": "A description of the room." },
+        "type": { "type": "string", "enum": ["Single", "Double", "Suite", "Deluxe"] },
+        "pricePerNight": { "type": "number" },
+        "status": { "type": "string", "enum": ["available", "occupied", "maintenance"] },
+        "imageUrl": { "type": "string", "description": "URL of an image of the room." },
+        "roomCount": { "type": "number", "description": "The number of available rooms of this type." },
+        "view": { "type": "string", "description": "The view from the room (e.g., 'Ocean View', 'Garden View')." }
+      },
+      "required": ["roomNumber", "title", "description", "type", "pricePerNight", "status", "imageUrl", "roomCount", "view"]
+    },
+    "Reservation": {
+      "title": "Reservation",
+      "description": "Represents a room reservation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bookingDate": { "type": "string", "format": "date-time" },
+        "checkInDate": { "type": "string", "format": "date" },
+        "checkOutDate": { "type": "string", "format": "date" },
+        "guestEmail": { "type": "string", "format": "email" },
+        "guestId": { "type": "string" },
+        "guestName": { "type": "string" },
+        "idCardNumber": { "type": "string", "description": "The guest's ID card number." },
+        "numberOfGuests": { "type": "number" },
+        "roomId": { "type": "string" },
+        "roomTitle": { "type": "string" },
+        "specialRequests": { "type": "string" },
+        "status": { "type": "string", "enum": ["booked", "confirmed", "checked-in", "checked-out", "cancelled"] },
+        "totalCost": { "type": "number" }
+      },
+      "required": [
+        "bookingDate",
+        "checkInDate",
+        "checkOutDate",
+        "guestEmail",
+        "guestId",
+        "guestName",
+        "numberOfGuests",
+        "roomId",
+        "roomTitle",
+        "status",
+        "totalCost"
+      ]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Represents a bookable activity offered by the hotel.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["priceable", "non-priceable"] },
+        "pricePerPerson": { "type": "number", "description": "The price per person for the activity, if applicable." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "type"]
+    },
+    "Experience": {
+      "title": "Experience",
+      "description": "Represents a bookable experience offered by the hotel.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string", "description": "URL of an image for the experience." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "imageUrl"]
+    },
+    "Blog": {
+      "title": "Blog",
+      "description": "Represents a single blog post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "previewHeader": { "type": "string" },
+        "previewDescription": { "type": "string" },
+        "header1": { "type": "string" },
+        "content1": { "type": "string", "format": "html" },
+        "content2": { "type": "string", "format": "html" },
+        "contentImage": { "type": "string", "format": "uri" },
+        "featured": { "type": "boolean" },
+        "featuredPosition": { "type": "number" },
+        "color": { "type": "string", "enum": ["amber", "green", "creme", "blue"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "proTips": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "required": ["title", "description"]
+          }
+        },
+        "bookingButtonText": { "type": "string" },
+        "bookingButtonContent": { "type": "string", "format": "uri" },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "title", "previewHeader", "previewDescription", "header1", "content1",
+        "contentImage", "featured", "color", "tags", "proTips",
+        "bookingButtonText", "bookingButtonContent", "authorId", "createdAt"
+      ]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Represents a business expense.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "name": { "type": "string", "description": "Name or reference for the expense." },
+        "price": { "type": "number", "description": "The cost of the expense in LKR." },
+        "remark": { "type": "string", "description": "Additional notes or remarks about the expense." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "name", "price"]
+    },
+    "OtherIncome": {
+      "title": "Other Income",
+      "description": "Represents other business income.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "name": { "type": "string", "description": "Name or reference for the income." },
+        "price": { "type": "number", "description": "The amount of the income in LKR." },
+        "remark": { "type": "string", "description": "Additional notes or remarks about the income." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "name", "price"]
+    },
+    "LoyaltyCustomer": {
+      "title": "Loyalty Customer",
+      "description": "Represents a loyalty program customer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Document ID." },
+        "name": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "dob": { "type": "string", "format": "date", "description": "Date of Birth" },
+        "totalLoyaltyPoints": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "mobileNumber", "dob", "totalLoyaltyPoints"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. The document ID is the Firebase Auth UID.  Only the authenticated user (or an admin) can access their own document.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The Firebase Auth UID of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/menuItems/{menuItemId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/MenuItem" },
+            "description": "Stores menu item information."
+        }
+      },
+      {
+        "path": "/tables/{tableId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Table" },
+            "description": "Stores restaurant table information."
+        }
+      },
+       {
+        "path": "/orders/{orderId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Order" },
+            "description": "Stores customer orders for tables."
+        }
+      },
+      {
+        "path": "/orders/{orderId}/items/{orderItemId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/OrderItem" },
+            "description": "Stores items within a specific table order."
+        }
+      },
+      {
+        "path": "/bills/{billId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Bill" },
+            "description": "Stores records of finalized bills for payment processing."
+        }
+      },
+      {
+        "path": "/rooms/{roomId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Room" },
+            "description": "Stores hotel room information."
+        }
+      },
+      {
+        "path": "/reservations/{reservationId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Reservation" },
+            "description": "Stores room reservation information."
+        }
+      },
+      {
+        "path": "/activities/{activityId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Activity" },
+            "description": "Stores information about available activities."
+        }
+      },
+      {
+        "path": "/experiences/{experienceId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Experience" },
+            "description": "Stores information about available experiences."
+        }
+      },
+      {
+        "path": "/blogs/{blogId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Blog" },
+            "description": "Stores all blog posts for the application."
+        }
+      },
+      {
+        "path": "/expenses/{expenseId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/Expense" },
+            "description": "Stores business expense records."
+        }
+      },
+      {
+        "path": "/otherIncomes/{otherIncomeId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/OtherIncome" },
+            "description": "Stores other business income records."
+        }
+      },
+      {
+        "path": "/loyaltyCustomers/{customerId}",
+        "definition": {
+            "schema": { "$ref": "#/backend/entities/LoyaltyCustomer" },
+            "description": "Stores loyalty customer information."
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to support a restaurant staff management system with role-based access control.  It emphasizes simplicity and security, especially concerning user data.\n\nThe core design revolves around storing user data in a dedicated collection, `/users/{userId}`, with `{userId}` corresponding to the Firebase Authentication `uid`. This structure ensures path-based ownership, making security rules straightforward and efficient. No denormalization is needed as only the authenticated user (or an admin via separate, potentially centralized admin data) would have access to user profiles, supporting the required QAPs through structural segregation.\n\nThis approach avoids `get()` calls in security rules, promoting Authorization Independence. It also inherently supports listing users securely, as only an admin (determined by a separate `/roles_admin/{uid}` document) would have list access to the `/users` collection, while regular users can only access their own document at `/users/{uid}`. Roles are explicitly defined in the user document, allowing for content-based authorization checks within the security rules (e.g., `request.resource.data.role == 'admin'`).\n\nTo support the 'no duplicate' constraint on the 'name' field, consider using a Cloud Function triggered on document creation or update. This function can query the collection to check for existing names and reject the write if a duplicate is found, ensuring data integrity."
+  }
+}
