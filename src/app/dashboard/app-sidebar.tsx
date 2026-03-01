@@ -41,7 +41,7 @@ const generalMenuItems: MenuItem[] = [
 ];
 
 const customerMenuItems: MenuItem[] = [
-    { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin', 'payment', 'waiter'] },
+    { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin'] },
     { href: '/dashboard/loyalty-discounts', icon: Percent, label: 'Loyalty Discounts', roles: ['admin'] },
 ];
 
@@ -49,6 +49,7 @@ const restaurantMenuItems: MenuItem[] = [
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
+    { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin', 'waiter', 'payment', 'kitchen'] },
 ];
 
 const roomBookingMenuItems: MenuItem[] = [

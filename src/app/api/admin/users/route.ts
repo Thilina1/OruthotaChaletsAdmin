@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password, role, phone_number, address, nic, job_title, join_date } = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, join_date, permissions } = await request.json();
 
         if (!email || !password || !name || !role) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -58,6 +58,7 @@ export async function POST(request: Request) {
                 nic,
                 job_title,
                 join_date,
+                permissions: permissions || [],
             })
             .select()
             .single();
@@ -67,6 +68,51 @@ export async function POST(request: Request) {
         }
 
         return NextResponse.json({ user: data }, { status: 201 });
+
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+export async function PUT(request: Request) {
+    try {
+        const { searchParams } = new URL(request.url);
+        const id = searchParams.get('id');
+
+        if (!id) {
+            return NextResponse.json({ error: 'Missing user ID' }, { status: 400 });
+        }
+
+        const data = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, join_date, permissions } = data;
+
+        const updatePayload: any = {
+            name,
+            role,
+            phone_number,
+            address,
+            nic,
+            job_title,
+            join_date,
+            permissions: permissions || [],
+        };
+
+        if (password) {
+            updatePayload.password = await hashPassword(password);
+        }
+
+        const { data: updatedUser, error } = await supabase
+            .from('users')
+            .update(updatePayload)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        return NextResponse.json({ user: updatedUser }, { status: 200 });
 
     } catch (error: any) {
         return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });

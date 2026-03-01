@@ -16,13 +16,27 @@ export async function GET() {
         return NextResponse.json({ user: null }, { status: 200 }); // Invalid token
     }
 
-    // Return user info from token
-    // Ideally, validat against DB to sure user still exists/is active, but token is enough for stateless session
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, serviceRoleKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+
+    const { data: dbUser, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payload.userId)
+        .single();
+
+    if (error || !dbUser) {
+        return NextResponse.json({ user: null }, { status: 200 });
+    }
+
     const user = {
-        id: payload.userId,
-        email: payload.email,
-        name: payload.name,
-        role: payload.role
+        id: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        role: dbUser.role,
+        permissions: dbUser.permissions || [],
     };
 
     return NextResponse.json({ user }, { status: 200 });
