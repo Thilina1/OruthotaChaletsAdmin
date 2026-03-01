@@ -78,17 +78,18 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     setIsLoading(true);
     try {
       // Fetch Menu Items and Categories concurrently
-      const [menuRes, categoriesRes] = await Promise.all([
-        supabase.from('menu_items').select('*'),
-        fetch('/api/admin/menu-sections').then(res => res.json())
+      const [tablesRes, menuRes, categoriesRes] = await Promise.all([
+        supabase.from('restaurant_tables').select('*'),
+        supabase.from('menu_items').select('*, hotel_inventory_items(current_stock)'),
+        supabase.from('menu_sections').select('*').order('name')
       ]);
 
       if (menuRes.data) {
         setMenuItems(menuRes.data as any);
       }
 
-      if (categoriesRes && categoriesRes.sections) {
-        setMenuCategories(categoriesRes.sections.map((s: any) => s.name));
+      if (categoriesRes.data) {
+        setMenuCategories(categoriesRes.data.map((s: any) => s.name));
       }
 
       // Fetch Open Order
@@ -148,6 +149,14 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         currentLocalItems = currentLocalItems.map((menuItem) => {
           const orderedItem = orderItems.find((oi) => oi.menu_item_id === menuItem.id);
           if (orderedItem && menuItem.stock_type === 'Inventoried') {
+            if (menuItem.linked_inventory_item_id) {
+              return {
+                ...menuItem,
+                hotel_inventory_items: {
+                  current_stock: ((menuItem as any).hotel_inventory_items?.current_stock || 0) - orderedItem.quantity
+                }
+              } as any;
+            }
             return { ...menuItem, stock: (menuItem.stock || 0) - orderedItem.quantity };
           }
           return menuItem;
@@ -169,12 +178,15 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   const handleAddItem = (menuItem: MenuItem) => {
     const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id);
-    const currentStock = itemInLocalMenu?.stock ?? 0;
+    const isLinked = !!itemInLocalMenu?.linked_inventory_item_id;
+    const effectiveStock = isLinked
+      ? ((itemInLocalMenu as any)?.hotel_inventory_items?.current_stock ?? 0)
+      : (itemInLocalMenu?.stock ?? 0);
+
     const currentCountInCart = localOrder[menuItem.id] || 0;
     if (
       menuItem.stock_type === 'Inventoried' &&
-      currentStock <= 0 &&
-      (menuItem.stock ?? 0) - currentCountInCart <= 0
+      effectiveStock - currentCountInCart <= 0
     ) {
       toast({ variant: 'destructive', title: 'Out of Stock', description: `${menuItem.name} is currently unavailable.` });
       return;
@@ -364,7 +376,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                   ) : filteredMenuItems.length > 0 ? (
                     filteredMenuItems.map((item) => {
                       const currentCountInCart = localOrder[item.id] || 0;
-                      const effectiveStock = item.stock ?? 0;
+                      const isLinked = !!item.linked_inventory_item_id;
+                      const effectiveStock = isLinked
+                        ? ((item as any).hotel_inventory_items?.current_stock ?? 0)
+                        : (item.stock ?? 0);
                       const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
                       return (
                         <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted">

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from '@/components/ui/button';
-import { Trash2, Save, Plus } from 'lucide-react';
+import { Trash2, Save, Plus, Edit } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserForm } from '@/components/dashboard/user-management/user-form';
@@ -30,6 +30,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 const ROLES: UserRole[] = ['admin', 'waiter', 'kitchen', 'payment'];
 
@@ -43,6 +45,7 @@ export default function UserManagementPage() {
     const [userRoles, setUserRoles] = useState<Record<string, UserRole>>({});
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<{ id: string; name: string } | null>(null);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
 
     const handleRoleChange = (userId: string, role: UserRole) => {
         setUserRoles(prev => ({ ...prev, [userId]: role }));
@@ -73,6 +76,11 @@ export default function UserManagementPage() {
         setIsDeleteDialogOpen(true);
     };
 
+    const handleEditClick = (user: User) => {
+        setEditingUser(user);
+        setIsAddUserOpen(true);
+    };
+
     const confirmDelete = async () => {
         if (!userToDelete) return;
 
@@ -92,26 +100,35 @@ export default function UserManagementPage() {
         }
     };
 
-    const handleAddUser = async (values: any) => {
+    const handleFormSubmit = async (values: any) => {
         try {
-            const res = await fetch('/api/admin/users', {
-                method: 'POST',
+            const url = editingUser ? `/api/admin/users?id=${editingUser.id}` : '/api/admin/users';
+            const method = editingUser ? 'PUT' : 'POST';
+
+            const payload = {
+                ...values,
+                id: editingUser ? editingUser.id : undefined,
+            }
+
+            const res = await fetch(url, {
+                method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(values),
+                body: JSON.stringify(payload),
             });
 
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Failed to create user');
+                throw new Error(data.error || `Failed to ${editingUser ? 'update' : 'create'} user`);
             }
 
-            toast({ title: 'User Created', description: `User ${values.name} has been successfully created.` });
+            toast({ title: `User ${editingUser ? 'Updated' : 'Created'}`, description: `User ${values.name} has been successfully ${editingUser ? 'updated' : 'created'}.` });
             setIsAddUserOpen(false);
+            setEditingUser(null);
             refetch();
         } catch (error: any) {
-            console.error("Error creating user:", error);
-            toast({ variant: 'destructive', title: 'Creation Failed', description: error.message });
+            console.error(`Error ${editingUser ? 'updating' : 'creating'} user:`, error);
+            toast({ variant: 'destructive', title: editingUser ? 'Update Failed' : 'Creation Failed', description: error.message });
         }
     };
 
@@ -120,6 +137,14 @@ export default function UserManagementPage() {
         return [...users].sort((a, b) => a.name.localeCompare(b.name));
     }, [users]);
 
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(sortedUsers, 20);
 
     if (areUsersLoading) {
         return (
@@ -157,20 +182,23 @@ export default function UserManagementPage() {
                     <h1 className="text-3xl font-headline font-bold">User Management</h1>
                     <p className="text-muted-foreground">Manage user accounts and roles.</p>
                 </div>
-                <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+                <Dialog open={isAddUserOpen} onOpenChange={(open) => {
+                    if (!open) setEditingUser(null);
+                    setIsAddUserOpen(open);
+                }}>
                     <DialogTrigger asChild>
-                        <Button>
+                        <Button onClick={() => { setEditingUser(null); setIsAddUserOpen(true); }}>
                             <Plus className="mr-2 h-4 w-4" /> Add User
                         </Button>
                     </DialogTrigger>
                     <DialogContent className="max-h-[85vh] overflow-y-auto">
                         <DialogHeader>
-                            <DialogTitle>Add New User</DialogTitle>
+                            <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
                             <DialogDescription>
-                                Create a new user account. They will need to login with these credentials.
+                                {editingUser ? 'Modify user details and role. Leave password blank to keep it unchanged.' : 'Create a new user account. They will need to login with these credentials.'}
                             </DialogDescription>
                         </DialogHeader>
-                        <UserForm onSubmit={handleAddUser} />
+                        <UserForm key={editingUser ? editingUser.id : 'new'} user={editingUser} onSubmit={handleFormSubmit} />
                     </DialogContent>
                 </Dialog>
             </div>
@@ -192,7 +220,7 @@ export default function UserManagementPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {sortedUsers.map(user => (
+                            {paginatedItems.map(user => (
                                 <TableRow key={user.id}>
                                     <TableCell className="font-medium">{user.name}</TableCell>
                                     <TableCell>{user.email}</TableCell>
@@ -210,6 +238,9 @@ export default function UserManagementPage() {
                                         </Select>
                                     </TableCell>
                                     <TableCell className="text-right space-x-2">
+                                        <Button size="sm" variant="outline" onClick={() => handleEditClick(user)}>
+                                            <Edit className="mr-2 h-4 w-4" /> Edit
+                                        </Button>
                                         <Button size="sm" onClick={() => handleSaveChanges(user.id)} disabled={!userRoles[user.id] || userRoles[user.id] === user.role}>
                                             <Save className="mr-2 h-4 w-4" /> Save
                                         </Button>
@@ -221,6 +252,15 @@ export default function UserManagementPage() {
                             ))}
                         </TableBody>
                     </Table>
+                    {!areUsersLoading && (
+                        <DataTablePagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={totalItems}
+                            itemsPerPage={itemsPerPage}
+                            onPageChange={setCurrentPage}
+                        />
+                    )}
                 </CardContent>
             </Card>
 

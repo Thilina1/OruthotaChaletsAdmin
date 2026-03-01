@@ -12,6 +12,7 @@ interface UserContextType {
   loading: boolean;
   error: Error | null;
   hasRole: (role: UserRole) => boolean;
+  hasPathAccess: (path: string) => boolean;
   refreshUser: () => Promise<void>;
 }
 
@@ -25,6 +26,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
   const fetchUser = async () => {
     try {
       const res = await fetch('/api/auth/me');
+
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
@@ -52,12 +54,19 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     return user.role === role;
   };
 
+  const hasPathAccess = (path: string) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true; // Admins default to all paths for safety
+    return !!(user.permissions && user.permissions.includes(path));
+  };
+
   const value = {
     user: user || null,
     supabaseUser: user as any, // Alias for backward compatibility if needed, though type mismatch
     loading,
     error,
     hasRole,
+    hasPathAccess,
     refreshUser: fetchUser,
   };
 

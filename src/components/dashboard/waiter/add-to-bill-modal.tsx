@@ -52,14 +52,14 @@ export function AddToBillModal({ table, isOpen, onClose }: AddToBillModalProps) 
             try {
                 // Fetch Menu and Categories
                 const [menuRes, categoriesRes] = await Promise.all([
-                    supabase.from('menu_items').select('*'),
-                    fetch('/api/admin/menu-sections').then(res => res.json())
+                    supabase.from('menu_items').select('*, hotel_inventory_items(current_stock)'),
+                    supabase.from('menu_sections').select('*').order('name')
                 ]);
 
                 if (menuRes.data) setMenuItems(menuRes.data as any);
 
-                if (categoriesRes && categoriesRes.sections) {
-                    setMenuCategories(categoriesRes.sections.map((s: any) => s.name));
+                if (categoriesRes && categoriesRes.data) {
+                    setMenuCategories(categoriesRes.data.map((s: any) => s.name));
                 }
 
                 // Fetch Order
@@ -106,7 +106,13 @@ export function AddToBillModal({ table, isOpen, onClose }: AddToBillModalProps) 
     }, [menuItems, searchTerm, selectedCategory]);
 
     const handleAddItem = (menuItem: MenuItem) => {
-        if (menuItem.stock_type === 'Inventoried' && (menuItem.stock ?? 0) <= 0) {
+        const isLinked = !!menuItem.linked_inventory_item_id;
+        const effectiveStock = isLinked
+            ? ((menuItem as any).hotel_inventory_items?.current_stock ?? 0)
+            : (menuItem.stock ?? 0);
+        const currentCountInCart = localOrder[menuItem.id] || 0;
+
+        if (menuItem.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0) {
             toast({ variant: 'destructive', title: 'Out of Stock', description: `${menuItem.name} is currently unavailable.` });
             return;
         }
@@ -177,10 +183,28 @@ export function AddToBillModal({ table, isOpen, onClose }: AddToBillModalProps) 
                     }
 
                     if (menuItem.stock_type === 'Inventoried') {
-                        const { error } = await supabase.rpc('decrement_stock', { item_id: menuItem.id, quantity });
-                        if (error) {
-                            const { data: curr } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
-                            if (curr) await supabase.from('menu_items').update({ stock: (curr.stock || 0) - quantity }).eq('id', menuItem.id);
+                        if (menuItem.linked_inventory_item_id) {
+                            const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
+                            if (currentItem) {
+                                const newStock = (currentItem.current_stock || 0) - quantity;
+                                await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
+
+                                await supabase.from('inventory_transactions').insert([{
+                                    item_id: menuItem.linked_inventory_item_id,
+                                    transaction_type: 'issue',
+                                    quantity: quantity,
+                                    previous_stock: currentItem.current_stock || 0,
+                                    new_stock: newStock,
+                                    reason: 'Sold via POS',
+                                    created_by: currentUser.id,
+                                }]);
+                            }
+                        } else {
+                            const { error } = await supabase.rpc('decrement_stock', { item_id: menuItem.id, quantity });
+                            if (error) {
+                                const { data: curr } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
+                                if (curr) await supabase.from('menu_items').update({ stock: (curr.stock || 0) - quantity }).eq('id', menuItem.id);
+                            }
                         }
                     }
                 }
@@ -252,27 +276,39 @@ export function AddToBillModal({ table, isOpen, onClose }: AddToBillModalProps) 
                                 <div className="space-y-2 pr-4">
                                     {isLoading ? (
                                         [...Array(10)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
-                                    ) : filteredMenuItems.map(item => (
-                                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted">
-                                            <div className="flex items-center gap-4">
-                                                <div className="relative w-16 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
-                                                    {fallbackImage ? (
-                                                        <Image src={fallbackImage.imageUrl} alt={item.name} layout="fill" className="object-cover" />
-                                                    ) : (
-                                                        <Utensils className="h-8 w-8 text-muted-foreground" />
-                                                    )}
+                                    ) : filteredMenuItems.map(item => {
+                                        const currentCountInCart = localOrder[item.id] || 0;
+                                        const isLinked = !!item.linked_inventory_item_id;
+                                        const effectiveStock = isLinked
+                                            ? ((item as any).hotel_inventory_items?.current_stock ?? 0)
+                                            : (item.stock ?? 0);
+                                        const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
+                                        return (
+                                            <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="relative w-16 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
+                                                        {fallbackImage ? (
+                                                            <Image src={fallbackImage.imageUrl} alt={item.name} layout="fill" className="object-cover" />
+                                                        ) : (
+                                                            <Utensils className="h-8 w-8 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-semibold">{item.name}</p>
+                                                        <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
+                                                        {item.stock_type === 'Inventoried' && (
+                                                            <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>
+                                                                Stock: {effectiveStock - currentCountInCart}
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="font-semibold">{item.name}</p>
-                                                    <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
-                                                    {item.stock_type === 'Inventoried' && <p className={`text-xs ${item.stock && item.stock > 0 ? 'text-primary' : 'text-destructive'}`}>Stock: {item.stock}</p>}
-                                                </div>
+                                                <Button size="sm" onClick={() => handleAddItem(item)} disabled={isOutOfStock}>
+                                                    <PlusCircle className="mr-2 h-4 w-4" /> Add
+                                                </Button>
                                             </div>
-                                            <Button size="sm" onClick={() => handleAddItem(item)} disabled={item.stock_type === 'Inventoried' && (item.stock ?? 0) <= 0}>
-                                                <PlusCircle className="mr-2 h-4 w-4" /> Add
-                                            </Button>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                     {!isLoading && filteredMenuItems.length === 0 && (
                                         <div className="text-center text-muted-foreground py-10">
                                             No menu items found.

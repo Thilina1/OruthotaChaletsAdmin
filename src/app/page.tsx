@@ -73,7 +73,17 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: data.error || "Invalid credentials. Please try again.",
+        });
+        form.setError("root", {
+          type: "manual",
+          message: data.error || "Invalid credentials. Please try again.",
+        });
+        setIsLoading(false);
+        return;
       }
 
       await refreshUser(); // Refresh user context to update state
@@ -88,7 +98,11 @@ export default function LoginPage() {
       toast({
         variant: "destructive",
         title: "Login Failed",
-        description: error.message || "Invalid credentials. Please try again.",
+        description: "An unexpected error occurred. Please try again later.",
+      });
+      form.setError("root", {
+        type: "manual",
+        message: "An unexpected error occurred. Please try again later.",
       });
       setIsLoading(false);
     }
@@ -156,6 +170,11 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
+                {form.formState.errors.root && (
+                  <div className="text-sm font-medium text-destructive text-center">
+                    {form.formState.errors.root.message}
+                  </div>
+                )}
                 <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isLoading}>
                   {isLoading ? "Signing In..." : "Sign In"}
                 </Button>

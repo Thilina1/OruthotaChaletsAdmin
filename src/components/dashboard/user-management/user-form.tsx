@@ -24,7 +24,36 @@ import type { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { KeyRound } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const APP_SECTIONS = [
+  { path: '/dashboard', label: 'Dashboard' },
+  { path: '/dashboard/profile', label: 'Profile' },
+  { path: '/dashboard/user-management', label: 'User Management' },
+  { path: '/dashboard/settings/roles', label: 'Roles & Permissions' },
+  { path: '/dashboard/customers', label: 'Customers' },
+  { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
+  { path: '/dashboard/billing', label: 'Restaurant Billing' },
+  { path: '/dashboard/menu-management', label: 'Menu Management' },
+  { path: '/dashboard/table-management', label: 'Table Management' },
+  { path: '/dashboard/inventory-management', label: 'Inventory' },
+  { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
+  { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
+  { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
+  { path: '/dashboard/expenses', label: 'Expenses' },
+  { path: '/dashboard/other-incomes', label: 'Other Incomes' },
+  { path: '/dashboard/room-management', label: 'Room Management' },
+  { path: '/dashboard/reservations', label: 'Reservation Management' },
+  { path: '/dashboard/hrms/employees', label: 'HRMS: Employees' },
+  { path: '/dashboard/hrms/leaves', label: 'HRMS: Leaves' },
+  { path: '/dashboard/hrms/reports', label: 'HRMS: Daily Reports' },
+  { path: '/dashboard/hrms/payroll', label: 'HRMS: Payroll' },
+  { path: '/dashboard/hrms/attendance', label: 'HRMS: Attendance' },
+  { path: '/dashboard/activities', label: 'Activities' },
+  { path: '/dashboard/experiences', label: 'Experiences' },
+  { path: '/dashboard/blogs', label: 'Blog Management' },
+  { path: '/dashboard/reports', label: 'Financial Reports' },
+];
 
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
@@ -38,6 +67,7 @@ const formSchema = z.object({
   updatePassword: z.boolean().default(false),
   password: z.string().optional(),
   confirmPassword: z.string().optional(),
+  permissions: z.array(z.string()).default([]),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
     return false;
@@ -78,8 +108,28 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       updatePassword: !user,
       password: '',
       confirmPassword: '',
+      permissions: user?.permissions || [],
     },
   });
+
+
+  useEffect(() => {
+    form.reset({
+      name: user?.name || '',
+      email: user ? user.email : '',
+      role: user?.role || 'waiter',
+      phone_number: user?.phone_number || '',
+      address: user?.address || '',
+      nic: user?.nic || '',
+      job_title: user?.job_title || '',
+      join_date: user?.join_date || new Date().toISOString().split('T')[0],
+      updatePassword: !user,
+      password: '',
+      confirmPassword: '',
+      permissions: user?.permissions || [],
+    });
+    setShowPassword(!user);
+  }, [user, form]);
 
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
     const { confirmPassword, updatePassword, ...submissionData } = values;
@@ -274,6 +324,55 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
             />
           </div>
         )}
+
+        <div className="space-y-3 pt-4 border-t">
+          <h3 className="text-sm font-semibold">Custom Section Permissions</h3>
+          <p className="text-xs text-muted-foreground">Select which sections this staff member can access. (Admins have access to all by default).</p>
+          <FormField
+            control={form.control}
+            name="permissions"
+            render={() => (
+              <FormItem>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                  {APP_SECTIONS.map((item) => (
+                    <FormField
+                      key={item.path}
+                      control={form.control}
+                      name="permissions"
+                      render={({ field }) => {
+                        return (
+                          <FormItem
+                            key={item.path}
+                            className="flex flex-row items-start space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(item.path)}
+                                onCheckedChange={(checked) => {
+                                  return checked
+                                    ? field.onChange([...field.value, item.path])
+                                    : field.onChange(
+                                      field.value?.filter(
+                                        (value) => value !== item.path
+                                      )
+                                    )
+                                }}
+                              />
+                            </FormControl>
+                            <FormLabel className="font-normal text-sm cursor-pointer">
+                              {item.label}
+                            </FormLabel>
+                          </FormItem>
+                        )
+                      }}
+                    />
+                  ))}
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <Button type="submit" className="w-full">
           {user ? 'Update User' : 'Create User'}

@@ -35,7 +35,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 import Image from 'next/image';
-import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 const statusColors: Record<RoomStatus, string> = {
     available: 'bg-green-500 text-white',
@@ -54,10 +55,15 @@ export default function RoomManagementPage() {
 
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingRoom, setEditingRoom] = useState<Room | null>(null);
-    const [currentPage, setCurrentPage] = useState(1);
 
-    const totalPages = rooms ? Math.ceil(rooms.length / ITEMS_PER_PAGE) : 0;
-    const paginatedRooms = rooms?.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems: paginatedRooms,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(rooms || [], 20);
 
     const handleAddRoomClick = () => {
         setEditingRoom(null);
@@ -98,45 +104,9 @@ export default function RoomManagementPage() {
         const roomData = {
             title: values.title,
             room_number: values.roomNumber,
-            description: values.description, // Assuming description exists in DB even if not in type (it was in DB dump)
+            description: values.description,
             type: values.type,
-            price_per_night: values.pricePerNight, // User's dump said pricePerNight, but we are standardizing on snake_case for new/fixed schema if possible?
-            // WAIT. If I use snake_case here 'price_per_night', I must ensure the DB column IS 'price_per_night'.
-            // In my migration script I did NOT rename 'pricePerNight'. The user's dump said 'pricePerNight'.
-            // If I stick to the user's existing schema for 'rooms' table, I must use 'pricePerNight'.
-            // But I updated 'types.ts' to 'pricePerNight'. 
-            // WAIT. In previous step I updated 'types.ts'. Let's check what I wrote for Room.
-            // I wrote: pricePerNight: number; (camelCase) in types.ts?
-            // Let me check my previous output for types.ts (Step 169).
-            // "pricePerNight: number;" -> YES. I kept camelCase for Room!
-            // BUT for Reservation I changed to 'guest_name', 'check_in_date'.
-            // This is INCONSISTENT.
-            // I need to start by checking types.ts again to be absolutely sure.
-            // If I kept pricePerNight in Room, then RoomManagementPage rendering was actually CORRECT (mostly).
-            // But room.roomNumber -> I changed type to room_number.
-
-            // Let's assume I want to standardize on snake_case generally, but if the DB has camelCase I have to use it.
-            // However, for consistency, I should probably use snake_case in Typescript and map it, or use snake_case in DB.
-            // Since I can't easily change existing DB columns without migration (which I wrote in migration script), 
-            // let's look at the migration script I wrote (Step 160/168).
-            // "ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS room_number text;" -> snake_case
-            // "ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS type text;"
-            // I did NOT rename pricePerNight.
-
-            // So `rooms` table has MIXED casing: `pricePerNight`, `room_number`.
-            // This is ugly but I must follow it.
-
-            // So for Room:
-            // room_number (snake)
-            // pricePerNight (camel - existing)
-            // roomCount (camel - existing)
-            // type (new - added as snake? No, simple name 'type')
-            // status (new - simple name)
-
-            // So I need to match this specific Mixed reality.
-
-            room_number: values.roomNumber,
-            type: values.type,
+            price_per_night: values.pricePerNight,
             pricePerNight: values.pricePerNight,
             roomCount: values.roomCount,
             view: values.view,
@@ -310,22 +280,14 @@ export default function RoomManagementPage() {
                         </TableBody>
                     </Table>
                 </CardContent>
-                {totalPages > 1 && (
-                    <CardFooter>
-                        <Pagination>
-                            <PaginationContent>
-                                <PaginationItem>
-                                    <Button variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
-                                </PaginationItem>
-                                <PaginationItem>
-                                    <span className="p-2 text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
-                                </PaginationItem>
-                                <PaginationItem>
-                                    <Button variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
-                                </PaginationItem>
-                            </PaginationContent>
-                        </Pagination>
-                    </CardFooter>
+                {!areRoomsLoading && (
+                    <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        itemsPerPage={itemsPerPage}
+                        onPageChange={setCurrentPage}
+                    />
                 )}
             </Card>
         </div>

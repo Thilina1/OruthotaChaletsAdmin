@@ -26,9 +26,9 @@ const formSchema = z.object({
   date: z.date({
     required_error: "An income date is required.",
   }),
-  name: z.string().min(1, { message: 'Income name or reference is required.' }),
-  price: z.coerce.number().min(0, { message: 'Amount must be a positive number.' }),
-  remark: z.string().optional(),
+  description: z.string().min(1, { message: 'Income description or reference is required.' }),
+  amount: z.coerce.number().min(0, { message: 'Amount must be a positive number.' }),
+  source: z.string().min(1, { message: "Source is required." }),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -43,9 +43,9 @@ export function OtherIncomeForm({ income, onSubmit }: OtherIncomeFormProps) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       date: income?.date ? new Date(income.date) : new Date(),
-      name: income?.name || '',
-      price: income?.price || 0,
-      remark: income?.remark || '',
+      description: income?.description || '',
+      amount: income?.amount || 0,
+      source: income?.source || '',
     },
   });
 
@@ -59,7 +59,7 @@ export function OtherIncomeForm({ income, onSubmit }: OtherIncomeFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4">
-         <FormField
+        <FormField
           control={form.control}
           name="date"
           render={({ field }) => (
@@ -99,10 +99,10 @@ export function OtherIncomeForm({ income, onSubmit }: OtherIncomeFormProps) {
         />
         <FormField
           control={form.control}
-          name="name"
+          name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Name / Reference</FormLabel>
+              <FormLabel>Description / Reference</FormLabel>
               <FormControl>
                 <Input placeholder="e.g., Event Space Rental" {...field} />
               </FormControl>
@@ -112,7 +112,7 @@ export function OtherIncomeForm({ income, onSubmit }: OtherIncomeFormProps) {
         />
         <FormField
           control={form.control}
-          name="price"
+          name="amount"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Amount (LKR)</FormLabel>
@@ -125,20 +125,20 @@ export function OtherIncomeForm({ income, onSubmit }: OtherIncomeFormProps) {
         />
         <FormField
           control={form.control}
-          name="remark"
+          name="source"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Remark</FormLabel>
+              <FormLabel>Source</FormLabel>
               <FormControl>
-                <Textarea placeholder="Additional notes about the income." {...field} />
+                <Input placeholder="e.g., Facility Rental" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
         <Button type="submit" className="w-full">
-            {income ? 'Update Income' : 'Add Income'}
+          {income ? 'Update Income' : 'Add Income'}
         </Button>
       </form>
     </Form>

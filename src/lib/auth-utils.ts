@@ -28,3 +28,13 @@ export async function verifyToken(token: string): Promise<any> {
         return null;
     }
 }
+
+export async function decodeToken(token: string): Promise<any> {
+    try {
+        const { payload } = await jwtVerify(token, key);
+        return payload;
+    } catch (error) {
+        return null;
+    }
+}
+

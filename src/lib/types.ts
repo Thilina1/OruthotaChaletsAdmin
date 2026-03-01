@@ -15,6 +15,7 @@ export type User = {
   nic?: string;
   job_title?: string;
   join_date?: string;
+  permissions?: string[]; // Array of application section paths they can access
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';
@@ -66,6 +67,7 @@ export type MenuItem = {
   unit?: 'kg' | 'g' | 'l' | 'ml';
   sell_type: 'Direct' | 'Indirect';
   variety_of_dishes?: string;
+  linked_inventory_item_id?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -135,7 +137,7 @@ export type Reservation = {
   check_in_date: string;
   check_out_date: string;
   total_price: number;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: ReservationStatus;
   created_at?: string;
   updated_at?: string;
 };
@@ -291,4 +293,46 @@ export type Attendance = {
     email: string;
     role: string;
   };
+};
+
+export type InventoryDepartment = {
+  id: string;
+  name: string;
+  description?: string;
+  created_at?: string;
+};
+
+export type HotelInventoryItem = {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  department_id: string;
+  department?: { name: string };
+  unit: string;
+  buying_price: number;
+  current_stock: number;
+  safety_stock: number;
+  reorder_level: number;
+  maximum_level: number;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type InventoryTransaction = {
+  id: string;
+  item_id: string;
+  item?: { name: string };
+  transaction_type: 'receive' | 'issue' | 'damage' | 'audit_adjustment' | 'initial_stock';
+  quantity: number;
+  previous_stock?: number;
+  new_stock?: number;
+  reference_department?: string;
+  department?: { name: string };
+  reason?: string;
+  remarks?: string;
+  created_by?: string;
+  user?: { name: string };
+  created_at?: string;
 };

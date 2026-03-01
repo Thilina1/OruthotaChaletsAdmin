@@ -92,7 +92,7 @@ export function BookingForm({ booking, rooms, onClose }: BookingFormProps) {
       specialRequests: (booking as any)?.specialRequests || '', // DB: special_requests
       status: booking?.status || 'confirmed',
       items: (booking as any)?.items || [],
-      totalCost: booking?.total_cost || 0,
+      totalCost: booking?.total_price || 0,
     },
   });
 
@@ -157,7 +157,7 @@ export function BookingForm({ booking, rooms, onClose }: BookingFormProps) {
       number_of_guests: values.numberOfGuests,
       special_requests: values.specialRequests,
       status: values.status,
-      total_cost: values.totalCost,
+      total_price: values.totalCost,
       items: values.items, // Assuming items is jsonb or similar? The schema dump didn't show items column. 
       // Wait, existing schema `reservations` table DOES NOT have an `items` column.
       // It has `total_cost`, `special_requests`.

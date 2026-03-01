@@ -15,7 +15,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, TableIcon } from '../icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -36,10 +36,11 @@ const generalMenuItems: MenuItem[] = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
   { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
   { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
+  { href: '/dashboard/settings/roles', icon: Settings, label: 'Roles & Permissions', roles: ['admin'] },
 ];
 
 const customerMenuItems: MenuItem[] = [
-  { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin', 'payment', 'waiter'] },
+  { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin'] },
 ];
 
 const restaurantMenuItems: MenuItem[] = [
@@ -47,6 +48,8 @@ const restaurantMenuItems: MenuItem[] = [
   { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
   { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
   { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
+  { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
+  { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
   { href: '/dashboard/menu-settings', icon: UtensilsCrossed, label: 'Menu Section Settings', roles: ['admin'] },
   { href: '/dashboard/restaurant-settings', icon: Settings, label: 'Restaurant Settings', roles: ['admin'] },
 ];
@@ -80,10 +83,19 @@ const otherMenuItems: MenuItem[] = [
 ];
 
 
-const renderMenuItems = (items: MenuItem[], userRole: UserRole | undefined, pathname: string) => {
-  if (!userRole) return null;
+const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, userRole?: string) => {
+  const accessibleItems = items.filter(item => {
+    // Admins always get access
+    if (userRole === 'admin') return true;
 
-  const accessibleItems = items.filter(item => item.roles.includes(userRole));
+    // Check if the user has been explicitly granted this path via custom permissions
+    const hasExplicitPermission = hasPathAccess(item.href);
+
+    // Check if the user's role grants them default access to this section
+    const hasRolePermission = userRole ? item.roles.includes(userRole as UserRole) : false;
+
+    return hasExplicitPermission || hasRolePermission;
+  });
   if (accessibleItems.length === 0) return null;
 
   return accessibleItems.map(item => (
@@ -101,7 +113,7 @@ const renderMenuItems = (items: MenuItem[], userRole: UserRole | undefined, path
 export default function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useUserContext();
+  const { user, hasPathAccess } = useUserContext();
   const avatar = PlaceHolderImages.find(p => p.id === 'avatar-2');
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -109,11 +121,11 @@ export default function AppSidebar() {
     router.refresh(); // Ensure middleware re-runs and context updates
   };
 
-  const restaurantSection = renderMenuItems(restaurantMenuItems, user?.role, pathname);
-  const roomBookingSection = renderMenuItems(roomBookingMenuItems, user?.role, pathname);
-  const otherSection = renderMenuItems(otherMenue, user?.role, pathname);
-  const customerSection = renderMenuItems(customerMenuItems, user?.role, pathname);
-  const hrmsSection = renderMenuItems(hrmsMenuItems, user?.role, pathname);
+  const restaurantSection = renderMenuItems(restaurantMenuItems, hasPathAccess, pathname, user?.role);
+  const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user?.role);
+  const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user?.role);
+  const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user?.role);
+  const hrmsSection = renderMenuItems(hrmsMenuItems, hasPathAccess, pathname, user?.role);
 
 
   return (
@@ -127,7 +139,7 @@ export default function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
-          {renderMenuItems(generalMenuItems, user?.role, pathname)}
+          {renderMenuItems(generalMenuItems, hasPathAccess, pathname, user?.role)}
 
 
           {customerSection && (
@@ -196,7 +208,7 @@ export default function AppSidebar() {
 
 
           <SidebarSeparator className="my-2" />
-          {renderMenuItems(otherMenuItems, user?.role, pathname)}
+          {renderMenuItems(otherMenuItems, hasPathAccess, pathname, user?.role)}
 
         </SidebarMenu>
       </SidebarContent>

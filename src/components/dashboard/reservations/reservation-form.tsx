@@ -97,7 +97,7 @@ export function ReservationForm({ reservation, rooms, allReservations, onClose }
       specialRequests: '', // Not in type
       status: reservation?.status || 'booked', // Type match might be issue
       items: [], // Not in type
-      totalCost: reservation?.total_cost || 0,
+      totalCost: reservation?.total_price || 0,
     },
   });
 
@@ -189,7 +189,7 @@ export function ReservationForm({ reservation, rooms, allReservations, onClose }
       number_of_guests: values.numberOfGuests,
       special_requests: values.specialRequests,
       status: values.status,
-      total_cost: values.totalCost,
+      total_price: values.totalCost,
       items: values.items, // JSONB assumed or ignored
       // Additional fields not in types but maybe in DB?
       // id_card_number: values.idCardNumber, 

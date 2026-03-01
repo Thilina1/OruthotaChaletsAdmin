@@ -34,6 +34,8 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 const statusColors: Record<string, string> = {
     'available': 'bg-green-100 text-green-800 hover:bg-green-100/80',
@@ -189,61 +191,10 @@ export default function TableManagementPage() {
         )
     }
 
-    const renderTableForSection = (section: TableSection) => {
+    const renderTableForSection = (section: string) => {
         // Map location to section
         const filteredItems = tables.filter(item => (item.location || 'Sri Lankan') === section);
-        return (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Table No.</TableHead>
-                        <TableHead>Capacity</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {filteredItems.map((item) => (
-                        <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.table_number}</TableCell>
-                            <TableCell>{item.capacity}</TableCell>
-                            <TableCell>
-                                <Badge variant="secondary" className={`capitalize ${statusColors[item.status]}`}>
-                                    {item.status}
-                                </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" className="h-8 w-8 p-0">
-                                            <span className="sr-only">Open menu</span>
-                                            <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleEditTableClick(item)}>
-                                            <Edit className="mr-2 h-4 w-4" />
-                                            Edit
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem className="text-red-500 hover:!text-red-500" onClick={() => handleDeleteTable(item.id)}>
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                    {(!filteredItems || filteredItems.length === 0) && (
-                        <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-10">
-                                No tables found in this section.
-                            </TableCell>
-                        </TableRow>
-                    )}
-                </TableBody>
-            </Table>
-        );
+        return <PaginatedTableSection items={filteredItems} onEdit={handleEditTableClick} onDelete={handleDeleteTable} />;
     }
 
     return (
@@ -305,6 +256,79 @@ export default function TableManagementPage() {
                     )}
                 </CardContent>
             </Card>
+        </div>
+    );
+}
+
+function PaginatedTableSection({ items, onEdit, onDelete }: { items: TableType[], onEdit: (t: TableType) => void, onDelete: (id: string) => void }) {
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(items, 20);
+
+    return (
+        <div className="flex flex-col">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Table No.</TableHead>
+                        <TableHead>Capacity</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {paginatedItems.map((item) => (
+                        <TableRow key={item.id}>
+                            <TableCell className="font-medium">{item.table_number}</TableCell>
+                            <TableCell>{item.capacity}</TableCell>
+                            <TableCell>
+                                <Badge variant="secondary" className={`capitalize ${statusColors[item.status]}`}>
+                                    {item.status}
+                                </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" className="h-8 w-8 p-0">
+                                            <span className="sr-only">Open menu</span>
+                                            <MoreHorizontal className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => onEdit(item)}>
+                                            <Edit className="mr-2 h-4 w-4" />
+                                            Edit
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem className="text-red-500 hover:!text-red-500" onClick={() => onDelete(item.id)}>
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Delete
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                    {(!paginatedItems || paginatedItems.length === 0) && (
+                        <TableRow>
+                            <TableCell colSpan={5} className="text-center text-muted-foreground py-10">
+                                No tables found in this section.
+                            </TableCell>
+                        </TableRow>
+                    )}
+                </TableBody>
+            </Table>
+            <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage}
+            />
         </div>
     );
 }

@@ -26,9 +26,9 @@ const formSchema = z.object({
   date: z.date({
     required_error: "An expense date is required.",
   }),
-  name: z.string().min(1, { message: 'Expense name or reference is required.' }),
-  price: z.coerce.number().min(0, { message: 'Price must be a positive number.' }),
-  remark: z.string().optional(),
+  description: z.string().min(1, { message: 'Expense description or reference is required.' }),
+  amount: z.coerce.number().min(0, { message: 'Amount must be a positive number.' }),
+  category: z.string().min(1, { message: 'Category is required.' }),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -43,9 +43,9 @@ export function ExpenseForm({ expense, onSubmit }: ExpenseFormProps) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       date: expense?.date ? new Date(expense.date) : new Date(),
-      name: expense?.name || '',
-      price: expense?.price || 0,
-      remark: expense?.remark || '',
+      description: expense?.description || '',
+      amount: expense?.amount || 0,
+      category: expense?.category || '',
     },
   });
 
@@ -59,7 +59,7 @@ export function ExpenseForm({ expense, onSubmit }: ExpenseFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4">
-         <FormField
+        <FormField
           control={form.control}
           name="date"
           render={({ field }) => (
@@ -99,10 +99,10 @@ export function ExpenseForm({ expense, onSubmit }: ExpenseFormProps) {
         />
         <FormField
           control={form.control}
-          name="name"
+          name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Name / Reference</FormLabel>
+              <FormLabel>Description / Reference</FormLabel>
               <FormControl>
                 <Input placeholder="e.g., Office Supplies" {...field} />
               </FormControl>
@@ -112,10 +112,10 @@ export function ExpenseForm({ expense, onSubmit }: ExpenseFormProps) {
         />
         <FormField
           control={form.control}
-          name="price"
+          name="amount"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Price (LKR)</FormLabel>
+              <FormLabel>Amount (LKR)</FormLabel>
               <FormControl>
                 <Input type="number" step="0.01" placeholder="e.g., 5000.00" {...field} />
               </FormControl>
@@ -125,20 +125,20 @@ export function ExpenseForm({ expense, onSubmit }: ExpenseFormProps) {
         />
         <FormField
           control={form.control}
-          name="remark"
+          name="category"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Remark</FormLabel>
+              <FormLabel>Category</FormLabel>
               <FormControl>
-                <Textarea placeholder="Additional notes about the expense." {...field} />
+                <Input placeholder="e.g., Utilities" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
         <Button type="submit" className="w-full">
-            {expense ? 'Update Expense' : 'Add Expense'}
+          {expense ? 'Update Expense' : 'Add Expense'}
         </Button>
       </form>
     </Form>

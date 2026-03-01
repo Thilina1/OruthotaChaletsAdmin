@@ -38,17 +38,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Reservation, Room } from '@/lib/types';
+import type { Reservation, Room, ReservationStatus } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { createClient } from '@/lib/supabase/client';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
-const statusColors: Record<Reservation['status'], string> = {
-  pending: 'bg-yellow-500 text-white',
-  confirmed: 'bg-green-500 text-white',
-  checked_in: 'bg-blue-500 text-white', // mapped to match display
-  checked_out: 'bg-gray-500 text-white',
-  cancelled: 'bg-red-500 text-white',
-  completed: 'bg-gray-500 text-white'
+const statusColors: Record<ReservationStatus, string> = {
+  'booked': 'bg-yellow-500 text-white',
+  'confirmed': 'bg-green-500 text-white',
+  'checked-in': 'bg-blue-500 text-white',
+  'checked-out': 'bg-gray-500 text-white',
+  'cancelled': 'bg-red-500 text-white',
 };
 
 export default function ReservationsPage() {
@@ -67,7 +68,7 @@ export default function ReservationsPage() {
   const [roomId, setRoomId] = useState('');
   const [checkInDate, setCheckInDate] = useState('');
   const [checkOutDate, setCheckOutDate] = useState('');
-  const [status, setStatus] = useState<Reservation['status']>('pending');
+  const [status, setStatus] = useState<ReservationStatus>('booked');
   const [totalPrice, setTotalPrice] = useState('');
 
   const fetchData = async () => {
@@ -127,7 +128,7 @@ export default function ReservationsPage() {
     setRoomId('');
     setCheckInDate('');
     setCheckOutDate('');
-    setStatus('pending');
+    setStatus('booked');
     setTotalPrice('');
     setEditingReservation(null);
   };
@@ -203,6 +204,15 @@ export default function ReservationsPage() {
     }
   };
 
+  const {
+    currentPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    itemsPerPage,
+    setCurrentPage,
+  } = usePagination(reservations, 20);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -238,7 +248,7 @@ export default function ReservationsPage() {
                 <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">No reservations found.</TableCell>
               </TableRow>
             ) : (
-              reservations.map((res) => (
+              paginatedItems.map((res) => (
                 <TableRow key={res.id}>
                   <TableCell>
                     <div className="font-medium">{res.guest_name}</div>
@@ -266,6 +276,15 @@ export default function ReservationsPage() {
             )}
           </TableBody>
         </Table>
+        {!isLoading && (
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -342,9 +361,10 @@ export default function ReservationsPage() {
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="booked">Booked</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="checked-in">Checked-In</SelectItem>
+                    <SelectItem value="checked-out">Checked-Out</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
