@@ -10,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { MapPin, Clock, History, LogIn, LogOut, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Attendance } from '@/lib/types';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function AttendancePage() {
     const [attendanceHistory, setAttendanceHistory] = useState<Attendance[]>([]);
@@ -119,6 +121,24 @@ export default function AttendancePage() {
 
     // Admin View Data
     const [adminViewData, setAdminViewData] = useState<Attendance[]>([]);
+
+    const {
+        currentPage: myCurrentPage,
+        totalPages: myTotalPages,
+        totalItems: myTotalItems,
+        paginatedItems: myPaginatedItems,
+        itemsPerPage: myItemsPerPage,
+        setCurrentPage: setMyCurrentPage,
+    } = usePagination(attendanceHistory, 20);
+
+    const {
+        currentPage: adminCurrentPage,
+        totalPages: adminTotalPages,
+        totalItems: adminTotalItems,
+        paginatedItems: adminPaginatedItems,
+        itemsPerPage: adminItemsPerPage,
+        setCurrentPage: setAdminCurrentPage,
+    } = usePagination(adminViewData, 20);
 
     useEffect(() => {
         if (userRole === 'admin') {
@@ -232,10 +252,10 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {attendanceHistory.length === 0 ? (
-                                        <TableRow><TableCell colSpan={5} className="text-center">No records found.</TableCell></TableRow>
+                                    {(!myPaginatedItems || myPaginatedItems.length === 0) ? (
+                                        <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No records found.</TableCell></TableRow>
                                     ) : (
-                                        attendanceHistory.map(record => {
+                                        myPaginatedItems.map(record => {
                                             const inTime = record.clock_in ? new Date(record.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
                                             const outTime = record.clock_out ? new Date(record.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
                                             let duration = '-';
@@ -261,6 +281,13 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                                     )}
                                 </TableBody>
                             </Table>
+                            <DataTablePagination
+                                currentPage={myCurrentPage}
+                                totalPages={myTotalPages}
+                                totalItems={myTotalItems}
+                                itemsPerPage={myItemsPerPage}
+                                onPageChange={setMyCurrentPage}
+                            />
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -294,10 +321,10 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {adminViewData.length === 0 ? (
-                                            <TableRow><TableCell colSpan={5} className="text-center">No records for this date.</TableCell></TableRow>
+                                        {(!adminPaginatedItems || adminPaginatedItems.length === 0) ? (
+                                            <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No records for this date.</TableCell></TableRow>
                                         ) : (
-                                            adminViewData.map(record => (
+                                            adminPaginatedItems.map(record => (
                                                 <TableRow key={record.id}>
                                                     <TableCell>{record.users?.name || 'Unknown'}</TableCell>
                                                     <TableCell>{record.clock_in ? new Date(record.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</TableCell>
@@ -315,6 +342,13 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                                         )}
                                     </TableBody>
                                 </Table>
+                                <DataTablePagination
+                                    currentPage={adminCurrentPage}
+                                    totalPages={adminTotalPages}
+                                    totalItems={adminTotalItems}
+                                    itemsPerPage={adminItemsPerPage}
+                                    onPageChange={setAdminCurrentPage}
+                                />
                             </CardContent>
                         </Card>
                     </TabsContent>

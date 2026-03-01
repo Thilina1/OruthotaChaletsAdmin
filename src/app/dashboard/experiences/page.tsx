@@ -32,7 +32,8 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
-import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -45,7 +46,6 @@ export default function ExperienceManagementPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingExperience, setEditingExperience] = useState<Experience | null>(null);
-    const [currentPage, setCurrentPage] = useState(1);
 
     const fetchExperiences = async () => {
         setIsLoading(true);
@@ -73,8 +73,14 @@ export default function ExperienceManagementPage() {
         return () => { supabase.removeChannel(channel); };
     }, [currentUser]);
 
-    const totalPages = experiences ? Math.ceil(experiences.length / ITEMS_PER_PAGE) : 0;
-    const paginatedExperiences = experiences?.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems: paginatedExperiences,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(experiences || [], 20);
 
     const handleAddExperienceClick = () => {
         setEditingExperience(null);
@@ -254,22 +260,14 @@ export default function ExperienceManagementPage() {
                         </TableBody>
                     </Table>
                 </CardContent>
-                {totalPages > 1 && (
-                    <CardFooter>
-                        <Pagination>
-                            <PaginationContent>
-                                <PaginationItem>
-                                    <Button variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
-                                </PaginationItem>
-                                <PaginationItem>
-                                    <span className="p-2 text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
-                                </PaginationItem>
-                                <PaginationItem>
-                                    <Button variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
-                                </PaginationItem>
-                            </PaginationContent>
-                        </Pagination>
-                    </CardFooter>
+                {!isLoading && (
+                    <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        itemsPerPage={itemsPerPage}
+                        onPageChange={setCurrentPage}
+                    />
                 )}
             </Card>
         </div>

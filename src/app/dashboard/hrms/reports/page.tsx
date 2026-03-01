@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { DailyReportForm } from '@/components/dashboard/hrms/daily-report-form';
 import type { DailyReport } from '@/lib/types';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function DailyReportsPage() {
     const [reports, setReports] = useState<DailyReport[]>([]);
@@ -53,6 +55,15 @@ export default function DailyReportsPage() {
     useEffect(() => {
         fetchReports();
     }, []);
+
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(reports, 20);
 
     const handleCreateReport = async (values: any) => {
         try {
@@ -111,10 +122,10 @@ export default function DailyReportsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {reports.length === 0 ? (
-                                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No reports found.</TableCell></TableRow>
+                            {(!paginatedItems || paginatedItems.length === 0) ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No reports found.</TableCell></TableRow>
                             ) : (
-                                reports.map(report => (
+                                paginatedItems.map(report => (
                                     <TableRow key={report.id}>
                                         <TableCell>{report.date}</TableCell>
                                         <TableCell>
@@ -129,6 +140,13 @@ export default function DailyReportsPage() {
                             )}
                         </TableBody>
                     </Table>
+                    <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        itemsPerPage={itemsPerPage}
+                        onPageChange={setCurrentPage}
+                    />
                 </CardContent>
             </Card>
         </div>

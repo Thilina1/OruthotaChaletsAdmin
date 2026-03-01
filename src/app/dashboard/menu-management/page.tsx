@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { MoreHorizontal, PlusCircle, Trash2, Edit } from 'lucide-react';
-import type { MenuItem as MenuItemType, MenuCategory, MenuSection } from '@/lib/types';
+import type { MenuItem as MenuItemType, MenuCategory, MenuSection, HotelInventoryItem, InventoryDepartment } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MenuItemForm } from '@/components/dashboard/menu-management/menu-item-form';
 import {
@@ -33,6 +33,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from '@/components/ui/switch';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 
 
@@ -45,15 +47,21 @@ export default function MenuManagementPage() {
     const [editingItem, setEditingItem] = useState<MenuItemType | null>(null);
     const [menuItems, setMenuItems] = useState<MenuItemType[]>([]);
     const [categories, setCategories] = useState<MenuSection[]>([]);
+    const [inventoryItems, setInventoryItems] = useState<HotelInventoryItem[]>([]);
+    const [departments, setDepartments] = useState<InventoryDepartment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
 
     const fetchData = async () => {
         setIsLoading(true);
+        setFetchError(null);
         try {
-            const [itemsRes, categoriesRes] = await Promise.all([
+            const [itemsRes, categoriesRes, inventoryRes, deptsRes] = await Promise.all([
                 supabase.from('menu_items').select('*').order('name'),
-                fetch('/api/admin/menu-sections').then(res => res.json())
+                fetch('/api/admin/menu-sections').then(res => res.json()),
+                supabase.from('hotel_inventory_items').select('id, name, unit, current_stock').eq('status', 'active').order('name'),
+                supabase.from('inventory_departments').select('*').order('name')
             ]);
 
             if (itemsRes.error) throw itemsRes.error;
@@ -62,9 +70,16 @@ export default function MenuManagementPage() {
             if (categoriesRes.error) throw new Error(categoriesRes.error);
             setCategories(categoriesRes.sections || []);
 
+            if (inventoryRes.error) throw inventoryRes.error;
+            setInventoryItems((inventoryRes.data as HotelInventoryItem[]) || []);
+
+            if (deptsRes.error) throw deptsRes.error;
+            setDepartments((deptsRes.data as InventoryDepartment[]) || []);
+
         } catch (error: any) {
             console.error("Error fetching data:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Failed to fetch data." });
+            setFetchError(error.message || "Failed to fetch data.");
+            toast({ variant: 'destructive', title: "Error", description: "Failed to fetch data. Check the table for details." });
         } finally {
             setIsLoading(false);
         }
@@ -89,44 +104,71 @@ export default function MenuManagementPage() {
     };
 
     const handleDeleteItem = async (id: string) => {
-        if (confirm('Are you sure you want to delete this menu item? This cannot be undone.')) {
-            try {
-                const { error } = await supabase.from('menu_items').delete().eq('id', id);
-                if (error) throw error;
-                toast({
-                    title: 'Menu Item Deleted',
-                    description: 'The item has been successfully removed from the menu.',
-                });
-                fetchData();
-            } catch (error) {
-                console.error("Error deleting menu item: ", error);
-                toast({
-                    variant: "destructive",
-                    title: "Error",
-                    description: "Failed to delete menu item.",
-                });
-            }
-        }
+        toast({
+            variant: "destructive",
+            title: "Deletion Disabled",
+            description: "To maintain historical records, item deletion is disabled. Please toggle the Availability switch instead.",
+        });
     };
 
     const handleFormSubmit = async (values: any) => {
         if (!currentUser) return;
 
-        // Map form values (camelCase) to DB values (snake_case)
-        const dataToSave = {
-            name: values.name,
-            description: values.description,
-            price: values.price,
-            buying_price: values.buyingPrice,
-            category: values.category,
-            availability: values.availability,
-            stock_type: values.stockType,
-            stock: values.stockType === 'Non-Inventoried' ? null : values.stock,
-
-            sell_type: 'Direct', // Default
-        };
-
         try {
+            let finalLinkedId = values.linked_inventory_item_id && values.linked_inventory_item_id !== 'none' ? values.linked_inventory_item_id : null;
+
+            if (values.stockType === 'Inventoried' && values.linked_inventory_item_id === 'none') {
+                const newInventoryData = {
+                    name: values.name,
+                    description: values.description || `Auto-created from POS Menu`,
+                    category: values.inventory_category || 'Food & Beverage',
+                    department_id: values.department_id === 'none' ? null : values.department_id,
+                    unit: values.unit || 'Nos',
+                    buying_price: values.buyingPrice || 0,
+                    current_stock: values.stock || 0,
+                    safety_stock: values.safety_stock || 0,
+                    reorder_level: values.reorder_level || 0,
+                    maximum_level: values.maximum_level || 0,
+                    status: 'active',
+                };
+
+                const { data: newInvItem, error: invError } = await supabase.from('hotel_inventory_items').insert([{
+                    ...newInventoryData,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                }]).select().single();
+
+                if (invError) throw invError;
+                finalLinkedId = newInvItem.id;
+
+                setInventoryItems(prev => [...prev, newInvItem as HotelInventoryItem].sort((a, b) => a.name.localeCompare(b.name)));
+
+                if (values.stock && values.stock > 0) {
+                    await supabase.from('inventory_transactions').insert([{
+                        item_id: newInvItem.id,
+                        transaction_type: 'initial_stock',
+                        quantity: values.stock,
+                        previous_stock: 0,
+                        new_stock: values.stock,
+                        reason: 'Auto-created from POS menu with initial stock',
+                        created_by: currentUser.id,
+                    }]);
+                }
+            }
+
+            // Map form values (camelCase) to DB values (snake_case)
+            const dataToSave = {
+                name: values.name,
+                description: values.description,
+                price: values.price,
+                buying_price: values.buyingPrice,
+                category: values.category,
+                availability: values.availability,
+                stock_type: values.stockType,
+                stock: values.stockType === 'Non-Inventoried' ? null : (finalLinkedId ? null : values.stock),
+                linked_inventory_item_id: finalLinkedId,
+                sell_type: 'Direct',
+            };
             if (editingItem) {
                 // Update existing item
                 const { data, error } = await supabase.from('menu_items').update({
@@ -207,68 +249,16 @@ export default function MenuManagementPage() {
         )
     }
 
-    const renderTableForCategory = (category: MenuCategory) => {
+    const renderTableForCategory = (category: string) => {
         const filteredItems = menuItems.filter(item => item.category === category);
         return (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Price</TableHead>
-                        <TableHead>Buying Price</TableHead>
-                        <TableHead>Stock</TableHead>
-                        <TableHead>Availability</TableHead>
-                        <TableHead>Last Updated</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {filteredItems.map((item) => (
-                        <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.name}</TableCell>
-                            <TableCell>LKR {item.price.toFixed(2)}</TableCell>
-                            <TableCell>LKR {item.buying_price ? item.buying_price.toFixed(2) : 'N/A'}</TableCell>
-                            <TableCell>
-                                {item.stock_type === 'Inventoried' ? item.stock : 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                                <Switch
-                                    checked={item.availability}
-                                    onCheckedChange={(checked) => handleAvailabilityChange(item, checked)}
-                                />
-                            </TableCell>
-                            <TableCell>{item.updated_at ? new Date(item.updated_at).toLocaleString() : 'N/A'}</TableCell>
-                            <TableCell className="text-right">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" className="h-8 w-8 p-0">
-                                            <span className="sr-only">Open menu</span>
-                                            <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleEditItemClick(item)}>
-                                            <Edit className="mr-2 h-4 w-4" />
-                                            Edit
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem className="text-red-500 hover:!text-red-500" onClick={() => handleDeleteItem(item.id)}>
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                    {(!filteredItems || filteredItems.length === 0) && (
-                        <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
-                                No items found in this category.
-                            </TableCell>
-                        </TableRow>
-                    )}
-                </TableBody>
-            </Table>
+            <PaginatedMenuCategory
+                items={filteredItems}
+                inventoryItems={inventoryItems}
+                onAvailabilityChange={handleAvailabilityChange}
+                onEditClick={handleEditItemClick}
+                fetchError={fetchError}
+            />
         );
     }
 
@@ -283,12 +273,10 @@ export default function MenuManagementPage() {
                     if (!open) setEditingItem(null);
                     setIsDialogOpen(open);
                 }}>
-                    <DialogTrigger asChild>
-                        <Button onClick={handleAddItemClick}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add Menu Item
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
+                    <Button onClick={handleAddItemClick}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Menu Item
+                    </Button>
+                    <DialogContent className="max-w-3xl">
                         <DialogHeader>
                             <DialogTitle>{editingItem ? 'Edit Menu Item' : 'Add New Menu Item'}</DialogTitle>
                         </DialogHeader>
@@ -297,6 +285,8 @@ export default function MenuManagementPage() {
                             onSubmit={handleFormSubmit}
 
                             categories={categories}
+                            inventoryItems={inventoryItems}
+                            departments={departments}
                         />
                     </DialogContent>
                 </Dialog>
@@ -308,7 +298,7 @@ export default function MenuManagementPage() {
                     <CardDescription>A list of all items in your menus, organized by category.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {categories.length > 0 ? (
+                    {categories?.length > 0 ? (
                         <Tabs defaultValue={categories[0].name}>
                             <TabsList className="grid w-full h-auto flex-wrap grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
                                 {categories.map(category => (
@@ -332,6 +322,111 @@ export default function MenuManagementPage() {
                     )}
                 </CardContent>
             </Card>
+        </div>
+    );
+}
+
+function PaginatedMenuCategory({
+    items,
+    inventoryItems,
+    onAvailabilityChange,
+    onEditClick,
+    fetchError
+}: {
+    items: MenuItemType[],
+    inventoryItems: HotelInventoryItem[],
+    onAvailabilityChange: (item: MenuItemType, checked: boolean) => void,
+    onEditClick: (item: MenuItemType) => void,
+    fetchError: string | null
+}) {
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(items, 20);
+
+    return (
+        <div className="flex flex-col">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Price</TableHead>
+                        <TableHead>Buying Price</TableHead>
+                        <TableHead>Stock</TableHead>
+                        <TableHead>Availability</TableHead>
+                        <TableHead>Last Updated</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {paginatedItems.map((item) => (
+                        <TableRow key={item.id}>
+                            <TableCell className="font-medium">{item.name}</TableCell>
+                            <TableCell>LKR {item.price.toFixed(2)}</TableCell>
+                            <TableCell>LKR {item.buying_price ? item.buying_price.toFixed(2) : 'N/A'}</TableCell>
+                            <TableCell>
+                                {item.stock_type === 'Inventoried'
+                                    ? (item.linked_inventory_item_id
+                                        ? (() => {
+                                            const linkedItem = inventoryItems.find(inv => inv.id === item.linked_inventory_item_id);
+                                            return linkedItem ? `${linkedItem.current_stock ?? 0} (Hotel Inv.)` : 'Linked to Hotel Inv.';
+                                        })()
+                                        : item.stock)
+                                    : 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                                <Switch
+                                    checked={item.availability}
+                                    onCheckedChange={(checked) => onAvailabilityChange(item, checked)}
+                                />
+                            </TableCell>
+                            <TableCell>{item.updated_at ? new Date(item.updated_at).toLocaleString() : 'N/A'}</TableCell>
+                            <TableCell className="text-right">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" className="h-8 w-8 p-0">
+                                            <span className="sr-only">Open menu</span>
+                                            <MoreHorizontal className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => onEditClick(item)}>
+                                            <Edit className="mr-2 h-4 w-4" />
+                                            Edit
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                    {(!paginatedItems || paginatedItems.length === 0) && (
+                        <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
+                                {fetchError ? (
+                                    <div className="text-destructive font-semibold">
+                                        Error loading menu items: {fetchError}
+                                        <br />
+                                        <span className="text-sm font-normal text-muted-foreground mt-2 inline-block">If you recently enabled soft-deletes, please ensure you have ran the SQL migrations.</span>
+                                    </div>
+                                ) : (
+                                    "No items found in this category."
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    )}
+                </TableBody>
+            </Table>
+            <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage}
+            />
         </div>
     );
 }

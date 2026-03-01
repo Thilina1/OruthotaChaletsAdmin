@@ -11,6 +11,8 @@ import { AddLoyaltyDiscount } from './components/add-loyalty-discount';
 import { EditLoyaltyDiscount } from './components/edit-loyalty-discount';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function LoyaltyDiscountsPage() {
     const supabase = createClient();
@@ -49,6 +51,15 @@ export default function LoyaltyDiscountsPage() {
         fetchDiscounts();
     };
 
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(discounts || [], 20);
+
     return (
         <div className="container mx-auto p-4">
             <Card>
@@ -80,7 +91,7 @@ export default function LoyaltyDiscountsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {discounts.map((discount) => (
+                                {paginatedItems.map((discount) => (
                                     <TableRow key={discount.id}>
                                         <TableCell>{discount.name}</TableCell>
                                         <TableCell>{discount.points_required}</TableCell>
@@ -95,7 +106,7 @@ export default function LoyaltyDiscountsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ))}
-                                {discounts.length === 0 && (
+                                {(!paginatedItems || paginatedItems.length === 0) && (
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center text-muted-foreground">
                                             No loyalty discounts found.
@@ -104,6 +115,15 @@ export default function LoyaltyDiscountsPage() {
                                 )}
                             </TableBody>
                         </Table>
+                    )}
+                    {!isLoading && !error && (
+                        <DataTablePagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={totalItems}
+                            itemsPerPage={itemsPerPage}
+                            onPageChange={setCurrentPage}
+                        />
                     )}
                 </CardContent>
             </Card>

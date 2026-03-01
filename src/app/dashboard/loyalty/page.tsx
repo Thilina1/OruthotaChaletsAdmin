@@ -31,7 +31,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { LoyaltyForm } from '@/components/dashboard/loyalty/loyalty-form';
 import { format } from 'date-fns';
-import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { createClient } from '@/lib/supabase/client';
 
 const ITEMS_PER_PAGE = 20;
@@ -45,7 +46,6 @@ export default function LoyaltyCustomerPage() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<LoyaltyCustomer | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchCustomers = useCallback(async () => {
     setIsLoading(true);
@@ -71,8 +71,14 @@ export default function LoyaltyCustomerPage() {
     fetchCustomers();
   }, [fetchCustomers]);
 
-  const totalPages = customers ? Math.ceil(customers.length / ITEMS_PER_PAGE) : 0;
-  const paginatedCustomers = customers?.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  const {
+    currentPage,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedCustomers,
+    itemsPerPage,
+    setCurrentPage,
+  } = usePagination(customers || [], 20);
 
   const handleAddCustomerClick = () => {
     setEditingCustomer(null);
@@ -261,22 +267,14 @@ export default function LoyaltyCustomerPage() {
             </TableBody>
           </Table>
         </CardContent>
-        {totalPages > 1 && (
-          <CardFooter>
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <Button variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
-                </PaginationItem>
-                <PaginationItem>
-                  <span className="p-2 text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
-                </PaginationItem>
-                <PaginationItem>
-                  <Button variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </CardFooter>
+        {!isLoading && (
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
         )}
       </Card>
     </div>

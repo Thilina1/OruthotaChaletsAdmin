@@ -41,6 +41,8 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { MenuSection } from "@/lib/types";
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function MenuSettingsPage() {
     const { toast } = useToast();
@@ -134,6 +136,15 @@ export default function MenuSettingsPage() {
         }
     };
 
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(sections, 20);
+
     return (
         <div className="space-y-6">
             <div>
@@ -165,14 +176,14 @@ export default function MenuSettingsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {sections.length === 0 ? (
+                                {(!paginatedItems || paginatedItems.length === 0) ? (
                                     <TableRow>
                                         <TableCell colSpan={2} className="text-center h-24 text-muted-foreground">
                                             No sections found. Add one to get started.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    sections.map((section) => (
+                                    paginatedItems.map((section) => (
                                         <TableRow key={section.id}>
                                             <TableCell className="font-medium">{section.name}</TableCell>
                                             <TableCell className="text-right">
@@ -209,6 +220,15 @@ export default function MenuSettingsPage() {
                                 )}
                             </TableBody>
                         </Table>
+                    )}
+                    {!isLoading && (
+                        <DataTablePagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={totalItems}
+                            itemsPerPage={itemsPerPage}
+                            onPageChange={setCurrentPage}
+                        />
                     )}
                 </CardContent>
             </Card>

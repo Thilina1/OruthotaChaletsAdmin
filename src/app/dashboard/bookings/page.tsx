@@ -35,6 +35,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 import { format } from 'date-fns';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 const statusColors: Record<ReservationStatus, string> = {
   confirmed: 'bg-blue-500 text-white',
@@ -158,6 +160,15 @@ export default function BookingManagementPage() {
     });
   }, [bookings]);
 
+  const {
+    currentPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    itemsPerPage,
+    setCurrentPage,
+  } = usePagination(sortedBookings, 20);
+
   const getFormattedDate = (dateString: string | undefined) => {
     if (!dateString) return "N/A";
     const date = new Date(dateString);
@@ -246,13 +257,13 @@ export default function BookingManagementPage() {
                   ))}
                 </>
               )}
-              {!areBookingsLoading && sortedBookings && sortedBookings.map((booking) => (
+              {!areBookingsLoading && sortedBookings && paginatedItems.map((booking) => (
                 <TableRow key={booking.id}>
                   <TableCell className="font-medium">{booking.guest_name}</TableCell>
                   <TableCell>{booking.room_title}</TableCell>
                   <TableCell>{getFormattedDate(booking.check_in_date)}</TableCell>
                   <TableCell>{getFormattedDate(booking.check_out_date)}</TableCell>
-                  <TableCell>LKR {booking.total_cost.toFixed(2)}</TableCell>
+                  <TableCell>LKR {booking.total_price.toFixed(2)}</TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={`capitalize ${statusColors[booking.status]}`}>
                       {booking.status}
@@ -307,6 +318,15 @@ export default function BookingManagementPage() {
               )}
             </TableBody>
           </Table>
+          {!areBookingsLoading && sortedBookings && sortedBookings.length > 0 && (
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setCurrentPage}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

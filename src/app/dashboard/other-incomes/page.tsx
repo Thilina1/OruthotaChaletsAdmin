@@ -39,6 +39,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { OtherIncome } from '@/lib/types';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function OtherIncomesPage() {
   const { toast } = useToast();
@@ -74,6 +76,15 @@ export default function OtherIncomesPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const {
+    currentPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    itemsPerPage,
+    setCurrentPage,
+  } = usePagination(incomes, 20);
 
   const resetForm = () => {
     setDescription('');
@@ -176,12 +187,12 @@ export default function OtherIncomesPage() {
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-10">Loading...</TableCell>
               </TableRow>
-            ) : incomes.length === 0 ? (
+            ) : (!paginatedItems || paginatedItems.length === 0) ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No income records found.</TableCell>
               </TableRow>
             ) : (
-              incomes.map((income) => (
+              paginatedItems.map((income) => (
                 <TableRow key={income.id}>
                   <TableCell>{new Date(income.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-medium">{income.description}</TableCell>
@@ -204,6 +215,15 @@ export default function OtherIncomesPage() {
             )}
           </TableBody>
         </Table>
+        {!isLoading && (
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -18,6 +18,8 @@ import {
 import { LeaveRequestForm } from '@/components/dashboard/hrms/leave-request-form';
 import type { Leave } from '@/lib/types';
 import { Badge } from "@/components/ui/badge";
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function LeaveManagementPage() {
     const [leaves, setLeaves] = useState<Leave[]>([]);
@@ -105,6 +107,24 @@ export default function LeaveManagementPage() {
     const myLeaves = leaves.filter(l => l.user_id === userId);
     // const pendingLeaves = leaves.filter(l => l.status === 'pending'); // Unused
 
+    const {
+        currentPage: myCurrentPage,
+        totalPages: myTotalPages,
+        totalItems: myTotalItems,
+        paginatedItems: myPaginatedItems,
+        itemsPerPage: myItemsPerPage,
+        setCurrentPage: setMyCurrentPage,
+    } = usePagination(myLeaves, 20);
+
+    const {
+        currentPage: adminCurrentPage,
+        totalPages: adminTotalPages,
+        totalItems: adminTotalItems,
+        paginatedItems: adminPaginatedItems,
+        itemsPerPage: adminItemsPerPage,
+        setCurrentPage: setAdminCurrentPage,
+    } = usePagination(leaves, 20);
+
     if (error && error.includes('relation "leaves" does not exist')) {
         return (
             <div className="p-10 text-center space-y-4">
@@ -182,10 +202,10 @@ CREATE POLICY "Admins can manage all leaves" ON leaves FOR ALL USING (EXISTS (SE
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {myLeaves.length === 0 ? (
-                                        <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No leave records found.</TableCell></TableRow>
+                                    {(!myPaginatedItems || myPaginatedItems.length === 0) ? (
+                                        <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No leave records found.</TableCell></TableRow>
                                     ) : (
-                                        myLeaves.map(leave => (
+                                        myPaginatedItems.map(leave => (
                                             <TableRow key={leave.id}>
                                                 <TableCell className="capitalize">{leave.type}</TableCell>
                                                 <TableCell>{leave.start_date} to {leave.end_date}</TableCell>
@@ -200,6 +220,13 @@ CREATE POLICY "Admins can manage all leaves" ON leaves FOR ALL USING (EXISTS (SE
                                     )}
                                 </TableBody>
                             </Table>
+                            <DataTablePagination
+                                currentPage={myCurrentPage}
+                                totalPages={myTotalPages}
+                                totalItems={myTotalItems}
+                                itemsPerPage={myItemsPerPage}
+                                onPageChange={setMyCurrentPage}
+                            />
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -224,32 +251,42 @@ CREATE POLICY "Admins can manage all leaves" ON leaves FOR ALL USING (EXISTS (SE
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {leaves.map(leave => (
-                                            <TableRow key={leave.id}>
-                                                <TableCell>
-                                                    {/* @ts-ignore: users data joined optionally */}
-                                                    {leave.users?.name || 'Unknown'}
-                                                </TableCell>
-                                                <TableCell className="capitalize">{leave.type}</TableCell>
-                                                <TableCell>{leave.start_date} to {leave.end_date}</TableCell>
-                                                <TableCell>{leave.reason}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={leave.status === 'approved' ? 'default' : leave.status === 'rejected' ? 'destructive' : 'secondary'}>
-                                                        {leave.status}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="text-right space-x-2">
-                                                    {leave.status === 'pending' && (
-                                                        <>
-                                                            <Button size="sm" onClick={() => handleUpdateStatus(leave.id, 'approved')}>Approve</Button>
-                                                            <Button size="sm" variant="destructive" onClick={() => handleUpdateStatus(leave.id, 'rejected')}>Reject</Button>
-                                                        </>
-                                                    )}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
+                                        {(!adminPaginatedItems || adminPaginatedItems.length === 0) ? (
+                                            <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No records found.</TableCell></TableRow>
+                                        ) : (
+                                            adminPaginatedItems.map(leave => (
+                                                <TableRow key={leave.id}>
+                                                    <TableCell>
+                                                        {/* @ts-ignore: users data joined optionally */}
+                                                        {leave.users?.name || 'Unknown'}
+                                                    </TableCell>
+                                                    <TableCell className="capitalize">{leave.type}</TableCell>
+                                                    <TableCell>{leave.start_date} to {leave.end_date}</TableCell>
+                                                    <TableCell>{leave.reason}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={leave.status === 'approved' ? 'default' : leave.status === 'rejected' ? 'destructive' : 'secondary'}>
+                                                            {leave.status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right space-x-2">
+                                                        {leave.status === 'pending' && (
+                                                            <>
+                                                                <Button size="sm" onClick={() => handleUpdateStatus(leave.id, 'approved')}>Approve</Button>
+                                                                <Button size="sm" variant="destructive" onClick={() => handleUpdateStatus(leave.id, 'rejected')}>Reject</Button>
+                                                            </>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            )))}
                                     </TableBody>
                                 </Table>
+                                <DataTablePagination
+                                    currentPage={adminCurrentPage}
+                                    totalPages={adminTotalPages}
+                                    totalItems={adminTotalItems}
+                                    itemsPerPage={adminItemsPerPage}
+                                    onPageChange={setAdminCurrentPage}
+                                />
                             </CardContent>
                         </Card>
                     </TabsContent>

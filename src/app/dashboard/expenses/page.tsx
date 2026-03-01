@@ -39,6 +39,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Expense } from '@/lib/types';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 export default function ExpensesPage() {
   const { toast } = useToast();
@@ -74,6 +76,15 @@ export default function ExpensesPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const {
+    currentPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    itemsPerPage,
+    setCurrentPage,
+  } = usePagination(expenses, 20);
 
   const resetForm = () => {
     setDescription('');
@@ -176,12 +187,12 @@ export default function ExpensesPage() {
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-10">Loading...</TableCell>
               </TableRow>
-            ) : expenses.length === 0 ? (
+            ) : (!paginatedItems || paginatedItems.length === 0) ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No expenses recorded found.</TableCell>
               </TableRow>
             ) : (
-              expenses.map((expense) => (
+              paginatedItems.map((expense) => (
                 <TableRow key={expense.id}>
                   <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-medium">{expense.description}</TableCell>
@@ -204,6 +215,15 @@ export default function ExpensesPage() {
             )}
           </TableBody>
         </Table>
+        {!isLoading && (
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
