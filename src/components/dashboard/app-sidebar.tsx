@@ -47,11 +47,14 @@ const restaurantMenuItems: MenuItem[] = [
   { href: '/dashboard/billing', icon: CreditCard, label: 'Restaurant Billing', roles: ['admin', 'payment'] },
   { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
   { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
+  { href: '/dashboard/menu-settings', icon: UtensilsCrossed, label: 'Menu Section Settings', roles: ['admin'] },
+  { href: '/dashboard/restaurant-settings', icon: Settings, label: 'Restaurant Settings', roles: ['admin'] },
+];
+
+const inventoryMenuItems: MenuItem[] = [
   { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
   { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
   { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
-  { href: '/dashboard/menu-settings', icon: UtensilsCrossed, label: 'Menu Section Settings', roles: ['admin'] },
-  { href: '/dashboard/restaurant-settings', icon: Settings, label: 'Restaurant Settings', roles: ['admin'] },
 ];
 
 const roomBookingMenuItems: MenuItem[] = [
@@ -122,6 +125,7 @@ export default function AppSidebar() {
   };
 
   const restaurantSection = renderMenuItems(restaurantMenuItems, hasPathAccess, pathname, user?.role);
+  const inventorySection = renderMenuItems(inventoryMenuItems, hasPathAccess, pathname, user?.role);
   const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user?.role);
   const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user?.role);
   const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user?.role);
@@ -161,6 +165,16 @@ export default function AppSidebar() {
               <SidebarGroup>
                 <SidebarGroupLabel className="flex items-center gap-2"><Utensils className="size-4" />Restaurant</SidebarGroupLabel>
                 <SidebarGroupContent>{restaurantSection}</SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
+
+          {inventorySection && (
+            <>
+              <SidebarSeparator className="my-2" />
+              <SidebarGroup>
+                <SidebarGroupLabel className="flex items-center gap-2"><Boxes className="size-4" />Inventory</SidebarGroupLabel>
+                <SidebarGroupContent>{inventorySection}</SidebarGroupContent>
               </SidebarGroup>
             </>
           )}
