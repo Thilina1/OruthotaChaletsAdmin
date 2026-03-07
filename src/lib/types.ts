@@ -16,6 +16,7 @@ export type User = {
   job_title?: string;
   join_date?: string;
   permissions?: string[]; // Array of application section paths they can access
+  department?: string;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';
@@ -318,6 +319,7 @@ export type HotelInventoryItem = {
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
+  menu_items?: { id: string; price: number; category: string }[];
 };
 
 export type InventoryTransaction = {

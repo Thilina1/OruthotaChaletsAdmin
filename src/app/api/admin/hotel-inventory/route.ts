@@ -27,6 +27,11 @@ export async function GET(request: Request) {
                 *,
                 department:inventory_departments (
                     name
+                ),
+                menu_items (
+                    id,
+                    price,
+                    category
                 )
             `)
             .order('name');
@@ -114,7 +119,7 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, ...updates } = body;
+        const { id, is_menu_item, menu_price, menu_category, ...updates } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
@@ -129,6 +134,45 @@ export async function PUT(request: Request) {
             .single();
 
         if (error) throw error;
+
+        // Handle menu item creation or update
+        if (is_menu_item) {
+            // Check if a linked menu item already exists
+            const { data: existingMenuItem, error: fetchError } = await supabase
+                .from('menu_items')
+                .select('id')
+                .eq('linked_inventory_item_id', id)
+                .single();
+
+            const menuItemData = {
+                name: data.name,
+                description: data.description,
+                price: menu_price || 0,
+                buying_price: data.buying_price || 0,
+                category: menu_category || 'Beverages',
+                stock_type: 'Inventoried',
+                availability: true,
+                sell_type: 'Direct',
+                linked_inventory_item_id: id,
+                updated_at: new Date().toISOString()
+            };
+
+            if (existingMenuItem) {
+                // Update existing
+                await supabase
+                    .from('menu_items')
+                    .update(menuItemData)
+                    .eq('id', existingMenuItem.id);
+            } else {
+                // Create new
+                await supabase
+                    .from('menu_items')
+                    .insert({
+                        ...menuItemData,
+                        created_at: new Date().toISOString()
+                    });
+            }
+        }
 
         return NextResponse.json({ item: data }, { status: 200 });
     } catch (error: any) {

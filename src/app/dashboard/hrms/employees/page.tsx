@@ -149,6 +149,7 @@ export default function EmployeeManagementPage() {
                             <TableRow>
                                 <TableHead>Name</TableHead>
                                 <TableHead>Role</TableHead>
+                                <TableHead>Department</TableHead>
                                 <TableHead>Job Title</TableHead>
                                 <TableHead>Phone</TableHead>
                                 <TableHead>Joined</TableHead>
@@ -163,6 +164,7 @@ export default function EmployeeManagementPage() {
                                         <div className="text-xs text-muted-foreground">{user.email}</div>
                                     </TableCell>
                                     <TableCell className="capitalize">{user.role}</TableCell>
+                                    <TableCell>{user.department || '-'}</TableCell>
                                     <TableCell>{user.job_title || '-'}</TableCell>
                                     <TableCell>{user.phone_number || '-'}</TableCell>
                                     <TableCell>{user.join_date || '-'}</TableCell>

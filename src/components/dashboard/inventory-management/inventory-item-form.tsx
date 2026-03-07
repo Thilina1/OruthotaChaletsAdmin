@@ -82,9 +82,9 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
       reorder_level: item?.reorder_level || 0,
       maximum_level: item?.maximum_level || 0,
       status: item?.status || 'active',
-      is_menu_item: false,
-      menu_price: 0,
-      menu_category: 'Beverages',
+      is_menu_item: !!item?.menu_items && item.menu_items.length > 0,
+      menu_price: item?.menu_items?.[0]?.price || 0,
+      menu_category: item?.menu_items?.[0]?.category || 'Beverages',
     },
   });
 
@@ -215,72 +215,70 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
               />
             </div>
 
-            {!item && (
-              <div className="col-span-1 md:col-span-2 space-y-4 mt-6 p-4 rounded-md border bg-muted/20">
-                <div className="flex flex-row items-center justify-between rounded-lg border p-4">
-                  <div className="space-y-0.5">
-                    <FormLabel className="text-base">Sell as Menu Item?</FormLabel>
-                    <FormDescription>
-                      Automatically create this as a sellable item in the Restaurant Menu.
-                    </FormDescription>
-                  </div>
+            <div className="col-span-1 md:col-span-2 space-y-4 mt-6 p-4 rounded-md border bg-muted/20">
+              <div className="flex flex-row items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <FormLabel className="text-base">Sell as Menu Item?</FormLabel>
+                  <FormDescription>
+                    Automatically create this as a sellable item in the Restaurant Menu.
+                  </FormDescription>
+                </div>
+                <FormField
+                  control={form.control}
+                  name="is_menu_item"
+                  render={({ field }) => (
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  )}
+                />
+              </div>
+
+              {isMenuItem && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <FormField
                     control={form.control}
-                    name="is_menu_item"
+                    name="menu_price"
                     render={({ field }) => (
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
+                      <FormItem>
+                        <FormLabel>Selling Price (LKR)</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" {...field} />
+                        </FormControl>
+                        <FormDescription>The customer-facing price.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="menu_category"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Menu Section (Category)</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select Section" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {menuCategories.map(cat => (
+                              <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>Where it appears on the menu.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
                 </div>
-
-                {isMenuItem && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <FormField
-                      control={form.control}
-                      name="menu_price"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Selling Price (LKR)</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" {...field} />
-                          </FormControl>
-                          <FormDescription>The customer-facing price.</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="menu_category"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Menu Section (Category)</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Section" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {menuCategories.map(cat => (
-                                <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormDescription>Where it appears on the menu.</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="col-span-1 md:col-span-2 space-y-4 mt-6">
               <h3 className="text-lg font-semibold border-b pb-2">Stock Details (Alerts & Audits)</h3>

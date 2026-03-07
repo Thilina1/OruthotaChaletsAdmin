@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password, role, phone_number, address, nic, job_title, join_date, permissions } = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions } = await request.json();
 
         if (!email || !password || !name || !role) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
                 address,
                 nic,
                 job_title,
+                department,
                 join_date,
                 permissions: permissions || [],
             })
@@ -84,7 +85,7 @@ export async function PUT(request: Request) {
         }
 
         const data = await request.json();
-        const { name, email, password, role, phone_number, address, nic, job_title, join_date, permissions } = data;
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions } = data;
 
         const updatePayload: any = {
             name,
@@ -93,6 +94,7 @@ export async function PUT(request: Request) {
             address,
             nic,
             job_title,
+            department,
             join_date,
             permissions: permissions || [],
         };

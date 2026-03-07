@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { KeyRound } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
+import { STAFF_HIERARCHY, DEPARTMENTS } from '@/lib/staff-hierarchy';
 
 const APP_SECTIONS = [
   { path: '/dashboard', label: 'Dashboard' },
@@ -38,6 +39,7 @@ const APP_SECTIONS = [
   { path: '/dashboard/table-management', label: 'Table Management' },
   { path: '/dashboard/inventory-management', label: 'Inventory' },
   { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
+  { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
   { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
   { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
   { path: '/dashboard/expenses', label: 'Expenses' },
@@ -63,6 +65,7 @@ const formSchema = z.object({
   address: z.string().optional(),
   nic: z.string().optional(),
   job_title: z.string().optional(),
+  department: z.string().optional(),
   join_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Invalid date format (YYYY-MM-DD)" }).optional().or(z.literal('')),
   updatePassword: z.boolean().default(false),
   password: z.string().optional(),
@@ -104,6 +107,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       address: user?.address || '',
       nic: user?.nic || '',
       job_title: user?.job_title || '',
+      department: user?.department || '',
       join_date: user?.join_date || new Date().toISOString().split('T')[0],
       updatePassword: !user,
       password: '',
@@ -122,6 +126,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       address: user?.address || '',
       nic: user?.nic || '',
       job_title: user?.job_title || '',
+      department: user?.department || '',
       join_date: user?.join_date || new Date().toISOString().split('T')[0],
       updatePassword: !user,
       password: '',
@@ -215,17 +220,63 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="job_title"
+            name="department"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Job Title</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g. Senior Chef" {...field} />
-                </FormControl>
+                <FormLabel>Department</FormLabel>
+                <Select
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    form.setValue('job_title', '');
+                  }}
+                  value={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Department" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {DEPARTMENTS.map(dept => (
+                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
           />
+          <FormField
+            control={form.control}
+            name="job_title"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Job Title</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  disabled={!form.watch('department')}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Job Title" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {form.watch('department') &&
+                      STAFF_HIERARCHY[form.watch('department') as string]?.map(role => (
+                        <SelectItem key={role} value={role}>{role}</SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
             name="join_date"

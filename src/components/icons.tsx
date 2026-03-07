@@ -14,7 +14,7 @@ export function Logo(props: SVGProps<SVGSVGElement>) {
       strokeLinejoin="round"
       {...props}
     >
-      <path d="M15 21h- contaminación y-6" />
+      <path d="M15 21h-6" />
       <path d="M12 3v6" />
       <path d="M12 21v-6" />
       <path d="M4.22 10.22l1.42 1.42" />
@@ -47,9 +47,9 @@ export function TableIcon(props: SVGProps<SVGSVGElement>) {
       strokeLinejoin="round"
       {...props}
     >
-        <path d="M12 3v18" />
-        <rect width="18" height="18" x="3" y="3" rx="2" />
-        <path d="M3 12h18" />
+      <path d="M12 3v18" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 12h18" />
     </svg>
   );
 }
