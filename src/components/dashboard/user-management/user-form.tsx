@@ -56,6 +56,7 @@ const APP_SECTIONS = [
   { path: '/dashboard/experiences', label: 'Experiences' },
   { path: '/dashboard/blogs', label: 'Blog Management' },
   { path: '/dashboard/reports', label: 'Financial Reports' },
+  { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
 ];
 
 const formSchema = z.object({
@@ -113,7 +114,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       updatePassword: !user,
       password: '',
       confirmPassword: '',
-      permissions: user?.permissions || [],
+      permissions: user?.permissions || ['/dashboard/profile'],
     },
   });
 
@@ -132,7 +133,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       updatePassword: !user,
       password: '',
       confirmPassword: '',
-      permissions: user?.permissions || [],
+      permissions: user?.permissions || ['/dashboard/profile'],
     });
     setShowPassword(!user);
   }, [user, form]);

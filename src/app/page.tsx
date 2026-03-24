@@ -179,9 +179,8 @@ export default function LoginPage() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center">
                       <FormLabel className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Password</FormLabel>
-                      <Link href="#" className="text-sm font-medium text-primary hover:underline">Forgot password?</Link>
                     </div>
                     <FormControl>
                       <div className="relative">
@@ -218,12 +217,7 @@ export default function LoginPage() {
                 ) : "Sign In"}
               </Button>
 
-              <div className="mt-8 text-center text-muted-foreground">
-                Don&apos;t have an account?{" "}
-                <Link href="/signup" className="font-bold text-primary hover:underline">
-                  Join the team
-                </Link>
-              </div>
+
             </form>
           </Form>
         </div>
