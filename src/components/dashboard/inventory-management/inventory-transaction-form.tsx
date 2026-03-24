@@ -167,7 +167,7 @@ export function InventoryTransactionForm({ item, departments, onSuccess }: Inven
                         name="reference_department"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Issuing To Department</FormLabel>
+                                <FormLabel>Issuing To Store/Department</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl>
                                         <SelectTrigger>

@@ -300,6 +300,8 @@ export type InventoryDepartment = {
   id: string;
   name: string;
   description?: string;
+  status: 'active' | 'inactive';
+  items_count?: { count: number }[];
   created_at?: string;
 };
 

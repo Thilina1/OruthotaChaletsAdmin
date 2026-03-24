@@ -32,9 +32,10 @@ export async function GET(request: Request) {
             .from('inventory_requests')
             .select(`
                 *,
-                item:hotel_inventory_items(name, unit),
+                item:hotel_inventory_items(name, unit, category),
                 requester:users!inventory_requests_requested_by_fkey(name, email),
-                reviewer:users!inventory_requests_reviewed_by_fkey(name, email)
+                reviewer:users!inventory_requests_reviewed_by_fkey(name, email),
+                purchase_order_id
             `)
             .order('created_at', { ascending: false });
 
@@ -149,7 +150,7 @@ export async function PUT(request: Request) {
         }
 
         const body = await request.json();
-        const { id, status } = body;
+        const { id, status, requested_quantity, request_type, notes } = body;
 
         if (!id || !status) return NextResponse.json({ error: 'ID and status are required' }, { status: 400 });
 
@@ -167,7 +168,9 @@ export async function PUT(request: Request) {
         if (status === 'COMPLETED') {
             if (requestData.status !== 'APPROVED') return NextResponse.json({ error: 'Only approved requests can be completed' }, { status: 400 });
         } else if (status === 'APPROVED' || status === 'REJECTED') {
-            if (requestData.status !== 'PENDING') return NextResponse.json({ error: 'Only pending requests can be approved or rejected' }, { status: 400 });
+            if (requestData.status !== 'PENDING' && requestData.status !== status) {
+                return NextResponse.json({ error: `Only pending requests can be ${status.toLowerCase()}` }, { status: 400 });
+            }
         }
 
         // Update the status of the request
@@ -177,8 +180,12 @@ export async function PUT(request: Request) {
             updated_at: new Date().toISOString()
         };
 
-        if (status === 'APPROVED' || status === 'REJECTED') {
+        if (status === 'APPROVED' || status === 'REJECTED' || status === 'PENDING') {
             updatePayload.reviewed_by = decoded.userId || decoded.id || decoded.sub;
+            // Allow updating quantity, type, or notes
+            if (requested_quantity !== undefined) updatePayload.requested_quantity = requested_quantity;
+            if (request_type) updatePayload.request_type = request_type;
+            if (notes !== undefined) updatePayload.notes = notes;
         }
 
         // If completing, we might have actual cost and quantity
@@ -201,17 +208,17 @@ export async function PUT(request: Request) {
 
         if (updateError) throw updateError;
 
-        const stockAffectingTypes = ['ADD_STOCK', 'receive', 'issue', 'damage', 'audit_adjustment', 'initial_stock'];
+        const stockAffectingTypes = ['ADD_STOCK', 'receive', 'issue', 'damage', 'audit_adjustment', 'initial_stock', 'TRANSFER_REQUEST'];
 
         // Determine if we should process the transaction.
-        // For ADD_STOCK, we process ONLY on 'COMPLETED'.
+        // For ADD_STOCK and TRANSFER_REQUEST, we process ONLY on 'COMPLETED'.
         // For other types, we process on 'APPROVED'.
         let shouldProcessTransaction = false;
 
         if (stockAffectingTypes.includes(requestData.request_type) && requestData.item_id) {
-            if (requestData.request_type === 'ADD_STOCK' && status === 'COMPLETED') {
+            if (['ADD_STOCK', 'TRANSFER_REQUEST'].includes(requestData.request_type) && status === 'COMPLETED') {
                 shouldProcessTransaction = true;
-            } else if (requestData.request_type !== 'ADD_STOCK' && status === 'APPROVED') {
+            } else if (!['ADD_STOCK', 'TRANSFER_REQUEST'].includes(requestData.request_type) && status === 'APPROVED') {
                 shouldProcessTransaction = true;
             }
         }
@@ -240,26 +247,83 @@ export async function PUT(request: Request) {
                 newStock -= q;
             } else if (requestData.request_type === 'audit_adjustment') {
                 newStock = q;
+            } else if (requestData.request_type === 'TRANSFER_REQUEST') {
+                // ADD to destination stock
+                newStock += q;
+
+                // 1. Find the "Store" ID
+                const { data: warehouseDept, error: deptError } = await supabase
+                    .from('inventory_departments')
+                    .select('id')
+                    .eq('name', 'Store')
+                    .single();
+
+                if (deptError) throw deptError;
+
+                // 2. Find the item in the Store with the same name/category
+                const { data: destItemData, error: destItemError } = await supabase
+                    .from('hotel_inventory_items')
+                    .select('id, name, category')
+                    .eq('id', requestData.item_id)
+                    .single();
+
+                if (destItemError) throw destItemError;
+
+                const { data: sourceItemData, error: sourceItemError } = await supabase
+                    .from('hotel_inventory_items')
+                    .select('id, current_stock')
+                    .eq('name', destItemData.name)
+                    .eq('category', destItemData.category)
+                    .eq('department_id', warehouseDept.id)
+                    .single();
+
+                if (sourceItemError) throw new Error(`Item ${destItemData.name} not found in Warehouse.`);
+
+                if (Number(sourceItemData.current_stock) < q) {
+                    throw new Error(`Insufficient stock in Warehouse for ${destItemData.name}.`);
+                }
+
+                const sourceNewStock = Number(sourceItemData.current_stock) - q;
+
+                // 3. Update Warehouse Stock
+                const { error: sourceUpdateError } = await supabase
+                    .from('hotel_inventory_items')
+                    .update({ current_stock: sourceNewStock, updated_at: new Date().toISOString() })
+                    .eq('id', sourceItemData.id);
+
+                if (sourceUpdateError) throw sourceUpdateError;
+
+                // 4. Record Issue Transaction for Warehouse
+                await supabase.from('inventory_transactions').insert({
+                    item_id: sourceItemData.id,
+                    transaction_type: 'issue',
+                    quantity: q,
+                    previous_stock: Number(sourceItemData.current_stock),
+                    new_stock: sourceNewStock,
+                    reference_department: requestData.action_metadata?.requesting_department_id || null,
+                    remarks: `Internal transfer to ${requestData.action_metadata?.requesting_department_name || 'Department'}`,
+                    created_by: userId
+                });
             }
 
-            // Insert transaction record
+            // Insert transaction record for destination (the original item linked to request)
             const { error: txnError } = await supabase
                 .from('inventory_transactions')
                 .insert({
                     item_id: requestData.item_id,
-                    transaction_type: requestData.request_type === 'ADD_STOCK' ? 'receive' : requestData.request_type,
+                    transaction_type: requestData.request_type === 'TRANSFER_REQUEST' ? 'receive' : (requestData.request_type === 'ADD_STOCK' ? 'receive' : requestData.request_type),
                     quantity: requestData.request_type === 'audit_adjustment' ? (q - previousStock) : q,
                     previous_stock: previousStock,
                     new_stock: newStock,
-                    reference_department: requestData.action_metadata?.reference_department || null,
+                    reference_department: requestData.request_type === 'TRANSFER_REQUEST' ? (await supabase.from('inventory_departments').select('id').eq('name', 'Store').single()).data?.id : (requestData.action_metadata?.reference_department || null),
                     reason: requestData.action_metadata?.reason || null,
-                    remarks: requestData.notes || null,
-                    created_by: decoded.userId || decoded.id || decoded.sub
+                    remarks: requestData.request_type === 'TRANSFER_REQUEST' ? `Internal transfer from Store` : (requestData.notes || null),
+                    created_by: userId
                 });
 
             if (txnError) throw txnError;
 
-            // Update item stock
+            // Update item stock for destination
             const { error: stockUpdateError } = await supabase
                 .from('hotel_inventory_items')
                 .update({

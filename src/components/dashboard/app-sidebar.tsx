@@ -51,16 +51,23 @@ const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boo
   });
   if (accessibleItems.length === 0) return null;
 
-  return accessibleItems.map(item => (
-    <SidebarMenuItem key={item.href}>
-      <SidebarMenuButton asChild tooltip={item.label} isActive={pathname.startsWith(item.href) && (item.href !== '/dashboard' || pathname === '/dashboard')}>
-        <Link href={item.href}>
-          <item.icon />
-          <span>{item.label}</span>
-        </Link>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  ));
+  return accessibleItems.map(item => {
+    const isActive = pathname === item.href || (
+      pathname.startsWith(item.href + '/') &&
+      !items.some(other => other.href !== item.href && pathname.startsWith(other.href) && other.href.length > item.href.length)
+    );
+
+    return (
+      <SidebarMenuItem key={item.href}>
+        <SidebarMenuButton asChild tooltip={item.label} isActive={isActive}>
+          <Link href={item.href}>
+            <item.icon />
+            <span>{item.label}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  });
 }
 
 export default function AppSidebar() {
@@ -86,7 +93,7 @@ export default function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarRail />
       <SidebarHeader>
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href="/dashboard/profile" className="flex items-center gap-2">
           <Logo className="w-7 h-7 text-primary" />
           <h2 className="text-lg font-headline font-bold text-sidebar-foreground group-data-[collapsible=icon]:hidden">Oruthota Chalets</h2>
         </Link>

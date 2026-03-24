@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { Skeleton } from '@/components/ui/skeleton';
-import { User, Mail, Calendar, Shield } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Briefcase } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 
 export default function ProfilePage() {
@@ -72,6 +72,12 @@ export default function ProfilePage() {
             <Shield className="w-5 h-5 text-muted-foreground" />
             <span className="font-medium capitalize">{user.role}</span>
           </div>
+          {user.department && (
+            <div className="flex items-center gap-4">
+              <Briefcase className="w-5 h-5 text-muted-foreground" />
+              <span className="font-medium capitalize">{user.department}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

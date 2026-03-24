@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PlusCircle, Pencil, Trash2, ArrowRightLeft, AlertTriangle, Search, Filter } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, ArrowRightLeft, AlertTriangle, Search, Filter, Warehouse } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +43,7 @@ import { InventoryRequestForm } from '@/components/dashboard/inventory-managemen
 import { Badge } from '@/components/ui/badge';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import { WarehouseManagement } from '@/components/dashboard/inventory-management/warehouse-management';
 
 export default function InventoryManagementPage() {
   const { toast } = useToast();
@@ -215,7 +216,7 @@ export default function InventoryManagementPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Hotel Inventory Management</h1>
-          <p className="text-muted-foreground">Manage centralized hotel inventory, departments, and stock limits.</p>
+          <p className="text-muted-foreground">Manage centralized hotel inventory, stores, and stock limits.</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setIsRequestDialogOpen(true)} variant="outline">
@@ -253,10 +254,10 @@ export default function InventoryManagementPage() {
 
           <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
             <SelectTrigger className="w-full sm:w-[150px]">
-              <SelectValue placeholder="Department" />
+              <SelectValue placeholder="Store" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Departments</SelectItem>
+              <SelectItem value="all">All Stores</SelectItem>
               {departments.map(dept => (
                 <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
               ))}
@@ -282,7 +283,7 @@ export default function InventoryManagementPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Item Name</TableHead>
-              <TableHead>Category & Dept</TableHead>
+              <TableHead>Category & Store</TableHead>
               <TableHead>Stock (UoM)</TableHead>
               <TableHead>Reorder Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>

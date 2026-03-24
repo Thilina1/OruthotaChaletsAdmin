@@ -38,6 +38,7 @@ const APP_SECTIONS = [
   { path: '/dashboard/menu-management', label: 'Menu Management' },
   { path: '/dashboard/table-management', label: 'Table Management' },
   { path: '/dashboard/inventory-management', label: 'Inventory' },
+  { path: '/dashboard/inventory-management/stock-overview', label: 'Store Overview' },
   { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
   { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
   { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },

@@ -33,6 +33,8 @@ import {
     ArrowDown,
     ArrowUp,
     BarChart3,
+    ChevronDown,
+    ChevronUp,
     ClipboardList,
     Download,
     DollarSign,
@@ -119,6 +121,39 @@ const SkeletonRows = ({ cols }: { cols: number }) => (
 );
 
 const PAGE_SIZE = 15;
+
+function ExpandableDepartmentCell({ item }: { item: any }) {
+    const [isOpen, setIsOpen] = useState(false);
+    
+    if (item.isGrouped && item.departmentBreakdown) {
+        return (
+            <div>
+                <button 
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="flex text-left items-center gap-2 w-full max-w-[200px] text-sm font-medium hover:text-primary transition-colors group"
+                >
+                    <span>{item.departmentBreakdown.length} Departments</span>
+                    {isOpen ? (
+                        <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    )}
+                </button>
+                {isOpen && (
+                    <div className="flex flex-col gap-1 pl-3 border-l-2 border-muted mt-2 mb-1">
+                        {item.departmentBreakdown.map((d: any) => (
+                            <div key={d.deptName} className="text-xs text-muted-foreground flex justify-between gap-4 max-w-[180px]">
+                                <span className="font-medium text-foreground">{d.deptName}</span>
+                                <span className="shrink-0">{d.stock}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+    return <span className="text-sm">{item.department?.name}</span>;
+}
 
 // ─── main page ───────────────────────────────────────────────────────────────
 
@@ -234,11 +269,43 @@ export default function InventoryReportsPage() {
     useEffect(() => { fetchData(); }, []);
 
     // ── Stock Overview ────────────────────────────────────────────────────────
-    const filteredStockItems = useMemo(() => items.filter(item => {
-        const matchSearch = item.name.toLowerCase().includes(stockSearch.toLowerCase());
-        const matchDept = stockDept === 'all' || item.department_id === stockDept;
-        return matchSearch && matchDept;
-    }), [items, stockSearch, stockDept]);
+    const filteredStockItems = useMemo(() => {
+        let filtered = items.filter(item => {
+            const matchSearch = item.name.toLowerCase().includes(stockSearch.toLowerCase());
+            const matchDept = stockDept === 'all' || item.department_id === stockDept;
+            return matchSearch && matchDept;
+        });
+
+        if (stockDept === 'all') {
+            const grouped = new Map<string, HotelInventoryItem & { isGrouped?: boolean, departmentBreakdown?: { deptName: string; stock: number }[] }>();
+            filtered.forEach(item => {
+                const key = `${item.name}_${item.category}_${item.unit}`;
+                if (grouped.has(key)) {
+                    const existing = grouped.get(key)!;
+                    existing.current_stock += item.current_stock;
+                    existing.safety_stock += item.safety_stock;
+                    existing.reorder_level += item.reorder_level;
+                    existing.maximum_level += item.maximum_level;
+                    existing.departmentBreakdown!.push({
+                        deptName: item.department?.name || 'Unknown',
+                        stock: item.current_stock
+                    });
+                } else {
+                    grouped.set(key, {
+                        ...item,
+                        isGrouped: true,
+                        departmentBreakdown: [{
+                            deptName: item.department?.name || 'Unknown',
+                            stock: item.current_stock
+                        }]
+                    });
+                }
+            });
+            filtered = Array.from(grouped.values());
+        }
+
+        return filtered;
+    }, [items, stockSearch, stockDept]);
 
     const stockPagination = usePagination(filteredStockItems, PAGE_SIZE);
 
@@ -258,8 +325,13 @@ export default function InventoryReportsPage() {
             filteredStockItems.map(item => {
                 const isCritical = item.current_stock <= item.safety_stock;
                 const isLow = item.current_stock <= item.reorder_level;
+                
+                const deptStr = (item as any).isGrouped && (item as any).departmentBreakdown
+                    ? ((item as any).departmentBreakdown as { deptName: string; stock: number }[]).map(d => `${d.deptName}: ${d.stock}`).join(' | ')
+                    : item.department?.name || '';
+
                 return [
-                    item.name, item.category, item.department?.name || '', item.unit,
+                    item.name, item.category, deptStr, item.unit,
                     item.current_stock, item.safety_stock, item.reorder_level, item.maximum_level,
                     isCritical ? 'Critical' : isLow ? 'Needs Reorder' : 'Healthy',
                 ];
@@ -446,7 +518,9 @@ export default function InventoryReportsPage() {
                                                 <div className="font-medium">{item.name}</div>
                                                 <div className="text-xs text-muted-foreground">{item.category}</div>
                                             </TableCell>
-                                            <TableCell>{item.department?.name}</TableCell>
+                                            <TableCell>
+                                                <ExpandableDepartmentCell item={item} />
+                                            </TableCell>
                                             <TableCell>
                                                 <span className={`font-bold ${item.current_stock <= item.safety_stock ? 'text-red-600' : item.current_stock <= item.reorder_level ? 'text-orange-500' : ''}`}>
                                                     {item.current_stock}

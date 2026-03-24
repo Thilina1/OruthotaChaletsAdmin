@@ -74,7 +74,7 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
       name: item?.name || '',
       description: item?.description || '',
       category: (item?.category as any) || 'Food & Beverage',
-      department_id: item?.department_id || (departments.length > 0 ? departments[0].id : ''),
+      department_id: item?.department_id || (departments.find(d => d.name === 'Store')?.id || departments.find(d => d.name.toLowerCase() === 'store')?.id || (departments.length > 0 ? departments[0].id : '')),
       unit: (item?.unit as any) || 'Nos',
       buying_price: item?.buying_price || 0,
       current_stock: item?.current_stock || 0,
@@ -128,7 +128,7 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
             </div>
 
             <div className="space-y-4 mt-4">
-              <h3 className="text-lg font-semibold border-b pb-2">Category & Department</h3>
+              <h3 className="text-lg font-semibold border-b pb-2">Category & Store</h3>
               <FormField
                 control={form.control}
                 name="category"
@@ -157,11 +157,11 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                 name="department_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Primary Department</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormLabel>Primary Store</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
+                          <SelectValue placeholder="Select store" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>

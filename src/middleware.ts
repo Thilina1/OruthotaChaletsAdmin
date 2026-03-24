@@ -14,7 +14,7 @@ export async function middleware(request: NextRequest) {
 
     if (request.nextUrl.pathname === '/' || request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup') {
         if (verifiedToken) {
-            return NextResponse.redirect(new URL('/dashboard', request.url));
+            return NextResponse.redirect(new URL('/dashboard/profile', request.url));
         }
     }
 

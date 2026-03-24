@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -10,10 +10,9 @@ export interface MenuItem {
 }
 
 export const generalMenuItems: MenuItem[] = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
-    { href: '/dashboard/settings/roles', icon: Settings, label: 'Roles & Permissions', roles: ['admin'] },
 ];
 
 export const customerMenuItems: MenuItem[] = [
@@ -29,9 +28,12 @@ export const restaurantMenuItems: MenuItem[] = [
 ];
 
 export const inventoryMenuItems: MenuItem[] = [
+    { href: '/dashboard/inventory-management/warehouses', icon: Warehouse, label: 'Manage Store', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
+    { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },
 ];
 
 export const roomBookingMenuItems: MenuItem[] = [
