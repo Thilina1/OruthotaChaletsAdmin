@@ -23,7 +23,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUserContext } from '@/context/user-context';
 import { SidebarRail } from '../ui/sidebar';
-import type { UserRole } from '@/lib/types';
+import type { User, UserRole } from '@/lib/types';
 import {
   generalMenuItems,
   customerMenuItems,
@@ -36,15 +36,21 @@ import {
   MenuItem
 } from '@/lib/route-config';
 
-const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, userRole?: string) => {
+const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, user: User | null) => {
   const accessibleItems = items.filter(item => {
-    // Admins always get access
-    if (userRole === 'admin') return true;
+    const userRole = user?.role;
+    // Admins default to all access unless specifically restricted to selected permissions
+    if (userRole === 'admin' && !user?.restrict_admin_permissions) return true;
 
     // Check if the user has been explicitly granted this path via custom permissions
     const hasExplicitPermission = hasPathAccess(item.href);
 
-    // Check if the user's role grants them default access to this section
+    // If the admin is restricted, we ONLY use explicit permissions (ignoring their default 'admin' role permissions)
+    if (userRole === 'admin' && user?.restrict_admin_permissions) {
+      return hasExplicitPermission;
+    }
+
+    // For other roles, check if the user's role grants them default access to this section
     const hasRolePermission = userRole ? item.roles.includes(userRole as UserRole) : false;
 
     return hasExplicitPermission || hasRolePermission;
@@ -81,12 +87,13 @@ export default function AppSidebar() {
     router.refresh(); // Ensure middleware re-runs and context updates
   };
 
-  const restaurantSection = renderMenuItems(restaurantMenuItems, hasPathAccess, pathname, user?.role);
-  const inventorySection = renderMenuItems(inventoryMenuItems, hasPathAccess, pathname, user?.role);
-  const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user?.role);
-  const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user?.role);
-  const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user?.role);
-  const hrmsSection = renderMenuItems(hrmsMenuItems, hasPathAccess, pathname, user?.role);
+  const restaurantSection = renderMenuItems(restaurantMenuItems, hasPathAccess, pathname, user);
+  const inventorySection = renderMenuItems(inventoryMenuItems, hasPathAccess, pathname, user);
+  const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user);
+  const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user);
+  const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user);
+  const hrmsSection = renderMenuItems(hrmsMenuItems, hasPathAccess, pathname, user);
+  const otherItemsSection = renderMenuItems(otherMenuItems, hasPathAccess, pathname, user);
 
 
   return (
@@ -100,7 +107,7 @@ export default function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
-          {renderMenuItems(generalMenuItems, hasPathAccess, pathname, user?.role)}
+          {renderMenuItems(generalMenuItems, hasPathAccess, pathname, user)}
 
 
           {customerSection && (
@@ -179,7 +186,7 @@ export default function AppSidebar() {
 
 
           <SidebarSeparator className="my-2" />
-          {renderMenuItems(otherMenuItems, hasPathAccess, pathname, user?.role)}
+          {otherItemsSection}
 
         </SidebarMenu>
       </SidebarContent>

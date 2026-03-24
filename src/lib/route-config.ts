@@ -30,7 +30,7 @@ export const restaurantMenuItems: MenuItem[] = [
 export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management/warehouses', icon: Warehouse, label: 'Manage Store', roles: ['admin'] },
     { href: '/dashboard/inventory-management/stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
-    { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
+    // { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },

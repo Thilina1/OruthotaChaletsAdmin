@@ -26,6 +26,8 @@ import { KeyRound } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
 import { STAFF_HIERARCHY, DEPARTMENTS } from '@/lib/staff-hierarchy';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const APP_SECTIONS = [
   { path: '/dashboard', label: 'Dashboard' },
@@ -37,7 +39,8 @@ const APP_SECTIONS = [
   { path: '/dashboard/billing', label: 'Restaurant Billing' },
   { path: '/dashboard/menu-management', label: 'Menu Management' },
   { path: '/dashboard/table-management', label: 'Table Management' },
-  { path: '/dashboard/inventory-management', label: 'Inventory' },
+  // { path: '/dashboard/inventory-management', label: 'Inventory' },
+  { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
   { path: '/dashboard/inventory-management/stock-overview', label: 'Store Overview' },
   { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
   { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
@@ -73,6 +76,7 @@ const formSchema = z.object({
   password: z.string().optional(),
   confirmPassword: z.string().optional(),
   permissions: z.array(z.string()).default([]),
+  restrict_admin_permissions: z.boolean().default(false),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
     return false;
@@ -115,6 +119,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       password: '',
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
+      restrict_admin_permissions: user?.restrict_admin_permissions || false,
     },
   });
 
@@ -134,6 +139,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       password: '',
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
+      restrict_admin_permissions: user?.restrict_admin_permissions || false,
     });
     setShowPassword(!user);
   }, [user, form]);
@@ -379,8 +385,29 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
         )}
 
         <div className="space-y-3 pt-4 border-t">
-          <h3 className="text-sm font-semibold">Custom Section Permissions</h3>
-          <p className="text-xs text-muted-foreground">Select which sections this staff member can access. (Admins have access to all by default).</p>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <h3 className="text-sm font-semibold">Custom Section Permissions</h3>
+              <p className="text-xs text-muted-foreground">Select which sections this staff member can access. (Admins have access to all by default unless restricted above).</p>
+            </div>
+            {form.watch('role') === 'admin' && (
+              <FormField
+                control={form.control}
+                name="restrict_admin_permissions"
+                render={({ field }) => (
+                  <FormItem className="flex items-center space-x-2 space-y-0">
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <Label className="text-xs font-medium cursor-pointer">Restrict Admin Access to Selected Only</Label>
+                  </FormItem>
+                )}
+              />
+            )}
+          </div>
           <FormField
             control={form.control}
             name="permissions"

@@ -48,7 +48,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
 
   const hasRole = (role: UserRole) => {
     if (!user) return false;
-    if (user.role === 'admin') {
+    if (user.role === 'admin' && !user.restrict_admin_permissions) {
       return true;
     }
     return user.role === role;
@@ -56,7 +56,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
 
   const hasPathAccess = (path: string) => {
     if (!user) return false;
-    if (user.role === 'admin') return true; // Admins default to all paths for safety
+    if (user.role === 'admin' && !user.restrict_admin_permissions) return true; // Admins default to all paths for safety
     return !!(user.permissions && user.permissions.includes(path));
   };
 

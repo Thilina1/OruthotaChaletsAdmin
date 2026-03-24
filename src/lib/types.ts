@@ -17,6 +17,7 @@ export type User = {
   join_date?: string;
   permissions?: string[]; // Array of application section paths they can access
   department?: string;
+  restrict_admin_permissions?: boolean;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';

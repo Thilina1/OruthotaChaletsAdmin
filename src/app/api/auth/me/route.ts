@@ -40,6 +40,7 @@ export async function GET() {
         department: dbUser.department,
         job_title: dbUser.job_title,
         created_at: dbUser.created_at,
+        restrict_admin_permissions: dbUser.restrict_admin_permissions || false,
     };
 
     return NextResponse.json({ user }, { status: 200 });
