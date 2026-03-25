@@ -67,6 +67,7 @@ export default function PurchaseOrdersPage() {
     const [receivePO, setReceivePO] = useState<PurchaseOrder | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [receivedQuantities, setReceivedQuantities] = useState<Record<string, string>>({});
 
     // Create form state
     const [supplierName, setSupplierName] = useState('');
@@ -165,6 +166,7 @@ export default function PurchaseOrdersPage() {
                 id: item.id,
                 quantity: item.quantity,
                 unit_price: itemPrices[item.id] ? parseFloat(itemPrices[item.id]) : null,
+                received_quantity: receivedQuantities[item.id] ? parseFloat(receivedQuantities[item.id]) : item.quantity,
             }));
             const res = await fetch(`/api/admin/purchase-orders/${receivePO.id}`, {
                 method: 'PUT',
@@ -173,9 +175,10 @@ export default function PurchaseOrdersPage() {
             });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
-            toast({ title: 'Goods Received', description: 'PO marked as received with prices recorded.' });
+            toast({ title: 'Goods Received', description: 'PO marked as received with prices and stock updated.' });
             setReceivePO(null);
             setItemPrices({});
+            setReceivedQuantities({});
             fetchAll();
         } catch (err: any) {
             toast({ variant: 'destructive', title: 'Error', description: err.message });
@@ -290,7 +293,13 @@ export default function PurchaseOrdersPage() {
                                                 )}
                                                 {po.status === 'sent' && (
                                                     <Button variant="ghost" size="sm" className="text-green-600 text-xs gap-1"
-                                                        onClick={() => { setReceivePO(po); setItemPrices({}); }}>
+                                                        onClick={() => { 
+                                                            setReceivePO(po); 
+                                                            setItemPrices({}); 
+                                                            const initialQtys: Record<string, string> = {};
+                                                            po.purchase_order_items.forEach(i => initialQtys[i.id] = String(i.quantity));
+                                                            setReceivedQuantities(initialQtys);
+                                                        }}>
                                                         <PackageCheck className="h-3 w-3" /> Receive
                                                     </Button>
                                                 )}
@@ -465,18 +474,31 @@ export default function PurchaseOrdersPage() {
                         <DialogDescription>Enter the unit price for each received item. Leave blank if not yet known.</DialogDescription>
                     </DialogHeader>
                     {receivePO && (
-                        <div className="space-y-3 py-2">
+                        <div className="space-y-4 py-2">
+                             <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-semibold text-muted-foreground px-1">
+                                <div className="col-span-5">Item Details</div>
+                                <div className="col-span-3">Received Qty</div>
+                                <div className="col-span-4">Unit Price (LKR)</div>
+                            </div>
                             {receivePO.purchase_order_items.map(item => (
-                                <div key={item.id} className="flex items-center gap-3">
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium">{item.item_name}</p>
-                                        <p className="text-xs text-muted-foreground">Qty: {item.quantity} {item.unit}</p>
+                                <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
+                                    <div className="col-span-5">
+                                        <p className="text-sm font-medium truncate">{item.item_name}</p>
+                                        <p className="text-xs text-muted-foreground">PO Qty: {item.quantity} {item.unit}</p>
                                     </div>
-                                    <div className="w-40">
+                                    <div className="col-span-3">
+                                        <Input
+                                            type="number"
+                                            placeholder="Qty"
+                                            value={receivedQuantities[item.id] ?? ''}
+                                            onChange={e => setReceivedQuantities(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="col-span-4">
                                         <Input
                                             type="number"
                                             step="0.01"
-                                            placeholder="Unit price (LKR)"
+                                            placeholder="Unit price"
                                             value={itemPrices[item.id] ?? ''}
                                             onChange={e => setItemPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
                                         />

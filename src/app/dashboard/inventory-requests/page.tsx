@@ -1,9 +1,17 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Printer, Loader2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Search, Printer, Check, X, AlertCircle, ShoppingCart, RefreshCw, Send, Plus, Filter, Info, Package, ArrowRight, Trash2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from "@/components/ui/dialog";
@@ -39,13 +47,32 @@ export default function InventoryRequestsPage() {
     const { user, hasPathAccess } = useUserContext();
     const canManageRequests = user?.role === 'admin' || hasPathAccess('/dashboard/inventory-requests');
     const [requests, setRequests] = useState<any[]>([]);
+    const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
     const [inventoryItems, setInventoryItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [actionData, setActionData] = useState<{ id: string, status: 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'EDIT', requestType?: string, requestedQuantity?: number, itemId?: string, itemName?: string, itemCategory?: string, currentNotes?: string, currentStatus?: string } | null>(null);
+    const [actionData, setActionData] = useState<{ id: string, status: 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'EDIT', requestType?: string, requestedQuantity?: number, itemId?: string, itemName?: string, itemCategory?: string, currentNotes?: string, currentStatus?: string, action_metadata?: any } | null>(null);
     const [actualCost, setActualCost] = useState<string>('');
     const [receivedQuantity, setReceivedQuantity] = useState<string>('');
     const [itemPrice, setItemPrice] = useState<string>('');
+    const [isNewBuyRequestOpen, setIsNewBuyRequestOpen] = useState(false);
+    const [newRequestType, setNewRequestType] = useState<'ADD_STOCK' | 'NEW_ITEM'>('ADD_STOCK');
+    const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<string>('');
+    const [newRequestQuantity, setNewRequestQuantity] = useState<string>('');
+    const [newRequestNotes, setNewRequestNotes] = useState<string>('');
+    const [newRequestEstimatedCost, setNewRequestEstimatedCost] = useState<string>('');
+    const [isSubmittingNewRequest, setIsSubmittingNewRequest] = useState(false);
     const [editNotes, setEditNotes] = useState<string>('');
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+    const toggleRow = (id: string) => {
+        const newExpanded = new Set(expandedRows);
+        if (newExpanded.has(id)) {
+            newExpanded.delete(id);
+        } else {
+            newExpanded.add(id);
+        }
+        setExpandedRows(newExpanded);
+    };
     const [filterDate, setFilterDate] = useState<string>('');
     const [activeTab, setActiveTab] = useState<string>('transfer');
     const [isCreatePOOpen, setIsCreatePOOpen] = useState(false);
@@ -58,18 +85,22 @@ export default function InventoryRequestsPage() {
     const fetchRequests = async () => {
         setIsLoading(true);
         try {
-            const [reqRes, invRes] = await Promise.all([
+            const [reqRes, invRes, poRes] = await Promise.all([
                 fetch('/api/admin/inventory-requests'),
-                fetch('/api/admin/hotel-inventory')
+                fetch('/api/admin/hotel-inventory'),
+                fetch('/api/admin/purchase-orders')
             ]);
             const reqData = await reqRes.json();
             const invData = await invRes.json();
+            const poData = await poRes.json();
 
             if (reqData.error) throw new Error(reqData.error);
             if (invData.error) throw new Error(invData.error);
+            if (poData.error) throw new Error(poData.error);
 
             setRequests(reqData.requests || []);
             setInventoryItems(invData.items || []);
+            setPurchaseOrders(poData.purchase_orders || []);
         } catch (error) {
             console.error("Error fetching requests:", error);
             toast({ variant: 'destructive', title: "Error", description: "Failed to fetch inventory requests." });
@@ -89,9 +120,50 @@ export default function InventoryRequestsPage() {
         if (activeTab === 'transfer') {
             return req.request_type === 'TRANSFER_REQUEST';
         } else {
-            return req.request_type === 'ADD_STOCK' || req.request_type === 'NEW_ITEM';
+            return req.request_type === 'ADD_STOCK' || req.request_type === 'NEW_ITEM' || (req.request_type === 'TRANSFER_REQUEST' && req.action_metadata?.needs_external_purchase);
         }
     });
+
+    // Merge standalone Purchase Orders into the 'Buy' view
+    const allItems = [...filteredRequests];
+    if (activeTab === 'buy') {
+        const standalonePOs = purchaseOrders.filter(po => {
+            // Check if this PO is ALREADY represented by a request in our list (through purchase_order_id)
+            const isLinked = requests.some(req => req.purchase_order_id === po.id);
+            return !isLinked;
+        }).map(po => {
+            const totalCost = po.purchase_order_items?.reduce((sum: number, item: any) => sum + (Number(item.total_price) || 0), 0) || 0;
+            const itemNames = po.purchase_order_items?.map((i: any) => i.item_name).join(', ') || 'No Items';
+            const totalReceived = po.status === 'received' 
+                ? po.purchase_order_items?.reduce((sum: number, i: any) => sum + Number(i.received_quantity !== null && i.received_quantity !== undefined ? i.received_quantity : i.quantity), 0)
+                : null;
+            
+            return {
+                id: po.id,
+                isPO: true, // Identify as a PO for UI differences
+                created_at: po.created_at,
+                updated_at: po.updated_at,
+                request_type: 'PO',
+                status: po.status.toUpperCase(),
+                item: { name: itemNames, unit: '' },
+                requested_quantity: po.purchase_order_items?.reduce((sum: number, i: any) => sum + Number(i.quantity), 0) || 0,
+                requester: po.created_by_user || { name: 'Store Manager', email: '' },
+                action_metadata: {
+                    po_number: po.po_number,
+                    supplier: po.supplier_name,
+                    item_count: po.purchase_order_items?.length || 0,
+                    notes: po.notes,
+                    actual_cost: totalCost > 0 ? totalCost : null,
+                    item_list: itemNames,
+                    received_quantity: totalReceived,
+                    items: po.purchase_order_items // Full items for expanding
+                }
+            };
+        });
+        allItems.push(...standalonePOs);
+        // Sort merged list by date
+        allItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
 
     const isWarehouseUser = user?.role === 'admin' || (user?.department && (
         user.department.toLowerCase().includes('warehouse') ||
@@ -106,7 +178,7 @@ export default function InventoryRequestsPage() {
         paginatedItems,
         itemsPerPage,
         setCurrentPage,
-    } = usePagination(filteredRequests, 20);
+    } = usePagination(allItems, 20);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -159,9 +231,11 @@ export default function InventoryRequestsPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: actionData.id,
-                    status: 'APPROVED',
-                    request_type: 'ADD_STOCK',
-                    requested_quantity: receivedQuantity ? parseFloat(receivedQuantity) : actionData.requestedQuantity
+                    status: 'PENDING',
+                    requested_quantity: receivedQuantity ? parseFloat(receivedQuantity) : actionData.requestedQuantity,
+                    action_metadata: {
+                        needs_external_purchase: true
+                    }
                 }),
             });
             const data = await res.json();
@@ -183,7 +257,7 @@ export default function InventoryRequestsPage() {
 
     // Exclude items already linked to a purchase order (DB-persisted)
     const approvedStockItems = filteredRequests.filter(
-        req => req.request_type === 'ADD_STOCK' && req.status === 'APPROVED' && !req.purchase_order_id
+        req => (req.request_type === 'ADD_STOCK' || (req.request_type === 'TRANSFER_REQUEST' && req.action_metadata?.needs_external_purchase)) && req.status === 'APPROVED' && !req.purchase_order_id
     );
 
     const handleCreateAndPrintPO = async () => {
@@ -221,6 +295,46 @@ export default function InventoryRequestsPage() {
             toast({ variant: 'destructive', title: 'Error', description: err.message });
         } finally {
             setIsCreatingPO(false);
+        }
+    };
+
+    const handleCreateManualBuyRequest = async () => {
+        if (newRequestType === 'ADD_STOCK' && !selectedInventoryItemId) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Please select an item.' });
+            return;
+        }
+        if (!newRequestQuantity || parseFloat(newRequestQuantity) <= 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Please enter a valid quantity.' });
+            return;
+        }
+
+        setIsSubmittingNewRequest(true);
+        try {
+            const res = await fetch('/api/admin/inventory-requests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    request_type: newRequestType,
+                    item_id: newRequestType === 'ADD_STOCK' ? selectedInventoryItemId : null,
+                    requested_quantity: parseFloat(newRequestQuantity),
+                    estimated_cost: newRequestEstimatedCost ? parseFloat(newRequestEstimatedCost) : 0,
+                    notes: newRequestNotes,
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            toast({ title: 'Success', description: 'Buy request created successfully.' });
+            setIsNewBuyRequestOpen(false);
+            setNewRequestQuantity('');
+            setNewRequestNotes('');
+            setNewRequestEstimatedCost('');
+            setSelectedInventoryItemId('');
+            fetchRequests();
+        } catch (err: any) {
+            toast({ variant: 'destructive', title: 'Error', description: err.message });
+        } finally {
+            setIsSubmittingNewRequest(false);
         }
     };
 
@@ -263,6 +377,12 @@ export default function InventoryRequestsPage() {
                     {filterDate && (
                         <Button variant="ghost" size="icon" onClick={() => setFilterDate('')} title="Clear Date">
                             &times;
+                        </Button>
+                    )}
+                    {activeTab === 'buy' && (
+                        <Button onClick={() => setIsNewBuyRequestOpen(true)} className="gap-2 bg-primary hover:bg-primary/90">
+                            <Plus className="h-4 w-4" />
+                            <span className="hidden sm:inline">New Buy Request</span>
                         </Button>
                     )}
                     <Button variant="outline" onClick={() => {
@@ -352,6 +472,134 @@ export default function InventoryRequestsPage() {
                 </DialogContent>
             </Dialog>
 
+            {/* New Buy Request Dialog */}
+            <Dialog open={isNewBuyRequestOpen} onOpenChange={setIsNewBuyRequestOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Plus className="h-5 w-5 text-primary" />
+                            New Buy Request
+                        </DialogTitle>
+                        <DialogDescription>
+                            Create a manual request to purchase stock. This will appear as PENDING in the Buy Products tab.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-4">
+                        <div className="flex bg-muted p-1 rounded-lg">
+                            <button
+                                onClick={() => setNewRequestType('ADD_STOCK')}
+                                className={cn(
+                                    "flex-1 py-1.5 text-xs font-medium rounded-md transition-all",
+                                    newRequestType === 'ADD_STOCK' ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
+                                )}
+                            >
+                                Existing Item
+                            </button>
+                            <button
+                                onClick={() => setNewRequestType('NEW_ITEM')}
+                                className={cn(
+                                    "flex-1 py-1.5 text-xs font-medium rounded-md transition-all",
+                                    newRequestType === 'NEW_ITEM' ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
+                                )}
+                            >
+                                New Product
+                            </button>
+                        </div>
+
+                        {newRequestType === 'ADD_STOCK' ? (
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Select Item</label>
+                                <Select value={selectedInventoryItemId} onValueChange={setSelectedInventoryItemId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Search or select an item..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="max-h-[300px]">
+                                        {/* Group by category for better UX */}
+                                        {Object.entries(
+                                            inventoryItems.reduce((acc: any, item: any) => {
+                                                if (!acc[item.category]) acc[item.category] = [];
+                                                acc[item.category].push(item);
+                                                return acc;
+                                            }, {})
+                                        ).map(([category, items]: [string, any]) => (
+                                            <div key={category}>
+                                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 uppercase tracking-wider">{category}</div>
+                                                {items.map((item: any) => (
+                                                    <SelectItem key={item.id} value={item.id}>
+                                                        {item.name} ({item.current_stock} {item.unit} in {item.department?.name})
+                                                    </SelectItem>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Product Details</label>
+                                <Textarea
+                                    placeholder="Enter item name, category, and any specifications..."
+                                    value={newRequestNotes}
+                                    onChange={(e) => setNewRequestNotes(e.target.value)}
+                                    className="min-h-[80px]"
+                                />
+                                <p className="text-[10px] text-muted-foreground mt-1">Example: "Coca Cola 500ml, Beverage, Bottles"</p>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Quantity</label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={newRequestQuantity}
+                                    onChange={(e) => setNewRequestQuantity(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Est. Cost (LKR)</label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={newRequestEstimatedCost}
+                                    onChange={(e) => setNewRequestEstimatedCost(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        {newRequestType === 'ADD_STOCK' && (
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Justification / Notes</label>
+                                <Textarea
+                                    placeholder="Why is this purchase needed?"
+                                    value={newRequestNotes}
+                                    onChange={(e) => setNewRequestNotes(e.target.value)}
+                                    className="min-h-[60px]"
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsNewBuyRequestOpen(false)} disabled={isSubmittingNewRequest}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleCreateManualBuyRequest} disabled={isSubmittingNewRequest} className="gap-2">
+                            {isSubmittingNewRequest ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Send className="h-4 w-4" />
+                            )}
+                            Submit Request
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Tabs defaultValue="transfer" value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="mb-4">
                     <TabsTrigger value="transfer">Internal Transfer</TabsTrigger>
@@ -366,7 +614,7 @@ export default function InventoryRequestsPage() {
                                     <TableHead>Date Requested</TableHead>
                                     <TableHead>Type</TableHead>
                                     <TableHead>Item Details</TableHead>
-                                    <TableHead>From Store</TableHead>
+                                    <TableHead>From/To</TableHead>
                                     <TableHead>Requested By</TableHead>
                                     <TableHead>Status</TableHead>
                                     {canManageRequests && <TableHead className="text-right">Actions</TableHead>}
@@ -375,125 +623,180 @@ export default function InventoryRequestsPage() {
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-10">Loading...</TableCell>
+                                        <TableCell colSpan={7} className="text-center py-10">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                                                <p className="text-sm text-muted-foreground">Loading requests...</p>
+                                            </div>
+                                        </TableCell>
                                     </TableRow>
                                 ) : (!paginatedItems || paginatedItems.length === 0) ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">No transfer requests found.</TableCell>
+                                        <TableCell colSpan={7} className="text-center py-20">
+                                            <div className="flex flex-col items-center gap-3">
+                                                <Info className="h-8 w-8 text-muted-foreground/50" />
+                                                <p className="text-muted-foreground font-medium">No transfer requests found.</p>
+                                                <p className="text-xs text-muted-foreground/70 max-w-xs mx-auto">Requests from departments for stock from the main warehouse will appear here.</p>
+                                            </div>
+                                        </TableCell>
                                     </TableRow>
                                 ) : (
                                     paginatedItems.map((req) => (
-                                        <TableRow key={req.id}>
+                                        <TableRow key={req.id} className="group hover:bg-muted/30 transition-colors">
                                             <TableCell className="font-medium whitespace-nowrap">
-                                                {format(new Date(req.created_at), 'PPP')}
-                                                <div className="text-xs text-muted-foreground">{format(new Date(req.created_at), 'p')}</div>
+                                                <div className="text-sm">{format(new Date(req.created_at), 'MMM d, yyyy')}</div>
+                                                <div className="text-[10px] text-muted-foreground">{format(new Date(req.created_at), 'p')}</div>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className={getRequestTypeColor(req.request_type)}>
+                                                <Badge variant="outline" className={cn("font-medium", getRequestTypeColor(req.request_type))}>
                                                     {getRequestTypeLabel(req.request_type)}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                <div className="font-medium">
-                                                    {req.item?.name}
+                                                <div className="flex items-center gap-2">
+                                                    <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                    <span className="font-semibold text-sm">{req.item?.name}</span>
                                                 </div>
-                                                <div className="text-xs text-muted-foreground mt-0.5">
-                                                    - {req.requested_quantity} {req.item?.unit || 'units'}
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 bg-primary/5 text-primary border-primary/10">
+                                                        {req.requested_quantity} {req.item?.unit || 'units'}
+                                                    </Badge>
+                                                    {req.action_metadata?.needs_external_purchase && (
+                                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 bg-amber-50 text-amber-700 border-amber-200">
+                                                            Awaiting External Stock
+                                                        </Badge>
+                                                    )}
                                                 </div>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant="secondary" className="font-normal">
-                                                    Store
-                                                </Badge>
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-1.5 text-xs">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                                                        <span className="text-muted-foreground uppercase font-bold text-[10px]">Store</span>
+                                                    </div>
+                                                    <ArrowRight className="h-3 w-3 text-muted-foreground/50 ml-0.5" />
+                                                    <div className="flex items-center gap-1.5 text-xs">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                                        <span className="font-semibold">{req.item?.department?.name || 'Department'}</span>
+                                                    </div>
+                                                </div>
                                             </TableCell>
                                             <TableCell>
-                                                {req.requester?.name || 'Unknown User'}
-                                                <div className="text-xs text-muted-foreground text-ellipsis overflow-hidden max-w-[150px]">{req.requester?.email}</div>
+                                                <div className="text-sm font-medium">{req.requester?.name || 'Unknown User'}</div>
+                                                <div className="text-[10px] text-muted-foreground max-w-[120px] truncate">{req.requester?.email}</div>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className={
-                                                    req.status === 'COMPLETED' ? 'bg-blue-100 text-blue-800' :
-                                                        req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                                                            req.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                                                }>
-                                                    {req.status}
+                                                <Badge variant="outline" className={cn(
+                                                    "font-medium shadow-sm",
+                                                    req.status === 'COMPLETED' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                    req.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                    req.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                    'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                                )}>
+                                                    <div className="flex items-center gap-1.5">
+                                                        {req.status === 'PENDING' && <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />}
+                                                        {req.status}
+                                                    </div>
                                                 </Badge>
                                                 {req.reviewer && (
-                                                    <div className="text-[10px] text-muted-foreground mt-1">
-                                                        Reviewed by {req.reviewer.name}
+                                                    <div className="text-[10px] text-muted-foreground mt-1 px-1">
+                                                        By {req.reviewer.name}
                                                     </div>
                                                 )}
                                             </TableCell>
                                             {canManageRequests && (
-                                                <TableCell className="text-right space-x-2">
+                                                <TableCell className="text-right">
                                                     {req.status === 'PENDING' ? (
-                                                        <>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="text-green-600 border-green-200 hover:bg-green-50"
-                                                                onClick={() => {
-                                                                    setActionData({
-                                                                        id: req.id,
-                                                                        status: 'APPROVED',
-                                                                        requestType: req.request_type,
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <Button variant="outline" size="sm" onClick={() => {
+                                                                setActionData({ 
+                                                                    id: req.id, 
+                                                                    status: 'EDIT', 
+                                                                    currentStatus: req.status,
+                                                                    requestType: req.request_type, 
+                                                                    requestedQuantity: req.requested_quantity,
+                                                                    itemName: req.item?.name,
+                                                                    currentNotes: req.notes,
+                                                                    action_metadata: req.action_metadata
+                                                                });
+                                                                setReceivedQuantity(String(req.requested_quantity));
+                                                                setEditNotes(req.notes || '');
+                                                            }}>
+                                                                Edit
+                                                            </Button>
+                                                            <Button variant="outline" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => {
+                                                                setActionData({ id: req.id, status: 'REJECTED', requestType: req.request_type });
+                                                            }}>
+                                                                Reject
+                                                            </Button>
+                                                            {!req.action_metadata?.needs_external_purchase && (
+                                                                <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => {
+                                                                    setActionData({ 
+                                                                        id: req.id, 
+                                                                        status: 'APPROVED', 
+                                                                        requestType: req.request_type, 
                                                                         requestedQuantity: req.requested_quantity,
                                                                         itemId: req.item_id,
                                                                         itemName: req.item?.name,
-                                                                        itemCategory: req.item?.category
+                                                                        itemCategory: req.item?.category,
+                                                                        action_metadata: req.action_metadata
                                                                     });
                                                                     setReceivedQuantity(String(req.requested_quantity));
-                                                                }}
-                                                            >
-                                                                Approve
-                                                            </Button>
-                                                            <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => setActionData({ id: req.id, status: 'REJECTED' })}>Reject</Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setActionData({
-                                                                        id: req.id,
-                                                                        status: 'EDIT',
-                                                                        currentStatus: req.status,
-                                                                        requestedQuantity: req.requested_quantity,
-                                                                        currentNotes: req.notes || '',
-                                                                        itemName: req.item?.name
-                                                                    });
-                                                                    setReceivedQuantity(String(req.requested_quantity));
-                                                                    setEditNotes(req.notes || '');
-                                                                }}
-                                                            >
-                                                                Edit
-                                                            </Button>
-                                                        </>
+                                                                }}>
+                                                                    Approve
+                                                                </Button>
+                                                            )}
+                                                        </div>
                                                     ) : req.status === 'APPROVED' ? (
-                                                        <div className="flex gap-2 justify-end">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setActionData({
-                                                                        id: req.id,
-                                                                        status: 'EDIT',
-                                                                        currentStatus: req.status,
-                                                                        requestedQuantity: req.requested_quantity,
-                                                                        currentNotes: req.notes || '',
-                                                                        itemName: req.item?.name
-                                                                    });
-                                                                    setReceivedQuantity(String(req.requested_quantity));
-                                                                    setEditNotes(req.notes || '');
-                                                                }}
-                                                            >
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <Button variant="outline" size="sm" onClick={() => {
+                                                                setActionData({ 
+                                                                    id: req.id, 
+                                                                    status: 'EDIT', 
+                                                                    currentStatus: req.status,
+                                                                    requestType: req.request_type, 
+                                                                    requestedQuantity: req.requested_quantity,
+                                                                    itemName: req.item?.name,
+                                                                    currentNotes: req.notes,
+                                                                    action_metadata: req.action_metadata
+                                                                });
+                                                                setReceivedQuantity(String(req.requested_quantity));
+                                                                setEditNotes(req.notes || '');
+                                                            }}>
                                                                 Edit
                                                             </Button>
-                                                            <Button variant="default" size="sm" onClick={() => {
-                                                                setActionData({ id: req.id, status: 'COMPLETED', requestType: req.request_type, requestedQuantity: req.requested_quantity });
-                                                                setReceivedQuantity(String(req.requested_quantity));
-                                                            }}>Issue Stock</Button>
+                                                            <Button 
+                                                                variant="default" 
+                                                                size="sm" 
+                                                                className="gap-2"
+                                                                disabled={(() => {
+                                                                    const warehouseItem = inventoryItems.find(item => {
+                                                                        if (item.name !== req.item?.name) return false;
+                                                                        const deptName = item.department?.name?.toLowerCase() || '';
+                                                                        return deptName === 'store' || deptName === 'warehouse' || 
+                                                                               deptName === 'store (warehouse)' || deptName.includes('warehouse') || 
+                                                                               deptName.includes('wearehouse');
+                                                                    });
+                                                                    return !warehouseItem || Number(warehouseItem.current_stock) < req.requested_quantity;
+                                                                })()}
+                                                                onClick={() => {
+                                                                    setActionData({ 
+                                                                        id: req.id, 
+                                                                        status: 'COMPLETED', 
+                                                                        requestType: req.request_type, 
+                                                                        requestedQuantity: req.requested_quantity,
+                                                                        itemName: req.item?.name,
+                                                                        action_metadata: req.action_metadata
+                                                                    });
+                                                                    setReceivedQuantity(String(req.requested_quantity));
+                                                                }}
+                                                            >
+                                                                <Send className="h-3.5 w-3.5" />
+                                                                Issue Stock
+                                                            </Button>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-xs text-muted-foreground italic">No actions</span>
+                                                        <span className="text-xs text-muted-foreground italic px-3">No actions</span>
                                                     )}
                                                 </TableCell>
                                             )}
@@ -502,7 +805,7 @@ export default function InventoryRequestsPage() {
                                 )}
                             </TableBody>
                         </Table>
-                        {!isLoading && (
+                        {!isLoading && filteredRequests.length > 0 && (
                             <div className="p-4 border-t border-border">
                                 <DataTablePagination
                                     currentPage={currentPage}
@@ -518,166 +821,322 @@ export default function InventoryRequestsPage() {
 
                 <TabsContent value="buy" className="mt-0">
                     {!isWarehouseUser ? (
-                        <div className="rounded-md border bg-muted/20 p-12 text-center">
-                            <h3 className="text-lg font-semibold mb-2">Restricted Access</h3>
-                            <p className="text-muted-foreground">Only the Store management can handle external product purchases and buy requests.</p>
+                        <div className="rounded-md border bg-muted/20 p-12 text-center flex flex-col items-center gap-4">
+                            <div className="p-4 rounded-full bg-amber-50">
+                                <AlertCircle className="h-8 w-8 text-amber-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold mb-1">Restricted Access</h3>
+                                <p className="text-muted-foreground text-sm max-w-sm mx-auto">Only the Store management can handle external product purchases and buy requests.</p>
+                            </div>
                         </div>
                     ) : (
-                        <div className="rounded-md border bg-card">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date Requested</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Item Details</TableHead>
-                                        <TableHead>Requested By</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        {canManageRequests && <TableHead className="text-right">Actions</TableHead>}
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {isLoading ? (
-                                        <TableRow>
-                                            <TableCell colSpan={6} className="text-center py-10">Loading...</TableCell>
-                                        </TableRow>
-                                    ) : (!paginatedItems || paginatedItems.length === 0) ? (
-                                        <TableRow>
-                                            <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No purchase requests found.</TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        paginatedItems.map((req) => (
-                                            <TableRow key={req.id}>
-                                                <TableCell className="font-medium whitespace-nowrap">
-                                                    {format(new Date(req.created_at), 'PPP')}
-                                                    <div className="text-xs text-muted-foreground">{format(new Date(req.created_at), 'p')}</div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className={getRequestTypeColor(req.request_type)}>
-                                                        {getRequestTypeLabel(req.request_type)}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="font-medium">
-                                                        {req.request_type === 'NEW_ITEM' ? (req.notes || 'Unknown Item') : req.item?.name}
-                                                    </div>
-                                                    {req.request_type !== 'NEW_ITEM' && (
-                                                        <div className="text-xs text-muted-foreground mt-0.5">
-                                                            + {req.requested_quantity} {req.item?.unit || 'units'}
-                                                        </div>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {req.requester?.name || 'Unknown User'}
-                                                    <div className="text-xs text-muted-foreground">{req.requester?.email}</div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className={
-                                                        req.status === 'COMPLETED' ? 'bg-blue-100 text-blue-800' :
-                                                            req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                                                                req.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                                                    }>
-                                                        {req.status}
-                                                    </Badge>
-                                                    {req.reviewer && (
-                                                        <div className="text-[10px] text-muted-foreground mt-1">
-                                                            Reviewed by {req.reviewer.name}
-                                                        </div>
-                                                    )}
-                                                    {req.action_metadata?.actual_cost && (
-                                                        <div className="text-[10px] font-semibold mt-1">
-                                                            LKR {req.action_metadata.actual_cost}
-                                                        </div>
-                                                    )}
-                                                </TableCell>
-                                                {canManageRequests && (
-                                                    <TableCell className="text-right space-x-2">
-                                                        {req.status === 'PENDING' ? (
-                                                            <>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    className="text-green-600 border-green-200 hover:bg-green-50"
-                                                                    onClick={() => {
-                                                                        setActionData({
-                                                                            id: req.id,
-                                                                            status: 'APPROVED',
-                                                                            requestType: req.request_type,
-                                                                            requestedQuantity: req.requested_quantity,
-                                                                            itemId: req.item_id,
-                                                                            itemName: req.item?.name,
-                                                                            itemCategory: req.item?.category
-                                                                        });
-                                                                        setReceivedQuantity(String(req.requested_quantity));
-                                                                    }}
-                                                                >
-                                                                    Approve
-                                                                </Button>
-                                                                <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => setActionData({ id: req.id, status: 'REJECTED' })}>Reject</Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        setActionData({
-                                                                            id: req.id,
-                                                                            status: 'EDIT',
-                                                                            currentStatus: req.status,
-                                                                            requestedQuantity: req.requested_quantity,
-                                                                            currentNotes: req.notes || '',
-                                                                            itemName: req.item?.name || req.notes
-                                                                        });
-                                                                        setReceivedQuantity(String(req.requested_quantity));
-                                                                        setEditNotes(req.notes || '');
-                                                                    }}
-                                                                >
-                                                                    Edit
-                                                                </Button>
-                                                            </>
-                                                        ) : req.status === 'APPROVED' && (req.request_type === 'ADD_STOCK') ? (
-                                                            <div className="flex gap-2 justify-end">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        setActionData({
-                                                                            id: req.id,
-                                                                            status: 'EDIT',
-                                                                            currentStatus: req.status,
-                                                                            requestedQuantity: req.requested_quantity,
-                                                                            currentNotes: req.notes || '',
-                                                                            itemName: req.item?.name
-                                                                        });
-                                                                        setReceivedQuantity(String(req.requested_quantity));
-                                                                        setEditNotes(req.notes || '');
-                                                                    }}
-                                                                >
-                                                                    Edit
-                                                                </Button>
-                                                                <Button variant="default" size="sm" onClick={() => {
-                                                                    setActionData({ id: req.id, status: 'COMPLETED', requestType: req.request_type, requestedQuantity: req.requested_quantity });
-                                                                    setReceivedQuantity(String(req.requested_quantity));
-                                                                }}>Receive Stock</Button>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-xs text-muted-foreground italic">No actions</span>
-                                                        )}
-                                                    </TableCell>
-                                                )}
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                            {!isLoading && (
-                                <div className="p-4 border-t border-border">
-                                    <DataTablePagination
-                                        currentPage={currentPage}
-                                        totalPages={totalPages}
-                                        totalItems={totalItems}
-                                        itemsPerPage={itemsPerPage}
-                                        onPageChange={setCurrentPage}
-                                    />
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between bg-card p-4 rounded-lg border shadow-sm">
+                                <div>
+                                    <h3 className="font-semibold flex items-center gap-2">
+                                        <ShoppingCart className="h-4 w-4 text-primary" />
+                                        External Procurement
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground">Manage purchase requests for stock arrival from external suppliers.</p>
                                 </div>
-                            )}
+                                <Button onClick={() => setIsNewBuyRequestOpen(true)} size="sm" className="gap-2">
+                                    <Plus className="h-4 w-4" />
+                                    New Buy Request
+                                </Button>
+                            </div>
+
+                            <div className="rounded-md border bg-card">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-[40px]"></TableHead>
+                                            <TableHead>Date Requested</TableHead>
+                                            <TableHead>Type</TableHead>
+                                            <TableHead>Item Details</TableHead>
+                                            <TableHead>Requested By</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            {canManageRequests && <TableHead className="text-right">Actions</TableHead>}
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {isLoading ? (
+                                            <TableRow>
+                                                <TableCell colSpan={7} className="text-center py-10">
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                                                        <p className="text-sm text-muted-foreground">Loading requests...</p>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (!paginatedItems || paginatedItems.length === 0) ? (
+                                            <TableRow>
+                                                <TableCell colSpan={7} className="text-center py-20">
+                                                    <div className="flex flex-col items-center gap-3">
+                                                        <ShoppingCart className="h-8 w-8 text-muted-foreground/50" />
+                                                        <p className="text-muted-foreground font-medium">No purchase requests found.</p>
+                                                        <p className="text-xs text-muted-foreground/70 max-w-xs mx-auto">Requests converted from internal transfers or manually created buy requests will appear here.</p>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            paginatedItems.map((req) => (
+                                                <React.Fragment key={req.id}>
+                                                    <TableRow className="group hover:bg-muted/30 transition-colors">
+                                                        <TableCell className="p-2 text-center">
+                                                            {req.isPO && (
+                                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => toggleRow(req.id)}>
+                                                                    {expandedRows.has(req.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                                </Button>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell className="font-medium whitespace-nowrap">
+                                                            <div className="text-sm">{format(new Date(req.created_at), 'MMM d, yyyy')}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{format(new Date(req.created_at), 'p')}</div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="font-semibold text-sm">
+                                                                {req.isPO ? (
+                                                                    <span className="font-mono text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
+                                                                        {req.action_metadata.po_number}
+                                                                    </span>
+                                                                ) : (
+                                                                    req.request_type === 'NEW_ITEM' ? (req.notes || 'New Item Detail') : req.item?.name
+                                                                )}
+                                                            </div>
+                                                            {!req.isPO && (
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                                                                        Ordered: {req.requested_quantity} {req.item?.unit || 'units'}
+                                                                    </Badge>
+                                                                    {req.status === 'COMPLETED' && req.action_metadata?.received_quantity && (
+                                                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-green-50 text-green-700 border-green-200">
+                                                                            Received: {req.action_metadata.received_quantity}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="text-sm font-medium">{req.requester?.name || 'System User'}</div>
+                                                            <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">{req.requester?.email}</div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className={cn(
+                                                                "font-medium shadow-sm",
+                                                                req.status === 'COMPLETED' || req.status === 'RECEIVED' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                                req.status === 'APPROVED' || req.status === 'SENT' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                                req.status === 'REJECTED' || req.status === 'CANCELLED' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                                'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                                            )}>
+                                                                {req.status}
+                                                            </Badge>
+                                                            {!req.isPO && req.status === 'COMPLETED' && (
+                                                                <div className="mt-1 flex flex-col items-start gap-0.5">
+                                                                    <span className="text-[9px] text-muted-foreground font-medium">Received on:</span>
+                                                                    <span className="text-[10px] font-semibold text-blue-600">
+                                                                        {format(new Date(req.updated_at || req.created_at), 'MMM d, yyyy')}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            {req.request_type === 'TRANSFER_REQUEST' && req.status !== 'COMPLETED' && (
+                                                                <div className="mt-1">
+                                                                    <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10 text-[9px] py-0 h-4">
+                                                                        For Internal Transfer
+                                                                    </Badge>
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
+                                                    {canManageRequests && (
+                                                        <TableCell className="text-right">
+                                                            {req.isPO ? (
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    <Button variant="outline" size="sm" asChild>
+                                                                        <a href="/dashboard/purchase-orders">Manage PO</a>
+                                                                    </Button>
+                                                                </div>
+                                                            ) : req.status === 'PENDING' ? (
+                                                                <div className="flex items-center justify-end gap-2 text-right">
+                                                                    <Button variant="outline" size="sm" onClick={() => {
+                                                                        setActionData({ 
+                                                                            id: req.id, 
+                                                                            status: 'EDIT', 
+                                                                            currentStatus: req.status,
+                                                                            requestType: req.request_type, 
+                                                                            requestedQuantity: req.requested_quantity,
+                                                                            itemName: req.item?.name || req.notes,
+                                                                            currentNotes: req.notes,
+                                                                            action_metadata: req.action_metadata
+                                                                        });
+                                                                        setReceivedQuantity(String(req.requested_quantity));
+                                                                        setEditNotes(req.notes || '');
+                                                                    }}>
+                                                                        Edit
+                                                                    </Button>
+                                                                    <Button variant="outline" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => {
+                                                                        setActionData({ id: req.id, status: 'REJECTED', requestType: req.request_type });
+                                                                    }}>
+                                                                        Reject
+                                                                    </Button>
+                                                                    <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => {
+                                                                        setActionData({ 
+                                                                            id: req.id, 
+                                                                            status: 'APPROVED', 
+                                                                            requestType: req.request_type, 
+                                                                            requestedQuantity: req.requested_quantity,
+                                                                            itemName: req.item?.name || req.notes,
+                                                                            action_metadata: req.action_metadata
+                                                                        });
+                                                                        setReceivedQuantity(String(req.requested_quantity));
+                                                                    }}>
+                                                                        Approve
+                                                                    </Button>
+                                                                </div>
+                                                            ) : req.status === 'APPROVED' ? (
+                                                                <div className="flex items-center justify-end gap-2 text-right">
+                                                                    <Button variant="outline" size="sm" onClick={() => {
+                                                                        setActionData({ 
+                                                                            id: req.id, 
+                                                                            status: 'EDIT', 
+                                                                            currentStatus: req.status,
+                                                                            requestType: req.request_type, 
+                                                                            requestedQuantity: req.requested_quantity,
+                                                                            itemName: req.item?.name || req.notes,
+                                                                            currentNotes: req.notes,
+                                                                            action_metadata: req.action_metadata
+                                                                        });
+                                                                        setReceivedQuantity(String(req.requested_quantity));
+                                                                        setEditNotes(req.notes || '');
+                                                                    }}>
+                                                                        Edit
+                                                                    </Button>
+                                                                    <Button variant="default" size="sm" className="gap-2" onClick={() => {
+                                                                        setActionData({ 
+                                                                            id: req.id, 
+                                                                            status: 'COMPLETED', 
+                                                                            requestType: req.request_type, 
+                                                                            requestedQuantity: req.requested_quantity,
+                                                                            itemName: req.item?.name || req.notes,
+                                                                            action_metadata: req.action_metadata
+                                                                        });
+                                                                        setReceivedQuantity(String(req.requested_quantity));
+                                                                    }}>
+                                                                        <ShoppingCart className="h-3.5 w-3.5" />
+                                                                        Receive Stock
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-xs text-muted-foreground italic px-3">No actions</span>
+                                                            )}
+                                                        </TableCell>
+                                                    )}
+                                                </TableRow>
+                                                
+                                                {expandedRows.has(req.id) && req.isPO && (
+                                                    <TableRow className="bg-muted/5">
+                                                        <TableCell colSpan={7} className="p-4 pt-0">
+                                                            <div className="rounded-xl border bg-card shadow-lg ml-8 mt-2 overflow-hidden border-blue-100">
+                                                                {/* PO Header Information */}
+                                                                <div className="bg-blue-50/50 p-4 border-b border-blue-100 flex flex-wrap items-center justify-between gap-4">
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div className="bg-white p-2 rounded-lg border border-blue-100">
+                                                                            <Package className="h-5 w-5 text-blue-600" />
+                                                                        </div>
+                                                                        <div>
+                                                                            <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Supplier</div>
+                                                                            <div className="text-sm font-bold text-blue-900">{req.action_metadata.supplier || 'Not Specified'}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex gap-6">
+                                                                        <div>
+                                                                            <div className="text-[10px] font-bold text-muted-foreground uppercase">Ordered Total</div>
+                                                                            <div className="text-sm font-semibold">{req.requested_quantity} units</div>
+                                                                        </div>
+                                                                        {req.action_metadata?.received_quantity && (
+                                                                            <div>
+                                                                                <div className="text-[10px] font-bold text-green-600 uppercase">Received Total</div>
+                                                                                <div className="text-sm font-bold text-green-700">{req.action_metadata.received_quantity} units</div>
+                                                                            </div>
+                                                                        )}
+                                                                        {(req.status === 'COMPLETED' || req.status === 'RECEIVED') && (
+                                                                            <div>
+                                                                                <div className="text-[10px] font-bold text-blue-600 uppercase">Receive Date</div>
+                                                                                <div className="text-sm font-semibold">{format(new Date(req.updated_at || req.created_at), 'MMM d, yyyy')}</div>
+                                                                            </div>
+                                                                        )}
+                                                                        {req.action_metadata?.actual_cost && (
+                                                                            <div className="bg-green-600 text-white px-3 py-1 rounded-lg flex flex-col items-center justify-center">
+                                                                                <div className="text-[9px] font-bold uppercase opacity-80">Total Cost</div>
+                                                                                <div className="text-xs font-black">LKR {req.action_metadata.actual_cost}</div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Itemized List */}
+                                                                <div className="p-4">
+                                                                    <div className="text-[10px] font-bold text-muted-foreground mb-3 uppercase tracking-wider flex items-center gap-2">
+                                                                        <div className="h-px flex-1 bg-muted"></div>
+                                                                        Item Details
+                                                                        <div className="h-px flex-1 bg-muted"></div>
+                                                                    </div>
+                                                                    <div className="grid gap-2">
+                                                                        {req.action_metadata.items?.map((item: any) => (
+                                                                            <div key={item.id} className="flex items-center justify-between p-2 rounded-lg border border-transparent hover:border-muted hover:bg-muted/20 transition-all">
+                                                                                <div className="flex-1">
+                                                                                    <div className="font-semibold text-blue-900">{item.item_name}</div>
+                                                                                    <div className="text-[10px] text-muted-foreground">Unit: {item.unit || 'units'}</div>
+                                                                                </div>
+                                                                                <div className="flex gap-8 text-right">
+                                                                                    <div className="w-32">
+                                                                                        <div className="text-[9px] text-muted-foreground uppercase font-bold">Quantity</div>
+                                                                                        <div className="text-xs">
+                                                                                            <span className="text-muted-foreground">Ord:</span> <span className="font-semibold">{item.quantity}</span>
+                                                                                            <span className="mx-1 text-muted-foreground">•</span>
+                                                                                            <span className="text-green-600 font-bold">Rec: {item.received_quantity ?? item.quantity}</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="w-24">
+                                                                                        <div className="text-[9px] text-muted-foreground uppercase font-bold">Unit Price</div>
+                                                                                        <div className="text-xs font-medium">LKR {item.unit_price || '0'}</div>
+                                                                                    </div>
+                                                                                    <div className="w-28">
+                                                                                        <div className="text-[9px] text-muted-foreground uppercase font-bold">Total</div>
+                                                                                        <div className="text-xs font-bold text-blue-700">LKR {item.total_price || '0'}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    
+                                                                    {req.action_metadata.notes && (
+                                                                        <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                                                            <div className="text-[10px] font-bold text-amber-700 uppercase mb-1">Notes / Instructions</div>
+                                                                            <p className="text-xs text-amber-800 leading-relaxed">{req.action_metadata.notes}</p>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </React.Fragment>
+                                        ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                                {!isLoading && filteredRequests.length > 0 && (
+                                    <div className="p-4 border-t border-border">
+                                        <DataTablePagination
+                                            currentPage={currentPage}
+                                            totalPages={totalPages}
+                                            totalItems={totalItems}
+                                            itemsPerPage={itemsPerPage}
+                                            onPageChange={setCurrentPage}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </TabsContent>
@@ -692,128 +1151,96 @@ export default function InventoryRequestsPage() {
                     setEditNotes('');
                 }
             }}>
-                <AlertDialogContent>
+                <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {actionData?.status === 'COMPLETED' ? 'Issue Stock / complete Request' :
-                                actionData?.status === 'APPROVED' ? 'Confirm Approval' :
-                                    actionData?.status === 'EDIT' ? `Edit Request: ${actionData.itemName}` : 'Are you sure?'}
+                            {actionData?.status === 'COMPLETED' ? 'Complete Fulfillment' :
+                             actionData?.status === 'APPROVED' ? 'Confirm Approval' :
+                             actionData?.status === 'REJECTED' ? 'Confirm Rejection' :
+                             actionData?.status === 'EDIT' ? `Edit Request: ${actionData.itemName}` : 'Are you sure?'}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             {actionData?.status === 'COMPLETED'
                                 ? (actionData.requestType === 'TRANSFER_REQUEST'
-                                    ? 'Confirm the quantity being issued from the Store. This will update stock levels for both the Store and the requesting department.'
-                                    : 'Enter the actual total cost of the items purchased to complete this request and update the inventory stock.')
+                                    ? 'Confirm the quantity being issued from the main Store. This will update stock levels for both locations.'
+                                    : 'Enter the actual totals and quantity received to complete this purchase and update stock.')
                                 : actionData?.status === 'APPROVED'
-                                    ? 'Review and approve this invitation. You can adjust the quantity if needed.'
+                                    ? 'Review and approve this request. You can adjust the quantity if needed.'
+                                    : actionData?.status === 'REJECTED'
+                                    ? 'This will reject the request. This action cannot be undone.'
                                     : actionData?.status === 'EDIT'
-                                        ? 'Modify the requested quantity or notes for this request.'
-                                        : `This will mark the request as ${actionData?.status.toLowerCase()}.`
+                                    ? 'Adjust the request details below.'
+                                    : 'Please confirm this action.'
                             }
-                            {actionData?.status === 'APPROVED' && actionData?.requestType === 'ADD_STOCK' && ' This will add the items to the Purchase Order so they can be purchased.'}
-                            {actionData?.status === 'REJECTED' && ' This action cannot be undone.'}
+                            {actionData?.status === 'APPROVED' && actionData?.requestType === 'TRANSFER_REQUEST' && !actionData?.action_metadata?.needs_external_purchase && (
+                                <span className="mt-2 font-medium text-amber-600 block text-xs">
+                                    Note: This request will remain in the Internal Transfer tab for stock issuance.
+                                </span>
+                            )}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    {actionData?.status === 'COMPLETED' && (
-                        <div className="py-4 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-1">
-                                    {actionData.requestType === 'TRANSFER_REQUEST' ? 'Issued Quantity' : 'Received Quantity'}
-                                </label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={receivedQuantity}
-                                    onChange={(e) => {
-                                        setReceivedQuantity(e.target.value);
-                                        if (actionData.requestType !== 'TRANSFER_REQUEST' && itemPrice && e.target.value) {
-                                            setActualCost((parseFloat(e.target.value) * parseFloat(itemPrice)).toFixed(2));
-                                        }
-                                    }}
-                                />
-                            </div>
-                            {actionData.requestType !== 'TRANSFER_REQUEST' && (
-                                <>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">Unit Item Price (LKR)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            value={itemPrice}
-                                            onChange={(e) => {
-                                                setItemPrice(e.target.value);
-                                                if (receivedQuantity && e.target.value) {
-                                                    setActualCost((parseFloat(receivedQuantity) * parseFloat(e.target.value)).toFixed(2));
-                                                }
-                                            }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">Total Actual Cost (LKR)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            placeholder="e.g. 1500.00"
-                                            value={actualCost}
-                                            onChange={(e) => setActualCost(e.target.value)}
-                                        />
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    )}
 
-                    {(actionData?.status === 'APPROVED' || actionData?.status === 'EDIT') && (
+                    {(actionData?.status === 'APPROVED' || actionData?.status === 'EDIT' || actionData?.status === 'COMPLETED') && (
                         <div className="py-2 space-y-4">
-                            {actionData.status === 'APPROVED' && actionData.requestType === 'TRANSFER_REQUEST' && (() => {
+                            {/* Stock Info for Transfers */}
+                            {actionData.requestType === 'TRANSFER_REQUEST' && (() => {
                                 const warehouseItem = inventoryItems.find(item => {
                                     if (item.name !== actionData.itemName) return false;
-                                    
                                     const deptName = item.department?.name?.toLowerCase() || '';
-                                    return deptName === 'store' || 
-                                           deptName === 'warehouse' || 
-                                           deptName === 'store (warehouse)' || 
-                                           deptName.includes('warehouse') || 
-                                           deptName.includes('wearehouse');
+                                    return deptName === 'store' || deptName === 'warehouse' || deptName === 'store (warehouse)' || 
+                                           deptName.includes('warehouse') || deptName.includes('wearehouse');
                                 });
                                 const stockAvailable = warehouseItem ? Number(warehouseItem.current_stock) : 0;
-
                                 return (
-                                    <div className="p-3 bg-muted rounded-md text-sm">
+                                    <div className="p-3 bg-muted rounded-md text-sm border">
                                         <div className="flex justify-between items-center mb-1">
-                                            <span className="text-muted-foreground font-medium">Store Stock:</span>
+                                            <span className="text-muted-foreground font-medium">Warehouse stock ({warehouseItem?.unit || 'units'}):</span>
                                             <span className={cn("font-bold", stockAvailable <= 0 ? "text-red-500" : "text-green-600")}>
-                                                {stockAvailable} {warehouseItem?.unit || 'units'}
+                                                {stockAvailable}
                                             </span>
                                         </div>
                                         {stockAvailable <= 0 && (
-                                            <p className="text-xs text-red-500 mt-1 italic">
-                                                No stock in Store. You may want to convert this to an external purchase.
+                                            <p className="text-[10px] text-red-500 mt-1 italic leading-tight">
+                                                Insufficient stock in Warehouse. You should convert this to an External Purchase.
                                             </p>
                                         )}
                                     </div>
                                 );
                             })()}
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Requested Quantity</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={receivedQuantity}
-                                    onChange={(e) => setReceivedQuantity(e.target.value)}
-                                />
+
+                            {/* Inputs */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Quantity</label>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={receivedQuantity}
+                                        onChange={(e) => setReceivedQuantity(e.target.value)}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                {actionData.status === 'COMPLETED' && actionData.requestType !== 'TRANSFER_REQUEST' && (
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Actual Cost (LKR)</label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={actualCost}
+                                            onChange={(e) => setActualCost(e.target.value)}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                )}
                             </div>
+
                             <div>
-                                <label className="block text-sm font-medium mb-1">Notes</label>
-                                <textarea
-                                    className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                <label className="block text-sm font-medium mb-1">Notes / Justification</label>
+                                <Textarea
+                                    className="min-h-[80px]"
                                     value={editNotes}
                                     onChange={(e) => setEditNotes(e.target.value)}
-                                    placeholder="Add notes or justification..."
+                                    placeholder="Add any additional context..."
                                 />
                             </div>
                         </div>
@@ -821,14 +1248,14 @@ export default function InventoryRequestsPage() {
 
                     <AlertDialogFooter className="flex-col sm:flex-row gap-2">
                         <div className="flex-1 flex gap-2">
-                            {actionData?.status === 'APPROVED' && actionData.requestType === 'TRANSFER_REQUEST' && (
+                            {actionData?.status === 'APPROVED' && actionData.requestType === 'TRANSFER_REQUEST' && !actionData.action_metadata?.needs_external_purchase && (
                                 <Button
                                     type="button"
-                                    variant="secondary"
-                                    className="text-amber-600 hover:text-amber-700"
+                                    variant="outline"
+                                    className="text-amber-600 border-amber-200 hover:bg-amber-50"
                                     onClick={handleConvertToExternal}
                                 >
-                                    Convert to External Purchase
+                                    Convert to External
                                 </Button>
                             )}
                         </div>
@@ -836,14 +1263,22 @@ export default function InventoryRequestsPage() {
                             setActionData(null);
                             setReceivedQuantity('');
                             setEditNotes('');
+                            setActualCost('');
                         }}>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={handleAction}
-                            className={actionData?.status === 'REJECTED' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
-                            disabled={(actionData?.status === 'COMPLETED' && (!receivedQuantity || (actionData.requestType !== 'TRANSFER_REQUEST' && !actualCost))) ||
-                                ((actionData?.status === 'APPROVED' || actionData?.status === 'EDIT') && !receivedQuantity)}
+                            className={cn(
+                                actionData?.status === 'REJECTED' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 
+                                actionData?.status === 'APPROVED' ? 'bg-green-600 hover:bg-green-700' : ''
+                            )}
+                            disabled={
+                                (actionData?.status === 'COMPLETED' && (!receivedQuantity || (actionData.requestType !== 'TRANSFER_REQUEST' && !actualCost))) ||
+                                ((actionData?.status === 'APPROVED' || actionData?.status === 'EDIT') && !receivedQuantity)
+                            }
                         >
-                            {actionData?.status === 'EDIT' ? 'Save Changes' : actionData?.status === 'APPROVED' ? 'Confirm Approval' : 'Confirm'}
+                            {actionData?.status === 'EDIT' ? 'Save Changes' : 
+                             actionData?.status === 'APPROVED' ? 'Approve & Adjust' : 
+                             actionData?.status === 'COMPLETED' ? 'Finalize' : 'Confirm'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -910,7 +1345,7 @@ export default function InventoryRequestsPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                createdPOItems.map((req, idx) => (
+                                createdPOItems.map((req: any, idx: number) => (
                                     <tr key={req.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                         <td className="py-3 px-3 border border-gray-300 text-gray-500">{idx + 1}</td>
                                         <td className="py-3 px-3 border border-gray-300 font-medium">

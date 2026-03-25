@@ -40,6 +40,9 @@ export async function GET(request: Request) {
             query = query.eq('department_id', department_id);
         }
 
+        // Filter out soft-deleted items
+        query = query.is('deleted_at', null);
+
         const { data, error } = await query;
 
         if (error) throw error;
@@ -199,7 +202,7 @@ export async function DELETE(request: Request) {
 
         const { error } = await supabase
             .from('hotel_inventory_items')
-            .delete()
+            .update({ deleted_at: new Date().toISOString() })
             .eq('id', id);
 
         if (error) throw error;

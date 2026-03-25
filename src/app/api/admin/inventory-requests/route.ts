@@ -186,6 +186,14 @@ export async function PUT(request: Request) {
             if (requested_quantity !== undefined) updatePayload.requested_quantity = requested_quantity;
             if (request_type) updatePayload.request_type = request_type;
             if (notes !== undefined) updatePayload.notes = notes;
+            
+            // Allow merging action_metadata if provided
+            if (body.action_metadata) {
+                updatePayload.action_metadata = {
+                    ...(requestData.action_metadata || {}),
+                    ...body.action_metadata
+                };
+            }
         }
 
         // If completing, we might have actual cost and quantity
