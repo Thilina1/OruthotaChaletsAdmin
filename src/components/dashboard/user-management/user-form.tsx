@@ -77,6 +77,7 @@ const formSchema = z.object({
   confirmPassword: z.string().optional(),
   permissions: z.array(z.string()).default([]),
   restrict_admin_permissions: z.boolean().default(false),
+  gender: z.string().optional().or(z.literal('')),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
     return false;
@@ -120,6 +121,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
+      gender: user?.gender || '',
     },
   });
 
@@ -140,6 +142,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
+      gender: user?.gender || '',
     });
     setShowPassword(!user);
   }, [user, form]);
@@ -198,12 +201,50 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           />
           <FormField
             control={form.control}
+            name="gender"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Gender</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
             name="nic"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>NIC</FormLabel>
                 <FormControl>
                   <Input placeholder="National Identity Card" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="join_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Join Date</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -278,22 +319,6 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
                     }
                   </SelectContent>
                 </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="join_date"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Join Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
                 <FormMessage />
               </FormItem>
             )}

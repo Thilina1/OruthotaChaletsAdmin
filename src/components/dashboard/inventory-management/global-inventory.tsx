@@ -303,11 +303,20 @@ export function GlobalInventory({ items: allItems, departments: allDepartments }
             unit: string;
             totalStock: number;
             minSafetyStock: number;
+            warehouseStock: number;
             stores: { storeName: string; stock: number; safetyStock: number; reorderLevel: number }[]
         }> = {};
 
         items.forEach(item => {
             const key = `${item.name.toLowerCase()}-${item.category.toLowerCase()}`;
+            const isWarehouse = item.department?.name && (
+                item.department.name.toLowerCase() === 'store' || 
+                item.department.name.toLowerCase() === 'warehouse' || 
+                item.department.name.toLowerCase() === 'store (warehouse)' ||
+                item.department.name.toLowerCase().includes('warehouse') ||
+                item.department.name.toLowerCase().includes('wearehouse')
+            );
+
             if (!groups[key]) {
                 groups[key] = {
                     name: item.name,
@@ -315,10 +324,14 @@ export function GlobalInventory({ items: allItems, departments: allDepartments }
                     unit: item.unit,
                     totalStock: 0,
                     minSafetyStock: item.safety_stock,
+                    warehouseStock: 0,
                     stores: []
                 };
             }
             groups[key].totalStock += Number(item.current_stock);
+            if (isWarehouse) {
+                groups[key].warehouseStock += Number(item.current_stock);
+            }
             groups[key].minSafetyStock = Math.min(groups[key].minSafetyStock, item.safety_stock);
             groups[key].stores.push({
                 storeName: item.department?.name || 'Unassigned',
@@ -388,8 +401,14 @@ export function GlobalInventory({ items: allItems, departments: allDepartments }
                                 <TableHeader>
                                     <TableRow className="bg-muted/30 hover:bg-muted/30 border-b">
                                         <TableHead className="w-[40px] px-2"></TableHead>
-                                        <TableHead className="w-[40%] text-foreground font-semibold">Product Name</TableHead>
+                                        <TableHead className="w-[30%] text-foreground font-semibold">Product Name</TableHead>
                                         <TableHead className="text-foreground font-semibold">Category</TableHead>
+                                        <TableHead className="text-foreground font-semibold">
+                                            <div className="flex items-center gap-1.5">
+                                                <Warehouse className="h-3 w-3 text-primary" />
+                                                Store Stock
+                                            </div>
+                                        </TableHead>
                                         <TableHead className="text-foreground font-semibold">Total Stock</TableHead>
                                         <TableHead className="text-foreground font-semibold text-right">Actions</TableHead>
                                     </TableRow>
@@ -430,6 +449,17 @@ export function GlobalInventory({ items: allItems, departments: allDepartments }
                                                             <Badge variant="outline" className="font-normal border-muted-foreground/20">
                                                                 {product.category}
                                                             </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="py-4 font-medium">
+                                                            <div className="flex items-baseline gap-1">
+                                                                <span className={cn(
+                                                                    "font-bold tabular-nums",
+                                                                    product.warehouseStock === 0 ? "text-muted-foreground/50" : "text-primary"
+                                                                )}>
+                                                                    {product.warehouseStock || 0}
+                                                                </span>
+                                                                <span className="text-[10px] text-muted-foreground uppercase font-medium">{product.unit}</span>
+                                                            </div>
                                                         </TableCell>
                                                         <TableCell className="py-4">
                                                             <div className="flex items-baseline gap-1">
@@ -500,37 +530,46 @@ export function GlobalInventory({ items: allItems, departments: allDepartments }
                                                                     <div className="flex flex-col border rounded-lg overflow-hidden bg-background">
                                                                         {[...product.stores]
                                                                             .sort((a, b) => {
+                                                                                const isAStore = a.storeName.toLowerCase().includes('store') || a.storeName.toLowerCase().includes('warehouse');
+                                                                                const isBStore = b.storeName.toLowerCase().includes('store') || b.storeName.toLowerCase().includes('warehouse');
+                                                                                if (isAStore && !isBStore) return -1;
+                                                                                if (!isAStore && isBStore) return 1;
                                                                                 if (userDepartment?.name === a.storeName) return -1;
                                                                                 if (userDepartment?.name === b.storeName) return 1;
                                                                                 return 0;
                                                                             })
                                                                             .map((s, idx) => {
                                                                                 const isMyStore = userDepartment?.name === s.storeName;
+                                                                                const isPrimaryStore = s.storeName.toLowerCase().includes('store') || s.storeName.toLowerCase().includes('warehouse');
                                                                                 return (
                                                                                     <div 
                                                                                         key={idx} 
                                                                                         className={cn(
                                                                                             "flex items-center justify-between py-2.5 px-4 border-b last:border-0 hover:bg-muted/10 transition-colors",
-                                                                                            isMyStore && "bg-primary/5 border-l-4 border-l-primary"
+                                                                                            isPrimaryStore && "bg-primary/5 border-l-4 border-l-primary",
+                                                                                            isMyStore && !isPrimaryStore && "bg-muted/30 border-l-4 border-l-muted-foreground/30"
                                                                                         )}
                                                                                     >
                                                                                         <div className="flex items-center gap-3">
                                                                                             <div className={cn(
                                                                                                 "p-1.5 rounded-full",
-                                                                                                isMyStore ? "bg-primary/20" : "bg-muted/30"
+                                                                                                isPrimaryStore ? "bg-primary/20" : "bg-muted/30"
                                                                                             )}>
-                                                                                                <Warehouse className={cn("h-3.5 w-3.5", isMyStore ? "text-primary" : "text-muted-foreground")} />
+                                                                                                <Warehouse className={cn("h-3.5 w-3.5", isPrimaryStore ? "text-primary" : "text-muted-foreground")} />
                                                                                             </div>
                                                                                             <div className="flex flex-col">
                                                                                                 <div className="flex items-center gap-2">
                                                                                                     <span className={cn(
                                                                                                         "text-sm font-semibold tracking-tight",
-                                                                                                        isMyStore ? "text-primary" : "text-foreground"
+                                                                                                        isPrimaryStore ? "text-primary" : "text-foreground"
                                                                                                     )}>
                                                                                                         {s.storeName}
                                                                                                     </span>
-                                                                                                    {isMyStore && (
-                                                                                                        <Badge variant="secondary" className="text-[8px] py-0 h-3 bg-primary/10 text-primary border-primary/20">Your Store</Badge>
+                                                                                                    {isPrimaryStore && (
+                                                                                                        <Badge variant="default" className="text-[8px] py-0 h-3 bg-primary text-primary-foreground border-none">Primary Store</Badge>
+                                                                                                    )}
+                                                                                                    {isMyStore && !isPrimaryStore && (
+                                                                                                        <Badge variant="secondary" className="text-[8px] py-0 h-3 bg-muted text-muted-foreground border-none">Your Store</Badge>
                                                                                                     )}
                                                                                                 </div>
                                                                                                 <span className="text-[10px] text-muted-foreground uppercase font-medium">Reorder Level: {s.reorderLevel}</span>

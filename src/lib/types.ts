@@ -18,6 +18,7 @@ export type User = {
   permissions?: string[]; // Array of application section paths they can access
   department?: string;
   restrict_admin_permissions?: boolean;
+  gender?: string;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';

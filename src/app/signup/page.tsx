@@ -31,11 +31,20 @@ import { useToast } from "@/hooks/use-toast";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { Logo } from "@/components/icons";
 import Link from 'next/link';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { User as UserIcon } from "lucide-react";
 
 const formSchema = z.object({
     email: z.string().email({ message: "Invalid email address." }),
     password: z.string().min(6, { message: "Password must be at least 6 characters." }),
     confirmPassword: z.string().min(1, { message: "Please confirm your password." }),
+    gender: z.string().min(1, { message: "Please select your gender." }),
 }).refine((data) => data.password === data.confirmPassword, {
     path: ["confirmPassword"],
     message: "Passwords do not match.",
@@ -54,6 +63,7 @@ export default function SignupPage() {
             email: "",
             password: "",
             confirmPassword: "",
+            gender: "",
         },
     });
 
@@ -128,7 +138,7 @@ export default function SignupPage() {
                     </CardHeader>
                     <CardContent>
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                                 <FormField
                                     control={form.control}
                                     name="email"
@@ -137,10 +147,32 @@ export default function SignupPage() {
                                             <FormLabel>Email</FormLabel>
                                             <FormControl>
                                                 <div className="relative">
-                                                    <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                                    <Input placeholder="e.g. admin@example.com" {...field} className="pl-10 bg-input border-white/30" />
+                                                     <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                     <Input placeholder="e.g. admin@example.com" {...field} className="pl-10 bg-input border-white/30" />
                                                 </div>
                                             </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="gender"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Gender</FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger className="bg-input border-white/30">
+                                                        <SelectValue placeholder="Select your gender" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="male">Male</SelectItem>
+                                                    <SelectItem value="female">Female</SelectItem>
+                                                    <SelectItem value="other">Other</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -177,10 +209,10 @@ export default function SignupPage() {
                                         </FormItem>
                                     )}
                                 />
-                                <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isLoading}>
+                                <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-2" disabled={isLoading}>
                                     {isLoading ? "Creating Account..." : "Sign Up"}
                                 </Button>
-                                <div className="text-center text-sm">
+                                <div className="text-center text-sm pt-2">
                                     Already have an account?{" "}
                                     <Link href="/" className="underline hover:text-primary">
                                         Sign In

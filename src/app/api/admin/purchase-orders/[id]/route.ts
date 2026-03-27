@@ -194,7 +194,23 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 }
 
                 if (targetItemId) {
-                    // 1. Get current stock for the target item
+                    // 1. Check if this request was already received through the inventory_requests API
+                    // We look for a COMPLETED request that matches this item and this PO
+                    const { data: existingRequest } = await supabase
+                        .from('inventory_requests')
+                        .select('status, id')
+                        .eq('purchase_order_id', params.id)
+                        .eq('item_name', item.item_name)
+                        .eq('status', 'COMPLETED')
+                        .limit(1)
+                        .maybeSingle();
+                    
+                    if (existingRequest) {
+                        console.log(`Item ${item.item_name} already received via Inventory Request ${existingRequest.id}. Skipping stock update.`);
+                        continue;
+                    }
+
+                    // 2. Get current stock for the target item
                     const { data: invItem, error: invError } = await supabase
                         .from('hotel_inventory_items')
                         .select('current_stock, name')
@@ -209,7 +225,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                     const previousStock = Number(invItem.current_stock);
                     const newStock = previousStock + quantityToAdd;
 
-                    // 2. Update stock levels and buying price
+                    // 3. Update stock levels and buying price
                     const updateData: any = { 
                         current_stock: newStock,
                         updated_at: new Date().toISOString()
@@ -230,7 +246,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                         continue;
                     }
 
-                    // 3. Record transaction
+                    // 4. Record transaction
                     await supabase.from('inventory_transactions').insert({
                         item_id: targetItemId,
                         transaction_type: 'receive',
@@ -244,6 +260,21 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                     console.warn(`No inventory item found for PO item: ${item.item_name}. Stock not updated.`);
                 }
             }
+
+            // Sync: Mark all associated inventory requests as COMPLETED
+            await supabase
+                .from('inventory_requests')
+                .update({ 
+                    status: 'COMPLETED',
+                    updated_at: new Date().toISOString(),
+                    action_metadata: {
+                        received_at: new Date().toISOString(),
+                        received_by: userId,
+                        via_po: po.po_number
+                    }
+                })
+                .eq('purchase_order_id', params.id)
+                .neq('status', 'COMPLETED'); // Only update those not already completed
         }
 
         return NextResponse.json({ purchase_order: po }, { status: 200 });

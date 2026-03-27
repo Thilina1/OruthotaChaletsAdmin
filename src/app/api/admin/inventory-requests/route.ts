@@ -32,8 +32,13 @@ export async function GET(request: Request) {
             .from('inventory_requests')
             .select(`
                 *,
-                item:hotel_inventory_items(name, unit, category),
-                requester:users!inventory_requests_requested_by_fkey(name, email),
+                item:hotel_inventory_items(
+                    name, 
+                    unit, 
+                    category,
+                    department:inventory_departments(name)
+                ),
+                requester:users!inventory_requests_requested_by_fkey(name, email, department),
                 reviewer:users!inventory_requests_reviewed_by_fkey(name, email),
                 purchase_order_id
             `)
@@ -164,47 +169,50 @@ export async function PUT(request: Request) {
         if (fetchError) throw fetchError;
         if (!requestData) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
 
-        // Allowed transitions
-        if (status === 'COMPLETED') {
-            if (requestData.status !== 'APPROVED') return NextResponse.json({ error: 'Only approved requests can be completed' }, { status: 400 });
-        } else if (status === 'APPROVED' || status === 'REJECTED') {
-            if (requestData.status !== 'PENDING' && requestData.status !== status) {
-                return NextResponse.json({ error: `Only pending requests can be ${status.toLowerCase()}` }, { status: 400 });
-            }
-        }
+        // 1. Get Store Department ID
+        const { data: storeDept, error: storeDeptError } = await supabase
+            .from('inventory_departments')
+            .select('id')
+            .eq('name', 'Store')
+            .single();
+        if (storeDeptError) throw new Error("Warehouse 'Store' department not found.");
 
-        // Update the status of the request
-        // Only update reviewed_by and updated_at if it's the first non-pending status change
+        const isExternalBuy = ['ADD_STOCK', 'NEW_ITEM'].includes(requestData.request_type) || 
+                             (requestData.request_type === 'TRANSFER_REQUEST' && requestData.action_metadata?.needs_external_purchase);
+
+        // Update Payload tweaks
         const updatePayload: any = {
-            status,
             updated_at: new Date().toISOString()
         };
 
         if (status === 'APPROVED' || status === 'REJECTED' || status === 'PENDING') {
-            updatePayload.reviewed_by = decoded.userId || decoded.id || decoded.sub;
-            // Allow updating quantity, type, or notes
+            updatePayload.status = status;
+            updatePayload.reviewed_by = userId;
             if (requested_quantity !== undefined) updatePayload.requested_quantity = requested_quantity;
             if (request_type) updatePayload.request_type = request_type;
             if (notes !== undefined) updatePayload.notes = notes;
-            
-            // Allow merging action_metadata if provided
             if (body.action_metadata) {
-                updatePayload.action_metadata = {
-                    ...(requestData.action_metadata || {}),
-                    ...body.action_metadata
-                };
+                updatePayload.action_metadata = { ...(requestData.action_metadata || {}), ...body.action_metadata };
             }
         }
 
-        // If completing, we might have actual cost and quantity
         if (status === 'COMPLETED') {
             const existingMeta = requestData.action_metadata || {};
-            updatePayload.action_metadata = {
+            const newMeta = {
                 ...existingMeta,
                 actual_cost: body.actual_cost,
                 received_quantity: body.received_quantity,
                 item_price: body.item_price
             };
+
+            // If it's a TRANSFER_REQUEST being "Received" from external, it becomes APPROVED (not completed)
+            if (requestData.request_type === 'TRANSFER_REQUEST' && existingMeta.needs_external_purchase) {
+                updatePayload.status = 'APPROVED';
+                newMeta.needs_external_purchase = false; // Stock is now in store
+            } else {
+                updatePayload.status = 'COMPLETED';
+            }
+            updatePayload.action_metadata = newMeta;
         }
 
         const { data: updatedRequest, error: updateError } = await supabase
@@ -213,134 +221,182 @@ export async function PUT(request: Request) {
             .eq('id', id)
             .select()
             .single();
-
         if (updateError) throw updateError;
 
+        // --- Transaction & Stock Processing ---
         const stockAffectingTypes = ['ADD_STOCK', 'receive', 'issue', 'damage', 'audit_adjustment', 'initial_stock', 'TRANSFER_REQUEST'];
-
-        // Determine if we should process the transaction.
-        // For ADD_STOCK and TRANSFER_REQUEST, we process ONLY on 'COMPLETED'.
-        // For other types, we process on 'APPROVED'.
         let shouldProcessTransaction = false;
 
         if (stockAffectingTypes.includes(requestData.request_type) && requestData.item_id) {
-            if (['ADD_STOCK', 'TRANSFER_REQUEST'].includes(requestData.request_type) && status === 'COMPLETED') {
-                shouldProcessTransaction = true;
-            } else if (!['ADD_STOCK', 'TRANSFER_REQUEST'].includes(requestData.request_type) && status === 'APPROVED') {
+            // We process on 'COMPLETED' (which might have been converted to 'APPROVED' in our payload for transfers)
+            if (status === 'COMPLETED') shouldProcessTransaction = true;
+            else if (!['ADD_STOCK', 'TRANSFER_REQUEST'].includes(requestData.request_type) && status === 'APPROVED') {
                 shouldProcessTransaction = true;
             }
         }
 
         if (shouldProcessTransaction) {
-            // Fetch current stock
-            const { data: itemData, error: itemError } = await supabase
-                .from('hotel_inventory_items')
-                .select('current_stock')
-                .eq('id', requestData.item_id)
-                .single();
-
-            if (itemError) throw itemError;
-
-            const previousStock = Number(itemData.current_stock);
-            let newStock = previousStock;
-
-            // Use received_quantity if COMPLETED and available, otherwise requested_quantity
-            const q = (status === 'COMPLETED' && body.received_quantity)
-                ? Number(body.received_quantity)
-                : Number(requestData.requested_quantity);
-
-            if (['ADD_STOCK', 'receive', 'initial_stock'].includes(requestData.request_type)) {
-                newStock += q;
-            } else if (['issue', 'damage'].includes(requestData.request_type)) {
-                newStock -= q;
-            } else if (requestData.request_type === 'audit_adjustment') {
-                newStock = q;
-            } else if (requestData.request_type === 'TRANSFER_REQUEST') {
-                // ADD to destination stock
-                newStock += q;
-
-                // 1. Find the "Store" ID
-                const { data: warehouseDept, error: deptError } = await supabase
-                    .from('inventory_departments')
-                    .select('id')
-                    .eq('name', 'Store')
+            // Check if this request is part of a PO and if that PO is already received
+            if (requestData.purchase_order_id) {
+                const { data: po } = await supabase
+                    .from('purchase_orders')
+                    .select('status')
+                    .eq('id', requestData.purchase_order_id)
                     .single();
+                
+                if (po?.status === 'received') {
+                    console.log(`Request ${id} is part of PO ${requestData.purchase_order_id} which is already received. Skipping duplicate stock update.`);
+                    shouldProcessTransaction = false;
+                }
+            }
+        }
 
-                if (deptError) throw deptError;
-
-                // 2. Find the item in the Store with the same name/category
-                const { data: destItemData, error: destItemError } = await supabase
+        if (shouldProcessTransaction) {
+            const quantity = Number(body.received_quantity || requestData.requested_quantity);
+            
+            if (isExternalBuy) {
+                // External Buy -> Always hits the Store
+                // 1. Find the target item in the Store
+                const { data: requestedItem, error: reqItemError } = await supabase.from('hotel_inventory_items').select('name, category').eq('id', requestData.item_id).single();
+                if (reqItemError || !requestedItem) throw new Error("Requested item not found.");
+                
+                const { data: storeItemData, error: storeItemError } = await supabase
                     .from('hotel_inventory_items')
-                    .select('id, name, category')
-                    .eq('id', requestData.item_id)
+                    .select('id, current_stock')
+                    .eq('name', requestedItem.name)
+                    .eq('category', requestedItem.category)
+                    .eq('department_id', storeDept.id)
                     .single();
 
-                if (destItemError) throw destItemError;
+                if (storeItemError || !storeItemData) throw new Error(`Item ${requestedItem.name} not found in Store inventory.`);
 
+                const previousStoreStock = Number(storeItemData.current_stock);
+                const newStoreStock = previousStoreStock + quantity;
+
+                // 2. Update Store Stock
+                await supabase.from('hotel_inventory_items').update({ current_stock: newStoreStock }).eq('id', storeItemData.id);
+
+                // 3. Record Transaction (Receive for Store)
+                await supabase.from('inventory_transactions').insert({
+                    item_id: storeItemData.id,
+                    transaction_type: 'receive',
+                    quantity,
+                    previous_stock: previousStoreStock,
+                    new_stock: newStoreStock,
+                    remarks: `External purchase received into Store. ${requestData.request_type === 'TRANSFER_REQUEST' ? 'Originating from Transfer Request.' : ''}`,
+                    created_by: userId
+                });
+
+            } else if (requestData.request_type === 'TRANSFER_REQUEST') {
+                // Internal Transfer (Issue from Store -> Add to Dept)
+                // 1. Get Destination Item Info
+                const { data: destItemData, error: destItemError } = await supabase.from('hotel_inventory_items').select('id, current_stock, name, category').eq('id', requestData.item_id).single();
+                if (destItemError || !destItemData) throw new Error("Destination item not found.");
+                
+                // 2. Get Source (Store) Item Info
                 const { data: sourceItemData, error: sourceItemError } = await supabase
                     .from('hotel_inventory_items')
                     .select('id, current_stock')
                     .eq('name', destItemData.name)
                     .eq('category', destItemData.category)
-                    .eq('department_id', warehouseDept.id)
+                    .eq('department_id', storeDept.id)
                     .single();
 
-                if (sourceItemError) throw new Error(`Item ${destItemData.name} not found in Warehouse.`);
+                if (sourceItemError || !sourceItemData) throw new Error(`Item ${destItemData.name} not found in Store.`);
+                if (Number(sourceItemData.current_stock) < quantity) throw new Error(`Insufficient stock in Store for ${destItemData.name}.`);
 
-                if (Number(sourceItemData.current_stock) < q) {
-                    throw new Error(`Insufficient stock in Warehouse for ${destItemData.name}.`);
-                }
+                const sourceNewStock = Number(sourceItemData.current_stock) - quantity;
+                const destNewStock = Number(destItemData.current_stock) + quantity;
 
-                const sourceNewStock = Number(sourceItemData.current_stock) - q;
+                // 3. Update Stocks
+                await supabase.from('hotel_inventory_items').update({ current_stock: sourceNewStock }).eq('id', sourceItemData.id);
+                await supabase.from('hotel_inventory_items').update({ current_stock: destNewStock }).eq('id', destItemData.id);
 
-                // 3. Update Warehouse Stock
-                const { error: sourceUpdateError } = await supabase
-                    .from('hotel_inventory_items')
-                    .update({ current_stock: sourceNewStock, updated_at: new Date().toISOString() })
-                    .eq('id', sourceItemData.id);
+                // 4. Record Transactions
+                await supabase.from('inventory_transactions').insert([
+                    {
+                        item_id: sourceItemData.id,
+                        transaction_type: 'issue',
+                        quantity,
+                        previous_stock: Number(sourceItemData.current_stock),
+                        new_stock: sourceNewStock,
+                        reference_department: requestData.action_metadata?.requesting_department_id || null,
+                        remarks: `Internal transfer to ${requestData.action_metadata?.requesting_department_name || 'Department'}`,
+                        created_by: userId
+                    },
+                    {
+                        item_id: destItemData.id,
+                        transaction_type: 'receive',
+                        quantity,
+                        previous_stock: Number(destItemData.current_stock),
+                        new_stock: destNewStock,
+                        reference_department: storeDept.id,
+                        remarks: `Internal transfer from Store`,
+                        created_by: userId
+                    }
+                ]);
+            } else {
+                // Other stock-affecting types for non-transfer/non-buy requests (e.g., direct audit, damage)
+                const { data: itemData, error: itemError } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', requestData.item_id).single();
+                if (itemError || !itemData) throw new Error("Item not found.");
+                const previousStock = Number(itemData.current_stock);
+                let newStock = previousStock;
 
-                if (sourceUpdateError) throw sourceUpdateError;
+                if (['receive', 'initial_stock'].includes(requestData.request_type)) newStock += quantity;
+                else if (['issue', 'damage'].includes(requestData.request_type)) newStock -= quantity;
+                else if (requestData.request_type === 'audit_adjustment') newStock = quantity;
 
-                // 4. Record Issue Transaction for Warehouse
+                await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', requestData.item_id);
                 await supabase.from('inventory_transactions').insert({
-                    item_id: sourceItemData.id,
-                    transaction_type: 'issue',
-                    quantity: q,
-                    previous_stock: Number(sourceItemData.current_stock),
-                    new_stock: sourceNewStock,
-                    reference_department: requestData.action_metadata?.requesting_department_id || null,
-                    remarks: `Internal transfer to ${requestData.action_metadata?.requesting_department_name || 'Department'}`,
+                    item_id: requestData.item_id,
+                    transaction_type: requestData.request_type,
+                    quantity: requestData.request_type === 'audit_adjustment' ? (quantity - previousStock) : quantity,
+                    previous_stock: previousStock,
+                    new_stock: newStock,
+                    remarks: requestData.notes || null,
                     created_by: userId
                 });
             }
+        }
 
-            // Insert transaction record for destination (the original item linked to request)
-            const { error: txnError } = await supabase
-                .from('inventory_transactions')
-                .insert({
-                    item_id: requestData.item_id,
-                    transaction_type: requestData.request_type === 'TRANSFER_REQUEST' ? 'receive' : (requestData.request_type === 'ADD_STOCK' ? 'receive' : requestData.request_type),
-                    quantity: requestData.request_type === 'audit_adjustment' ? (q - previousStock) : q,
-                    previous_stock: previousStock,
-                    new_stock: newStock,
-                    reference_department: requestData.request_type === 'TRANSFER_REQUEST' ? (await supabase.from('inventory_departments').select('id').eq('name', 'Store').single()).data?.id : (requestData.action_metadata?.reference_department || null),
-                    reason: requestData.action_metadata?.reason || null,
-                    remarks: requestData.request_type === 'TRANSFER_REQUEST' ? `Internal transfer from Store` : (requestData.notes || null),
-                    created_by: userId
-                });
+        // --- Sync with Purchase Order ---
+        if (status === 'COMPLETED' && requestData.purchase_order_id) {
+            // Check if all requests for this PO are now COMPLETED
+            const { data: siblingRequests } = await supabase
+                .from('inventory_requests')
+                .select('id, status')
+                .eq('purchase_order_id', requestData.purchase_order_id);
+            
+            const allCompleted = siblingRequests?.every(r => (r as any).status === 'COMPLETED' || r.id === id); // Current update might not be in the list yet with new status
+            
+            if (allCompleted) {
+                await supabase
+                    .from('purchase_orders')
+                    .update({ 
+                        status: 'received',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', requestData.purchase_order_id);
+            }
 
-            if (txnError) throw txnError;
-
-            // Update item stock for destination
-            const { error: stockUpdateError } = await supabase
-                .from('hotel_inventory_items')
-                .update({
-                    current_stock: newStock,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', requestData.item_id);
-
-            if (stockUpdateError) throw stockUpdateError;
+            // Also update the individual item in PO items to show it's received
+            const { data: items } = await supabase
+                .from('purchase_order_items')
+                .select('id, received_quantity, quantity')
+                .eq('po_id', requestData.purchase_order_id)
+                .eq('item_name', (requestData as any).item?.name || requestData.notes || ''); // Rough matching if direct link is missing
+            
+            if (items && items.length > 0) {
+                for (const item of items) {
+                    await supabase
+                        .from('purchase_order_items')
+                        .update({ 
+                            received_quantity: body.received_quantity || requestData.requested_quantity,
+                            updated_at: new Date().toISOString() 
+                        } as any)
+                        .eq('id', item.id);
+                }
+            }
         }
 
         return NextResponse.json({ request: updatedRequest }, { status: 200 });

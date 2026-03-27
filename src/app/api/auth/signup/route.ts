@@ -19,7 +19,7 @@ const supabase = serviceRoleKey
 
 export async function POST(request: Request) {
     try {
-        const { email, password, confirmPassword } = await request.json();
+        const { email, password, confirmPassword, gender } = await request.json();
 
         if (!email || !password || !confirmPassword) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -51,6 +51,7 @@ export async function POST(request: Request) {
                 password: hashedPassword,
                 name,
                 role: 'admin', // Default role
+                gender,
             })
             .select()
             .single();

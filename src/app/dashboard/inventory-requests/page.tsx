@@ -41,6 +41,7 @@ import {
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export default function InventoryRequestsPage() {
     const { toast } = useToast();
@@ -81,6 +82,10 @@ export default function InventoryRequestsPage() {
     const [createdPO, setCreatedPO] = useState<{ po_number: string; supplier_name: string | null; created_at: string } | null>(null);
     const [createdPOItems, setCreatedPOItems] = useState<any[]>([]); // items in the last printed PO
     const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+    const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+    const [selectedBulkRequestIds, setSelectedBulkRequestIds] = useState<Set<string>>(new Set());
+    const [isConsolidateEnabled, setIsConsolidateEnabled] = useState(true);
+    const [bulkCustomQuantities, setBulkCustomQuantities] = useState<Record<string, string>>({});
 
     const fetchRequests = async () => {
         setIsLoading(true);
@@ -112,6 +117,79 @@ export default function InventoryRequestsPage() {
     useEffect(() => {
         fetchRequests();
     }, []);
+
+    const reservedStockMap = React.useMemo(() => {
+        const counts: Record<string, number> = {};
+        requests.forEach(req => {
+            if (req.status === 'APPROVED' && req.request_type === 'TRANSFER_REQUEST' && !req.action_metadata?.needs_external_purchase) {
+                const identifier = req.item?.name || 'unknown';
+                counts[identifier] = (counts[identifier] || 0) + (req.requested_quantity || 0);
+            }
+        });
+        return counts;
+    }, [requests]);
+
+    const activeRequestWarehouseItem = React.useMemo(() => {
+        if (!actionData || actionData.requestType !== 'TRANSFER_REQUEST') return null;
+        return inventoryItems.find(item => {
+            if (item.name !== actionData.itemName) return false;
+            const deptName = item.department?.name?.toLowerCase() || '';
+            return deptName === 'store' || deptName === 'warehouse' || deptName === 'store (warehouse)' || 
+                   deptName.includes('warehouse') || deptName.includes('wearehouse');
+        });
+    }, [actionData, inventoryItems]);
+
+    const activeRequestShortageInfo = React.useMemo(() => {
+        if (!actionData || actionData.requestType !== 'TRANSFER_REQUEST') return null;
+        const identifier = actionData.itemName || '';
+        const stockAvailable = activeRequestWarehouseItem ? Number(activeRequestWarehouseItem.current_stock) : 0;
+        const stockReserved = reservedStockMap[identifier] || 0;
+        return {
+            available: stockAvailable,
+            reserved: stockReserved,
+            isShortage: stockAvailable < stockReserved,
+            unit: activeRequestWarehouseItem?.unit || 'units'
+        };
+    }, [actionData, activeRequestWarehouseItem, reservedStockMap]);
+
+    const shortageSummary = React.useMemo(() => {
+        const summaryMap: Record<string, {
+            itemName: string,
+            unit: string,
+            available: number,
+            totalRequested: number,
+            requests: any[],
+            requestIds: string[]
+        }> = {};
+
+        requests.forEach(req => {
+            if (req.status === 'APPROVED' && req.request_type === 'TRANSFER_REQUEST' && !req.action_metadata?.needs_external_purchase) {
+                const name = req.item?.name || 'unknown';
+                if (!summaryMap[name]) {
+                    const warehouseItem = inventoryItems.find(item => {
+                        if (item.name !== name) return false;
+                        const deptName = item.department?.name?.toLowerCase() || '';
+                        return deptName === 'store' || deptName === 'warehouse' || 
+                               deptName === 'store (warehouse)' || deptName.includes('warehouse') || 
+                               deptName.includes('wearehouse');
+                    });
+                    summaryMap[name] = {
+                        itemName: name,
+                        unit: req.item?.unit || 'u',
+                        available: warehouseItem ? Number(warehouseItem.current_stock) : 0,
+                        totalRequested: 0,
+                        requests: [],
+                        requestIds: []
+                    };
+                }
+                summaryMap[name].totalRequested += (req.requested_quantity || 0);
+                summaryMap[name].requestIds.push(req.id);
+                summaryMap[name].requests.push(req);
+            }
+        });
+
+        return Object.values(summaryMap).filter(s => s.totalRequested > s.available);
+    }, [requests, inventoryItems]);
 
     const filteredRequests = requests.filter(req => {
         const matchesDate = !filterDate || new Date(req.created_at).toISOString().split('T')[0] === filterDate;
@@ -252,6 +330,139 @@ export default function InventoryRequestsPage() {
         } finally {
             setActionData(null);
             setReceivedQuantity('');
+        }
+    };
+
+    const handleBulkConvertToExternal = async (summary: any) => {
+        if (!confirm(`Are you sure you want to convert all ${summary.requestIds.length} approved requests for ${summary.itemName} to External Purchase? These will move to the "Buy Products (External)" tab.`)) return;
+        
+        setIsLoading(true);
+        try {
+            await Promise.all(summary.requestIds.map((id: string) => 
+                fetch('/api/admin/inventory-requests', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id,
+                        action_metadata: { needs_external_purchase: true }
+                    })
+                })
+            ));
+            toast({ title: "Success", description: `Converted all requests for ${summary.itemName} to external.` });
+            fetchRequests();
+        } catch (error) {
+            console.error("Bulk conversion error:", error);
+            toast({ variant: 'destructive', title: "Error", description: "Failed to convert some requests. Please try again." });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleGlobalBulkConvertToExternal = async () => {
+        const allIds = shortageSummary.flatMap(s => s.requestIds);
+        if (allIds.length === 0) return;
+        
+        // Initialize selection with all IDs
+        setSelectedBulkRequestIds(new Set(allIds));
+        setIsBulkModalOpen(true);
+    };
+
+    const handleConfirmBulkConvert = async () => {
+        const idsToConvert = Array.from(selectedBulkRequestIds);
+        if (idsToConvert.length === 0) {
+            toast({ variant: 'destructive', title: "No items selected", description: "Please select at least one request to convert." });
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            // Group by item name to ensure consolidation across departments
+            const selectedRequests = requests.filter(r => idsToConvert.includes(r.id));
+            const itemGroups: Record<string, any[]> = {};
+            selectedRequests.forEach(r => {
+                const itemName = r.item?.name || 'unknown';
+                if (!itemGroups[itemName]) itemGroups[itemName] = [];
+                itemGroups[itemName].push(r);
+            });
+
+            for (const groupName of Object.keys(itemGroups)) {
+                if (groupName === 'unknown') continue;
+                const group = itemGroups[groupName];
+                const firstReq = group[0];
+                const itemName = groupName;
+
+                // Always target the "Store/Warehouse" version
+                const storeItem = inventoryItems.find(item => {
+                    if (item.name !== itemName) return false;
+                    const deptName = item.department?.name?.toLowerCase() || '';
+                    return deptName === 'store' || deptName === 'warehouse' || 
+                           deptName === 'store (warehouse)' || deptName.includes('warehouse') || 
+                           deptName.includes('wearehouse');
+                });
+
+                const targetItemId = storeItem ? storeItem.id : itemId;
+                const defaultSum = group.reduce((sum, r) => sum + (r.requested_quantity || 0), 0);
+                const qtyToRequest = bulkCustomQuantities[itemName] ? Number(bulkCustomQuantities[itemName]) : defaultSum;
+
+                if (isNaN(qtyToRequest) || qtyToRequest <= 0) continue;
+
+                // 1. Create Consolidated Buy Request for the Store
+                const postRes = await fetch('/api/admin/inventory-requests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        request_type: 'ADD_STOCK',
+                        item_id: targetItemId,
+                        requested_quantity: qtyToRequest,
+                        notes: `Consolidated from ${group.length} internal requests. ${qtyToRequest !== defaultSum ? `(Adjusted from ${defaultSum})` : ''}`,
+                        action_metadata: {
+                            is_consolidated_buy: true,
+                            original_request_ids: group.map(r => r.id),
+                            original_total_qty: defaultSum,
+                            target_warehouse: 'Store'
+                        }
+                    })
+                });
+                const postData = await postRes.json();
+                if (postData.error) throw new Error(postData.error);
+                const newRequestId = postData.request.id;
+
+                // 2. Clear for procurement
+                await fetch('/api/admin/inventory-requests', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: newRequestId,
+                        status: 'APPROVED'
+                    })
+                });
+
+                // 3. Link original requests (they stay as Internal tasks)
+                await Promise.all(group.map(r => 
+                    fetch('/api/admin/inventory-requests', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: r.id,
+                            action_metadata: {
+                                ...r.action_metadata,
+                                linked_to_buy_request_id: newRequestId,
+                                processed_as_bulk: true
+                            }
+                        })
+                    })
+                ));
+            }
+            
+            toast({ title: "Procurement Requests Created", description: `Consolidated ${idsToConvert.length} requests for ${Object.keys(itemGroups).length} items.` });
+            setIsBulkModalOpen(false);
+            fetchRequests();
+            setBulkCustomQuantities({});
+        } catch (error) {
+            console.error("Global bulk conversion error:", error);
+            toast({ variant: 'destructive', title: "Error", description: "Failed to convert some requests. Please try again." });
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -607,7 +818,64 @@ export default function InventoryRequestsPage() {
                 </TabsList>
 
                 <TabsContent value="transfer" className="mt-0">
-                    <div className="rounded-md border bg-card">
+                    <div className="space-y-4">
+                        {/* Bulk Action Summary */}
+                        {shortageSummary.length > 0 && (
+                            <div className="bg-red-50 border border-red-100 rounded-lg p-4 mb-2">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-red-100 rounded-full">
+                                        <AlertCircle className="h-5 w-5 text-red-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                                            <div>
+                                                <h3 className="text-sm font-bold text-red-900 leading-tight">Stock Shortages Detected</h3>
+                                                <p className="text-xs text-red-700 mt-1">
+                                                    The aggregate demand for items exceeds warehouse stock. 
+                                                </p>
+                                            </div>
+                                            <Button 
+                                                variant="destructive" 
+                                                size="sm" 
+                                                className="bg-red-700 hover:bg-red-800 text-white font-bold h-9 shadow-lg gap-2 border-2 border-red-900/20"
+                                                onClick={handleGlobalBulkConvertToExternal}
+                                            >
+                                                <ShoppingCart className="h-4 w-4" />
+                                                Convert ALL ({shortageSummary.flatMap(s => s.requestIds).length}) to External
+                                            </Button>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {shortageSummary.map((s, idx) => (
+                                                <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-red-200">
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-sm font-semibold text-gray-900">{s.itemName}</span>
+                                                        <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold uppercase">
+                                                            {s.totalRequested - s.available} {s.unit} short
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="text-[10px] text-gray-500">
+                                                            <span className="font-bold text-red-600">{s.totalRequested}</span> reserved | 
+                                                            <span className="font-bold text-green-600"> {s.available}</span> in stock
+                                                        </div>
+                                                        <Button 
+                                                            size="sm" 
+                                                            className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white font-medium px-3"
+                                                            onClick={() => handleBulkConvertToExternal(s)}
+                                                        >
+                                                            <ShoppingCart className="h-3 w-3 mr-1.5" />
+                                                            Request External ({s.requestIds.length})
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="rounded-md border bg-card">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -666,6 +934,26 @@ export default function InventoryRequestsPage() {
                                                             Awaiting External Stock
                                                         </Badge>
                                                     )}
+                                                    {(() => {
+                                                        const warehouseItem = inventoryItems.find(item => {
+                                                            if (item.name !== req.item?.name) return false;
+                                                            const deptName = item.department?.name?.toLowerCase() || '';
+                                                            return deptName === 'store' || deptName === 'warehouse' || 
+                                                                   deptName === 'store (warehouse)' || deptName.includes('warehouse') || 
+                                                                   deptName.includes('wearehouse');
+                                                        });
+                                                        const available = warehouseItem ? Number(warehouseItem.current_stock) : 0;
+                                                        const reserved = reservedStockMap[req.item?.name || ''] || 0;
+                                                        if (available < reserved && req.status === 'APPROVED' && !req.action_metadata?.needs_external_purchase) {
+                                                            return (
+                                                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-5 bg-red-50 text-red-600 border-red-100 flex items-center gap-1">
+                                                                    <AlertCircle className="h-2 w-2" />
+                                                                    Short Stock ({reserved - available} {req.item?.unit || 'u'} short)
+                                                                </Badge>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                             </TableCell>
                                             <TableCell>
@@ -698,6 +986,13 @@ export default function InventoryRequestsPage() {
                                                         {req.status}
                                                     </div>
                                                 </Badge>
+                                                {(req.action_metadata?.processed_as_bulk || req.action_metadata?.needs_external_purchase) && (
+                                                    <div className="mt-1">
+                                                        <Badge variant="outline" className="text-[10px] py-0 px-1 bg-blue-50 text-blue-700 border-blue-200">
+                                                            EXTERNAL REQUESTED
+                                                        </Badge>
+                                                    </div>
+                                                )}
                                                 {req.reviewer && (
                                                     <div className="text-[10px] text-muted-foreground mt-1 px-1">
                                                         By {req.reviewer.name}
@@ -769,7 +1064,7 @@ export default function InventoryRequestsPage() {
                                                                 variant="default" 
                                                                 size="sm" 
                                                                 className="gap-2"
-                                                                disabled={(() => {
+                                                                disabled={req.status === 'COMPLETED' || (() => {
                                                                     const warehouseItem = inventoryItems.find(item => {
                                                                         if (item.name !== req.item?.name) return false;
                                                                         const deptName = item.department?.name?.toLowerCase() || '';
@@ -777,7 +1072,9 @@ export default function InventoryRequestsPage() {
                                                                                deptName === 'store (warehouse)' || deptName.includes('warehouse') || 
                                                                                deptName.includes('wearehouse');
                                                                     });
-                                                                    return !warehouseItem || Number(warehouseItem.current_stock) < req.requested_quantity;
+                                                                    const isStockUnavailable = !warehouseItem || Number(warehouseItem.current_stock) < req.requested_quantity;
+                                                                    const isPoReceived = req.purchase_order_id && purchaseOrders.find(po => po.id === req.purchase_order_id)?.status === 'received';
+                                                                    return isStockUnavailable || isPoReceived;
                                                                 })()}
                                                                 onClick={() => {
                                                                     setActionData({ 
@@ -817,7 +1114,8 @@ export default function InventoryRequestsPage() {
                             </div>
                         )}
                     </div>
-                </TabsContent>
+                </div>
+            </TabsContent>
 
                 <TabsContent value="buy" className="mt-0">
                     {!isWarehouseUser ? (
@@ -854,6 +1152,7 @@ export default function InventoryRequestsPage() {
                                             <TableHead>Date Requested</TableHead>
                                             <TableHead>Type</TableHead>
                                             <TableHead>Item Details</TableHead>
+                                            <TableHead>From/To</TableHead>
                                             <TableHead>Requested By</TableHead>
                                             <TableHead>Status</TableHead>
                                             {canManageRequests && <TableHead className="text-right">Actions</TableHead>}
@@ -905,7 +1204,7 @@ export default function InventoryRequestsPage() {
                                                                 )}
                                                             </div>
                                                             {!req.isPO && (
-                                                                <div className="flex items-center gap-2 mt-1">
+                                                        <div className="flex items-center gap-2 mt-1">
                                                                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
                                                                         Ordered: {req.requested_quantity} {req.item?.unit || 'units'}
                                                                     </Badge>
@@ -916,6 +1215,21 @@ export default function InventoryRequestsPage() {
                                                                     )}
                                                                 </div>
                                                             )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex items-center gap-1.5 text-xs">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                                                    <span className="text-muted-foreground uppercase font-bold text-[10px]">
+                                                                        {req.isPO ? (req.action_metadata.supplier || 'Supplier') : 'External Supplier'}
+                                                                    </span>
+                                                                </div>
+                                                                <ArrowRight className="h-3 w-3 text-muted-foreground/50 ml-0.5" />
+                                                                <div className="flex items-center gap-1.5 text-xs">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                                                    <span className="font-semibold">Store</span>
+                                                                </div>
+                                                            </div>
                                                         </TableCell>
                                                         <TableCell>
                                                             <div className="text-sm font-medium">{req.requester?.name || 'System User'}</div>
@@ -1010,17 +1324,23 @@ export default function InventoryRequestsPage() {
                                                                     }}>
                                                                         Edit
                                                                     </Button>
-                                                                    <Button variant="default" size="sm" className="gap-2" onClick={() => {
-                                                                        setActionData({ 
-                                                                            id: req.id, 
-                                                                            status: 'COMPLETED', 
-                                                                            requestType: req.request_type, 
-                                                                            requestedQuantity: req.requested_quantity,
-                                                                            itemName: req.item?.name || req.notes,
-                                                                            action_metadata: req.action_metadata
-                                                                        });
-                                                                        setReceivedQuantity(String(req.requested_quantity));
-                                                                    }}>
+                                                                    <Button 
+                                                                        variant="default" 
+                                                                        size="sm" 
+                                                                        className="gap-2" 
+                                                                        disabled={req.status === 'COMPLETED' || (req.purchase_order_id && purchaseOrders.find(po => po.id === req.purchase_order_id)?.status === 'received')}
+                                                                        onClick={() => {
+                                                                            setActionData({ 
+                                                                                id: req.id, 
+                                                                                status: 'COMPLETED', 
+                                                                                requestType: req.request_type, 
+                                                                                requestedQuantity: req.requested_quantity,
+                                                                                itemName: req.item?.name || req.notes,
+                                                                                action_metadata: req.action_metadata
+                                                                            });
+                                                                            setReceivedQuantity(String(req.requested_quantity));
+                                                                        }}
+                                                                    >
                                                                         <ShoppingCart className="h-3.5 w-3.5" />
                                                                         Receive Stock
                                                                     </Button>
@@ -1142,6 +1462,113 @@ export default function InventoryRequestsPage() {
                 </TabsContent>
             </Tabs>
 
+            {/* Bulk Selection Modal */}
+            <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-700">
+                            <ShoppingCart className="h-5 w-5" />
+                            Stock Shortage: Bulk External Request
+                        </DialogTitle>
+                        <DialogDescription>
+                            Select the requests you want to convert to external purchases. These will be moved to the "Buy" tab.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto py-4">
+                        <div className="space-y-6">
+                            {shortageSummary.map((itemGroup, gIdx) => (
+                                <div key={gIdx} className="border rounded-lg overflow-hidden border-red-100">
+                                    <div className="bg-red-50 p-3 border-b border-red-100 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <Checkbox 
+                                                id={`group-${gIdx}`}
+                                                checked={itemGroup.requests.every((r: any) => selectedBulkRequestIds.has(r.id))}
+                                                onCheckedChange={(checked) => {
+                                                    const groupIds = itemGroup.requests.map((r: any) => r.id);
+                                                    const newSelected = new Set(selectedBulkRequestIds);
+                                                    groupIds.forEach(id => {
+                                                        if (checked) newSelected.add(id);
+                                                        else newSelected.delete(id);
+                                                    });
+                                                    setSelectedBulkRequestIds(newSelected);
+                                                }}
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-red-900">{itemGroup.itemName}</span>
+                                                <Badge variant="outline" className="bg-white text-red-700 border-red-200">
+                                                    {itemGroup.totalRequested} {itemGroup.unit} requested
+                                                </Badge>
+                                                <div className="flex items-center gap-2 ml-4">
+                                                    <span className="text-[10px] uppercase font-bold text-slate-500">Order:</span>
+                                                    <Input 
+                                                        type="number" 
+                                                        className="h-7 w-20 text-xs font-bold text-center border-red-200"
+                                                        value={bulkCustomQuantities[itemGroup.itemName] || itemGroup.totalRequested}
+                                                        onChange={(e) => {
+                                                            setBulkCustomQuantities({
+                                                                ...bulkCustomQuantities,
+                                                                [itemGroup.itemName]: e.target.value
+                                                            });
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="text-xs text-red-600 font-medium italic">
+                                                    ({itemGroup.available} in stock)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="divide-y">
+                                        {itemGroup.requests.map((req, rIdx) => (
+                                            <div key={rIdx} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                                <div className="flex items-center gap-3 ml-7">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-semibold text-slate-600">Internal Request</span>
+                                                        <span className="text-[10px] text-muted-foreground italic">
+                                                            Dated {format(new Date(req.created_at), 'MMM d, yyyy')}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-sm font-bold text-slate-500">
+                                                    {req.requested_quantity} {req.item?.unit}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <DialogFooter className="pt-4 border-t">
+                        <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-6">
+                                <p className="text-xs text-muted-foreground italic">
+                                    Requests will be consolidated and directed to the **Primary Store**.
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    <span className="font-bold text-red-600">{selectedBulkRequestIds.size}</span> internal requests selected
+                                </p>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button variant="outline" onClick={() => setIsBulkModalOpen(false)}>
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    className="bg-red-600 hover:bg-red-700 text-white gap-2 font-bold px-6"
+                                    onClick={handleConfirmBulkConvert}
+                                    disabled={selectedBulkRequestIds.size === 0 || isLoading}
+                                >
+                                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    Convert to Procurement
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <AlertDialog open={!!actionData} onOpenChange={(open) => {
                 if (!open) {
                     setActionData(null);
@@ -1183,30 +1610,34 @@ export default function InventoryRequestsPage() {
                     {(actionData?.status === 'APPROVED' || actionData?.status === 'EDIT' || actionData?.status === 'COMPLETED') && (
                         <div className="py-2 space-y-4">
                             {/* Stock Info for Transfers */}
-                            {actionData.requestType === 'TRANSFER_REQUEST' && (() => {
-                                const warehouseItem = inventoryItems.find(item => {
-                                    if (item.name !== actionData.itemName) return false;
-                                    const deptName = item.department?.name?.toLowerCase() || '';
-                                    return deptName === 'store' || deptName === 'warehouse' || deptName === 'store (warehouse)' || 
-                                           deptName.includes('warehouse') || deptName.includes('wearehouse');
-                                });
-                                const stockAvailable = warehouseItem ? Number(warehouseItem.current_stock) : 0;
-                                return (
-                                    <div className="p-3 bg-muted rounded-md text-sm border">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-muted-foreground font-medium">Warehouse stock ({warehouseItem?.unit || 'units'}):</span>
-                                            <span className={cn("font-bold", stockAvailable <= 0 ? "text-red-500" : "text-green-600")}>
-                                                {stockAvailable}
-                                            </span>
-                                        </div>
-                                        {stockAvailable <= 0 && (
-                                            <p className="text-[10px] text-red-500 mt-1 italic leading-tight">
-                                                Insufficient stock in Warehouse. You should convert this to an External Purchase.
-                                            </p>
-                                        )}
+                            {actionData.requestType === 'TRANSFER_REQUEST' && activeRequestShortageInfo && (
+                                <div className={cn("p-3 rounded-md text-sm border", activeRequestShortageInfo.isShortage ? "bg-red-50 border-red-100" : "bg-muted border-muted")}>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-muted-foreground font-medium">Available in Store:</span>
+                                        <span className={cn("font-bold", activeRequestShortageInfo.available <= 0 ? "text-red-500" : "text-green-600")}>
+                                            {activeRequestShortageInfo.available} {activeRequestShortageInfo.unit}
+                                        </span>
                                     </div>
-                                );
-                            })()}
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-muted-foreground font-medium">Total Reserved (Approved):</span>
+                                        <span className="font-bold text-amber-600">
+                                            {activeRequestShortageInfo.reserved} {activeRequestShortageInfo.unit}
+                                        </span>
+                                    </div>
+                                    {activeRequestShortageInfo.isShortage && (
+                                        <div className="mt-2 pt-2 border-t border-red-200">
+                                            <p className="text-[11px] text-red-600 font-bold flex items-center gap-1">
+                                                <AlertCircle className="h-3 w-3" />
+                                                CRITICAL: Insufficient Warehouse Stock
+                                            </p>
+                                            <p className="text-[10px] text-red-500 mt-1 italic leading-tight">
+                                                The total approved transfers ({activeRequestShortageInfo.reserved}) exceed current store levels ({activeRequestShortageInfo.available}). 
+                                                You should convert this request to an External Purchase.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Inputs */}
                             <div className="grid grid-cols-2 gap-4">
@@ -1251,11 +1682,16 @@ export default function InventoryRequestsPage() {
                             {actionData?.status === 'APPROVED' && actionData.requestType === 'TRANSFER_REQUEST' && !actionData.action_metadata?.needs_external_purchase && (
                                 <Button
                                     type="button"
-                                    variant="outline"
-                                    className="text-amber-600 border-amber-200 hover:bg-amber-50"
+                                    variant={activeRequestShortageInfo?.isShortage ? "default" : "outline"}
+                                    className={cn(
+                                        activeRequestShortageInfo?.isShortage 
+                                            ? "bg-amber-600 hover:bg-amber-700 text-white w-full border-none shadow-md" 
+                                            : "text-amber-600 border-amber-200 hover:bg-amber-50"
+                                    )}
                                     onClick={handleConvertToExternal}
                                 >
-                                    Convert to External
+                                    <ShoppingCart className="h-4 w-4 mr-2" />
+                                    Convert to External Purchase
                                 </Button>
                             )}
                         </div>
