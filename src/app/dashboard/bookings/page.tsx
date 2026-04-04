@@ -263,7 +263,7 @@ export default function BookingManagementPage() {
                   <TableCell>{booking.room_title}</TableCell>
                   <TableCell>{getFormattedDate(booking.check_in_date)}</TableCell>
                   <TableCell>{getFormattedDate(booking.check_out_date)}</TableCell>
-                  <TableCell>LKR {booking.total_price.toFixed(2)}</TableCell>
+                  <TableCell>LKR {(booking.total_cost ?? 0).toFixed(2)}</TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={`capitalize ${statusColors[booking.status]}`}>
                       {booking.status}

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { AtSign, Lock } from "lucide-react";
+import { AtSign, Lock, LayoutGrid } from "lucide-react";
 import { useState, useEffect } from "react";
 import { createClient } from '@/lib/supabase/client';
 import { useUserContext } from '@/context/user-context';
@@ -215,6 +215,25 @@ export default function LoginPage() {
                     Signing In...
                   </div>
                 ) : "Sign In"}
+              </Button>
+
+              <div className="relative py-2">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-muted" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">Or</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-12 text-lg font-semibold border-2 hover:bg-muted/50 transition-all rounded-xl shadow-sm gap-2"
+                onClick={() => router.push('/app')}
+              >
+                <LayoutGrid className="h-5 w-5" />
+                App
               </Button>
 
 

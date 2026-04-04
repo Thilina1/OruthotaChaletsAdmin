@@ -139,7 +139,7 @@ export type Reservation = {
   room_title?: string;
   check_in_date: string;
   check_out_date: string;
-  total_price: number;
+  total_cost: number;
   status: ReservationStatus;
   created_at?: string;
   updated_at?: string;
@@ -315,12 +315,17 @@ export type HotelInventoryItem = {
   department_id: string;
   department?: { name: string };
   unit: string;
+  item_size?: string;
   buying_price: number;
   current_stock: number;
   safety_stock: number;
   reorder_level: number;
   maximum_level: number;
   status: 'active' | 'inactive';
+  brand?: string;
+  supplier?: string;
+  barcode?: string;
+  expiry_date?: string;
   created_at?: string;
   updated_at?: string;
   menu_items?: { id: string; price: number; category: string }[];
@@ -332,13 +337,67 @@ export type InventoryTransaction = {
   item?: { name: string };
   transaction_type: 'receive' | 'issue' | 'damage' | 'audit_adjustment' | 'initial_stock';
   quantity: number;
+  item_size?: string;
   previous_stock?: number;
   new_stock?: number;
   reference_department?: string;
   department?: { name: string };
   reason?: string;
   remarks?: string;
+  brand?: string;
+  supplier?: string;
+  expiry_date?: string;
+  unit_price?: number;
+  barcode?: string;
+  batch_number?: string;
   created_by?: string;
   user?: { name: string };
+  created_at?: string;
+};
+
+export type InventoryRequest = {
+    id: string;
+    request_type: 'NEW_ITEM' | 'ADD_STOCK' | 'receive' | 'issue' | 'damage' | 'audit_adjustment' | 'initial_stock' | 'TRANSFER_REQUEST';
+    item_id: string | null;
+    item?: HotelInventoryItem;
+    requested_quantity: number;
+    estimated_cost?: number;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+    requested_by: string;
+    requester?: { name: string; email: string; department: string };
+    reviewed_by?: string;
+    reviewer?: { name: string; email: string };
+    notes?: string;
+    action_metadata?: {
+        brand?: string;
+        expiry_date?: string;
+        unit_price?: number;
+        barcode?: string;
+        received_quantity?: number;
+        item_price?: number;
+        actual_cost?: number;
+        reference_department?: string | null;
+        reason?: string;
+        requesting_department_id?: string;
+        requesting_department_name?: string;
+        needs_external_purchase?: boolean;
+    };
+    purchase_order_id?: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export type TableBookingStatus = 'pending' | 'confirmed' | 'cancelled';
+
+export type TableBooking = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  date: string;
+  meal_type: string;
+  guests: number;
+  comments?: string;
+  status: TableBookingStatus;
   created_at?: string;
 };

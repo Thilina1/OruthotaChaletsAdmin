@@ -252,6 +252,7 @@ export async function PUT(request: Request) {
         }
 
         if (shouldProcessTransaction) {
+            const req_metadata = requestData.action_metadata || {};
             const quantity = Number(body.received_quantity || requestData.requested_quantity);
             
             if (isExternalBuy) {
@@ -283,6 +284,10 @@ export async function PUT(request: Request) {
                     quantity,
                     previous_stock: previousStoreStock,
                     new_stock: newStoreStock,
+                    brand: req_metadata?.brand,
+                    expiry_date: req_metadata?.expiry_date,
+                    unit_price: req_metadata?.unit_price,
+                    barcode: req_metadata?.barcode,
                     remarks: `External purchase received into Store. ${requestData.request_type === 'TRANSFER_REQUEST' ? 'Originating from Transfer Request.' : ''}`,
                     created_by: userId
                 });
@@ -321,6 +326,10 @@ export async function PUT(request: Request) {
                         previous_stock: Number(sourceItemData.current_stock),
                         new_stock: sourceNewStock,
                         reference_department: requestData.action_metadata?.requesting_department_id || null,
+                        brand: req_metadata?.brand,
+                        expiry_date: req_metadata?.expiry_date,
+                        unit_price: req_metadata?.unit_price,
+                        barcode: req_metadata?.barcode,
                         remarks: `Internal transfer to ${requestData.action_metadata?.requesting_department_name || 'Department'}`,
                         created_by: userId
                     },
@@ -331,6 +340,10 @@ export async function PUT(request: Request) {
                         previous_stock: Number(destItemData.current_stock),
                         new_stock: destNewStock,
                         reference_department: storeDept.id,
+                        brand: req_metadata?.brand,
+                        expiry_date: req_metadata?.expiry_date,
+                        unit_price: req_metadata?.unit_price,
+                        barcode: req_metadata?.barcode,
                         remarks: `Internal transfer from Store`,
                         created_by: userId
                     }
@@ -353,6 +366,13 @@ export async function PUT(request: Request) {
                     quantity: requestData.request_type === 'audit_adjustment' ? (quantity - previousStock) : quantity,
                     previous_stock: previousStock,
                     new_stock: newStock,
+                    brand: req_metadata?.brand,
+                    item_size: req_metadata?.item_size || (requestData as any).item?.item_size,
+                    expiry_date: req_metadata?.expiry_date,
+                    unit_price: req_metadata?.unit_price,
+                    barcode: req_metadata?.barcode,
+                    batch_number: req_metadata?.batch_number,
+                    supplier: req_metadata?.supplier,
                     remarks: requestData.notes || null,
                     created_by: userId
                 });

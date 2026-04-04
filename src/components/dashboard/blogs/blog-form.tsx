@@ -21,8 +21,9 @@ import type { Blog, BlogColor } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlusCircle, Trash2 } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import JoditEditor from 'jodit-react';
 import { useRef } from 'react';
+import dynamic from 'next/dynamic';
+const JoditEditor = dynamic(() => import('jodit-react'), { ssr: false });
 
 
 const blogColorPalettes: { name: BlogColor, className: string }[] = [

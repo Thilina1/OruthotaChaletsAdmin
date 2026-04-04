@@ -39,11 +39,13 @@ import {
 import type { HotelInventoryItem, InventoryDepartment, MenuSection } from '@/lib/types';
 import { InventoryItemForm } from '@/components/dashboard/inventory-management/inventory-item-form';
 import { InventoryTransactionForm } from '@/components/dashboard/inventory-management/inventory-transaction-form';
+import { StockIntakeForm } from '@/components/dashboard/inventory-management/stock-intake-form';
 import { InventoryRequestForm } from '@/components/dashboard/inventory-management/request-form';
 import { Badge } from '@/components/ui/badge';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
-import { WarehouseManagement } from '@/components/dashboard/inventory-management/warehouse-management';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TransactionHistoryTable } from '@/components/dashboard/inventory-management/transaction-history-table';
 
 export default function InventoryManagementPage() {
   const { toast } = useToast();
@@ -54,8 +56,11 @@ export default function InventoryManagementPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false);
   const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false);
+  const [isGRNDialogOpen, setIsGRNDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<HotelInventoryItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [refreshHistory, setRefreshHistory] = useState(0);
 
   // Filtering state
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,6 +129,9 @@ export default function InventoryManagementPage() {
         safety_stock: values.safety_stock,
         reorder_level: values.reorder_level,
         maximum_level: values.maximum_level,
+        item_size: values.item_size,
+        brand: values.brand,
+        supplier: values.supplier,
         is_menu_item: values.is_menu_item,
         menu_price: values.menu_price,
         menu_category: values.menu_category
@@ -218,27 +226,41 @@ export default function InventoryManagementPage() {
           <h1 className="text-3xl font-headline font-bold">Hotel Inventory Management</h1>
           <p className="text-muted-foreground">Manage centralized hotel inventory, stores, and stock limits.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {activeTab === 'inventory' && (
+            <Button onClick={() => handleOpenDialog()} variant="secondary">
+              <PlusCircle className="mr-2 h-4 w-4" /> Add New Item
+            </Button>
+          )}
+          <Button onClick={() => setIsGRNDialogOpen(true)} variant="default" className="bg-primary hover:bg-primary/90 font-bold">
+            <PlusCircle className="mr-2 h-4 w-4" /> Stock In (GRN)
+          </Button>
           <Button onClick={() => setIsRequestDialogOpen(true)} variant="outline">
             Request Products
-          </Button>
-          <Button onClick={() => handleOpenDialog()}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Item
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search items by name or description..."
-            className="pl-8"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3 md:w-fit">
+          <TabsTrigger value="inventory" className="px-8">📦 Inventory List</TabsTrigger>
+          <TabsTrigger value="grn" className="px-8">📥 Stock In (GRN)</TabsTrigger>
+          <TabsTrigger value="history" className="px-8">🧭 Movement History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="inventory" className="space-y-6">
+          <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search items by name or description..."
+                className="pl-8"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              {/* ... filters ... */}
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
             <SelectTrigger className="w-full sm:w-[150px]">
               <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -305,9 +327,20 @@ export default function InventoryManagementPage() {
 
                 return (
                   <TableRow key={item.id}>
-                    <TableCell className="font-medium">
-                      {item.name}
-                      {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{item.name}</span>
+                        {item.item_size && (
+                          <span className="text-xs text-muted-foreground">Size: {item.item_size}</span>
+                        )}
+                        {(item.brand || item.supplier) && (
+                          <div className="flex gap-2 mt-1">
+                            {item.brand && <Badge variant="secondary" className="text-[10px] py-0 px-1">Brand: {item.brand}</Badge>}
+                            {item.supplier && <Badge variant="outline" className="text-[10px] py-0 px-1 truncate max-w-[150px]">Supplier: {item.supplier}</Badge>}
+                          </div>
+                        )}
+                        {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
@@ -365,6 +398,23 @@ export default function InventoryManagementPage() {
           />
         )}
       </div>
+    </TabsContent>
+
+        <TabsContent value="grn">
+          <TransactionHistoryTable 
+            type="receive,initial_stock" 
+            title="Recent Stock Intake (GRN)" 
+            refreshKey={refreshHistory}
+          />
+        </TabsContent>
+
+        <TabsContent value="history">
+          <TransactionHistoryTable 
+            title="All Inventory Movements" 
+            refreshKey={refreshHistory}
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -377,6 +427,23 @@ export default function InventoryManagementPage() {
             onSubmit={handleSubmit}
             departments={departments}
             menuCategories={menuCategories}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isGRNDialogOpen} onOpenChange={setIsGRNDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Goods Received Note (GRN)</DialogTitle>
+          </DialogHeader>
+          <StockIntakeForm
+            items={items}
+            departments={departments}
+            onSuccess={() => {
+              setIsGRNDialogOpen(false);
+              setRefreshHistory(prev => prev + 1);
+              fetchData();
+            }}
           />
         </DialogContent>
       </Dialog>

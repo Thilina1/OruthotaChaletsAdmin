@@ -45,12 +45,15 @@ import {
 import type { HotelInventoryItem, InventoryDepartment } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import {
-    PieChart, Pie, Cell,
-    BarChart, Bar, XAxis, YAxis, CartesianGrid,
-} from 'recharts';
+import { cn } from '@/lib/utils';
+import dynamic from 'next/dynamic';
+
 import { format } from 'date-fns';
+
+const InventoryCharts = dynamic(() => import('./inventory-charts'), { 
+    ssr: false, 
+    loading: () => <div className="w-full h-[300px] rounded-xl flex items-center justify-center border bg-muted/20">Loading charts...</div> 
+});
 
 // Extended type — the API returns category + unit on the joined item
 type InventoryTransactionFull = {
@@ -62,8 +65,16 @@ type InventoryTransactionFull = {
     previous_stock?: number;
     new_stock?: number;
     reference_department?: string;
+    ref_dept?: { name: string };
     reason?: string;
     remarks?: string;
+    brand?: string;
+    item_size?: string;
+    batch_number?: string;
+    supplier?: string;
+    expiry_date?: string;
+    unit_price?: number;
+    barcode?: string;
     user?: { name: string };
     created_at?: string;
 };
@@ -170,6 +181,7 @@ export default function InventoryReportsPage() {
     const [txnSearch, setTxnSearch] = useState('');
     const [txnType, setTxnType] = useState('all');
     const [costDept, setCostDept] = useState('all');
+    const [movementGroup, setMovementGroup] = useState<'all' | 'internal' | 'external'>('all');
 
     // Month/Year period filter for transactions
     const currentDate = new Date();
@@ -341,10 +353,20 @@ export default function InventoryReportsPage() {
 
     // ── Transaction History ───────────────────────────────────────────────────
     const filteredTxns = useMemo(() => transactions.filter(txn => {
-        const matchSearch = txn.item?.name?.toLowerCase().includes(txnSearch.toLowerCase()) || false;
-        const matchType = txnType === 'all' || txn.transaction_type === txnType;
-        return matchSearch && matchType;
-    }), [transactions, txnSearch, txnType]);
+        const itemMatch = txn.item?.name?.toLowerCase().includes(txnSearch.toLowerCase()) || false;
+        const typeMatch = txnType === 'all' || txn.transaction_type === txnType;
+        
+        let movementMatch = true;
+        if (movementGroup === 'internal') {
+            // Internal mapping: 'issue' or any 'receive' from another dept
+            movementMatch = txn.transaction_type === 'issue' || (txn.transaction_type === 'receive' && !!txn.ref_dept);
+        } else if (movementGroup === 'external') {
+            // External mapping: 'receive' from supplier or 'initial_stock'
+            movementMatch = (txn.transaction_type === 'receive' && !txn.ref_dept) || txn.transaction_type === 'initial_stock';
+        }
+
+        return itemMatch && typeMatch && movementMatch;
+    }), [transactions, txnSearch, txnType, movementGroup]);
 
     const txnPagination = usePagination(filteredTxns, PAGE_SIZE);
 
@@ -356,10 +378,21 @@ export default function InventoryReportsPage() {
 
     const handleExportTxn = () => {
         exportCSV('transaction-history.csv',
-            ['Date', 'Item', 'Type', 'Quantity', 'Previous Stock', 'New Stock', 'Reason', 'Performed By'],
+            ['Date', 'Item', 'Size', 'Type', 'Brand', 'Supplier', 'Batch Number', 'Barcode', 'Expiry', 'Unit Price', 'Source/Destination', 'Quantity', 'Unit', 'Previous Stock', 'New Stock', 'Reason', 'Performed By'],
             filteredTxns.map(txn => [
                 format(new Date(txn.created_at!), 'yyyy-MM-dd HH:mm'),
-                txn.item?.name || '', txnTypeLabel(txn.transaction_type), txn.quantity,
+                txn.item?.name || '', 
+                txn.item_size || '',
+                txnTypeLabel(txn.transaction_type),
+                txn.brand || '',
+                txn.supplier || '',
+                txn.batch_number || '',
+                txn.barcode || '',
+                txn.expiry_date || '',
+                txn.unit_price || '',
+                txn.ref_dept?.name || (txn.transaction_type === 'receive' ? 'External Supplier' : 'Manual Adjustment'),
+                txn.quantity,
+                txn.item?.unit || '',
                 txn.previous_stock ?? '', txn.new_stock ?? '',
                 txn.reason || txn.remarks || '', txn.user?.name || '',
             ])
@@ -430,6 +463,27 @@ export default function InventoryReportsPage() {
             ])
         );
     };
+
+    // ── Expiry Analytics ──────────────────────────────────────────────────────
+    const expiryAlerts = useMemo(() => {
+        const now = new Date();
+        const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        
+        // Group by Item and Brand to avoid duplicates if multiple receives happened for the same batch
+        // In a real system, this would be a proper batches table.
+        const seenBatch = new Set();
+        return transactions
+            .filter(t => {
+                if (!t.expiry_date) return false;
+                const batchKey = `${t.item_id}_${t.brand}_${t.expiry_date}`;
+                if (seenBatch.has(batchKey)) return false;
+                seenBatch.add(batchKey);
+                
+                const expDate = new Date(t.expiry_date);
+                return expDate < thirtyDaysFromNow;
+            })
+            .sort((a, b) => new Date(a.expiry_date!).getTime() - new Date(b.expiry_date!).getTime());
+    }, [transactions]);
 
     // ─── render ───────────────────────────────────────────────────────────────
     return (
@@ -605,6 +659,17 @@ export default function InventoryReportsPage() {
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Search item name…" className="pl-8" value={txnSearch} onChange={e => setTxnSearch(e.target.value)} />
                         </div>
+                        <Select value={movementGroup} onValueChange={(val: any) => setMovementGroup(val)}>
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Movement" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Movements</SelectItem>
+                                <SelectItem value="internal">Internal</SelectItem>
+                                <SelectItem value="external">External</SelectItem>
+                                <SelectItem value="adjustment">Other/Audit</SelectItem>
+                            </SelectContent>
+                        </Select>
                         <Select value={txnType} onValueChange={setTxnType}>
                             <SelectTrigger className="w-[160px]">
                                 <SelectValue placeholder="Type" />
@@ -669,80 +734,37 @@ export default function InventoryReportsPage() {
                         return (
                             <>
                                 {/* Stat cards */}
-                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                                     {[
-                                        { label: 'Total Transactions', value: filteredTxns.length, color: 'text-foreground', bg: '' },
-                                        { label: 'Received (qty)', value: receivedQty, color: 'text-green-600', bg: 'bg-green-50' },
-                                        { label: 'Issued (qty)', value: issuedQty, color: 'text-blue-600', bg: 'bg-blue-50' },
+                                        { label: 'Total Records', value: filteredTxns.length, color: 'text-foreground', bg: '' },
+                                        { 
+                                            label: 'Internal Movements', 
+                                            value: filteredTxns.filter(t => t.transaction_type === 'issue' || (t.transaction_type === 'receive' && !!t.ref_dept)).length,
+                                            subValue: `Qty: ${sumQty(filteredTxns.filter(t => t.transaction_type === 'issue' || (t.transaction_type === 'receive' && !!t.ref_dept)))}`,
+                                            color: 'text-blue-600', bg: 'bg-blue-50' 
+                                        },
+                                        { 
+                                            label: 'External Purchases', 
+                                            value: filteredTxns.filter(t => t.transaction_type === 'receive' && !t.ref_dept).length,
+                                            subValue: `Qty: ${sumQty(filteredTxns.filter(t => t.transaction_type === 'receive' && !t.ref_dept))}`,
+                                            color: 'text-green-600', bg: 'bg-green-50' 
+                                        },
                                         { label: 'Damaged (qty)', value: damagedQty, color: 'text-red-600', bg: 'bg-red-50' },
                                         { label: 'Audit Adj (qty)', value: auditedQty, color: 'text-amber-600', bg: 'bg-amber-50' },
+                                        { label: 'Total Qty Recv', value: receivedQty, color: 'text-green-600', bg: 'bg-green-100/30' },
                                     ].map(c => (
                                         <Card key={c.label} className={c.bg}>
-                                            <CardContent className="pt-4 pb-3">
-                                                <p className="text-xs text-muted-foreground">{c.label}</p>
-                                                <p className={`text-2xl font-bold mt-0.5 ${c.color}`}>{c.value.toLocaleString()}</p>
+                                            <CardContent className="pt-4 pb-3 px-3">
+                                                <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">{c.label}</p>
+                                                <p className={`text-xl font-bold mt-0.5 ${c.color}`}>{c.value.toLocaleString()}</p>
+                                                {c.subValue && <p className="text-[10px] text-muted-foreground mt-0.5">{c.subValue}</p>}
                                             </CardContent>
                                         </Card>
                                     ))}
                                 </div>
 
                                 {/* Pie + Bar side-by-side */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Pie chart — transaction type distribution */}
-                                    <Card>
-                                        <CardHeader className="pb-2">
-                                            <CardTitle className="text-sm font-semibold">Transaction Type Distribution</CardTitle>
-                                            <CardDescription className="text-xs">Count of transactions by type ({periodLabel})</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <ChartContainer config={{
-                                                Received: { label: 'Received', color: '#22c55e' },
-                                                Issued: { label: 'Issued', color: '#3b82f6' },
-                                                Damaged: { label: 'Damaged', color: '#ef4444' },
-                                                'Audit Adj': { label: 'Audit Adj', color: '#f59e0b' },
-                                            }} className="h-[220px]">
-                                                <PieChart>
-                                                    <Pie data={pieData} dataKey="value" nameKey="name"
-                                                        cx="50%" cy="50%" outerRadius={80} innerRadius={40}
-                                                        paddingAngle={3} label={({ name, percent }) =>
-                                                            percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ''
-                                                        }>
-                                                        {pieData.map((entry, i) => (
-                                                            <Cell key={i} fill={entry.fill} stroke="transparent" />
-                                                        ))}
-                                                    </Pie>
-                                                    <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                                                    <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-                                                </PieChart>
-                                            </ChartContainer>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Bar chart — top items by quantity */}
-                                    <Card>
-                                        <CardHeader className="pb-2">
-                                            <CardTitle className="text-sm font-semibold">Top Items by Quantity</CardTitle>
-                                            <CardDescription className="text-xs">Received vs Issued vs Damaged ({periodLabel})</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <ChartContainer config={{
-                                                received: { label: 'Received', color: '#22c55e' },
-                                                issued: { label: 'Issued', color: '#3b82f6' },
-                                                damaged: { label: 'Damaged', color: '#ef4444' },
-                                            }} className="h-[220px]">
-                                                <BarChart data={barData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                                                    <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={40} />
-                                                    <YAxis tick={{ fontSize: 10 }} />
-                                                    <ChartTooltip content={<ChartTooltipContent />} />
-                                                    <Bar dataKey="received" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                                                    <Bar dataKey="issued" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-                                                    <Bar dataKey="damaged" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                                                </BarChart>
-                                            </ChartContainer>
-                                        </CardContent>
-                                    </Card>
-                                </div>
+                                <InventoryCharts pieData={pieData} barData={barData} periodLabel={periodLabel} />
                             </>
                         );
                     })()}
@@ -754,6 +776,8 @@ export default function InventoryReportsPage() {
                                     <TableHead>Date & Time</TableHead>
                                     <TableHead>Item</TableHead>
                                     <TableHead>Type</TableHead>
+                                    <TableHead>Batch Info</TableHead>
+                                    <TableHead>Source / Destination</TableHead>
                                     <TableHead>Quantity</TableHead>
                                     <TableHead>Stock Change</TableHead>
                                     <TableHead>Reason</TableHead>
@@ -761,9 +785,9 @@ export default function InventoryReportsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {isLoading ? <SkeletonRows cols={7} /> :
+                                {isLoading ? <SkeletonRows cols={9} /> :
                                     txnPagination.paginatedItems.length === 0 ? (
-                                        <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">No transactions found.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">No transactions found.</TableCell></TableRow>
                                     ) : txnPagination.paginatedItems.map(txn => {
                                         const isIncrease = ['receive', 'initial_stock'].includes(txn.transaction_type);
                                         const isDecrease = ['issue', 'damage'].includes(txn.transaction_type);
@@ -775,9 +799,53 @@ export default function InventoryReportsPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="font-medium">{txn.item?.name}</div>
+                                                    {txn.item_size && (
+                                                        <div className="text-[10px] text-primary font-semibold">Size: {txn.item_size}</div>
+                                                    )}
                                                     <div className="text-xs text-muted-foreground">{txn.item?.category}</div>
                                                 </TableCell>
                                                 <TableCell>{txnTypeBadge(txn.transaction_type)}</TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1">
+                                                        {txn.brand && (
+                                                            <div className="text-[10px] font-bold text-primary uppercase">{txn.brand}</div>
+                                                        )}
+                                                        {txn.supplier && (
+                                                            <div className="text-[10px] text-muted-foreground italic">Sup: {txn.supplier}</div>
+                                                        )}
+                                                        {txn.batch_number && (
+                                                            <div className="text-[10px] text-muted-foreground">Lot: {txn.batch_number}</div>
+                                                        )}
+                                                        {txn.expiry_date && (
+                                                            <div className={cn(
+                                                                "text-[10px] flex items-center gap-1",
+                                                                new Date(txn.expiry_date) < new Date() ? "text-destructive font-bold" : "text-muted-foreground"
+                                                            )}>
+                                                                Exp: {format(new Date(txn.expiry_date), 'dd MMM yyyy')}
+                                                            </div>
+                                                        )}
+                                                        {txn.barcode && (
+                                                            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                                                <ClipboardList className="h-2 w-2" /> <span className="font-mono">{txn.barcode}</span>
+                                                            </div>
+                                                        )}
+                                                        {txn.unit_price && (
+                                                            <div className="text-[10px] text-muted-foreground">LKR {Number(txn.unit_price).toFixed(2)}</div>
+                                                        )}
+                                                        {!txn.brand && !txn.expiry_date && !txn.unit_price && !txn.supplier && !txn.batch_number && !txn.barcode && <span className="text-muted-foreground text-xs">–</span>}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {txn.ref_dept ? (
+                                                        <Badge variant="outline" className="font-normal border-blue-200 bg-blue-50 text-blue-700">
+                                                            {txn.ref_dept.name}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground italic">
+                                                            {txn.transaction_type === 'receive' ? 'External Supplier' : 'Manual Adjustment'}
+                                                        </span>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell>
                                                     <span className={`font-semibold ${isIncrease ? 'text-green-600' : isDecrease ? 'text-red-600' : 'text-blue-600'}`}>
                                                         {isIncrease ? '+' : isDecrease ? '-' : '±'}{Math.abs(txn.quantity)} {txn.item?.unit}
@@ -792,7 +860,6 @@ export default function InventoryReportsPage() {
                                                         </div>
                                                     ) : <span className="text-muted-foreground text-xs">–</span>}
                                                 </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground max-w-[160px] truncate">{txn.reason || txn.remarks || '–'}</TableCell>
                                                 <TableCell className="text-sm">{txn.user?.name || '–'}</TableCell>
                                             </TableRow>
                                         );
@@ -879,6 +946,70 @@ export default function InventoryReportsPage() {
                                 onPageChange={lowStockPagination.setCurrentPage}
                             />
                         )}
+                    </div>
+
+                    {/* Expiry Alerts Section */}
+                    <div className="mt-8 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-xl font-bold flex items-center gap-2 text-primary">
+                                    <AlertTriangle className="h-5 w-5" />
+                                    Upcoming Batch Expiries
+                                </h3>
+                                <p className="text-sm text-muted-foreground">Batches expiring within the next 30 days or already expired.</p>
+                            </div>
+                            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
+                                {expiryAlerts.length} Batches
+                            </Badge>
+                        </div>
+
+                        <div className="rounded-md border bg-card">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Item</TableHead>
+                                        <TableHead>Brand</TableHead>
+                                        <TableHead>Expiry Date</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Transaction Date</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {expiryAlerts.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                                                No upcoming expiries detected.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : expiryAlerts.map(alert => {
+                                        const expDate = new Date(alert.expiry_date!);
+                                        const isExpired = expDate < new Date();
+                                        return (
+                                            <TableRow key={alert.id}>
+                                                <TableCell>
+                                                    <div className="font-medium">{alert.item?.name}</div>
+                                                    <div className="text-xs text-muted-foreground">{alert.item?.category}</div>
+                                                </TableCell>
+                                                <TableCell className="font-semibold uppercase text-xs">{alert.brand || 'Generic'}</TableCell>
+                                                <TableCell className={cn("font-bold", isExpired ? "text-red-600" : "text-orange-500")}>
+                                                    {format(expDate, 'dd MMM yyyy')}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {isExpired ? (
+                                                        <Badge variant="destructive" className="animate-pulse">EXPIRED</Badge>
+                                                    ) : (
+                                                        <Badge className="bg-orange-100 text-orange-700 border-orange-200">EXPIRING SOON</Badge>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-xs text-muted-foreground">
+                                                    Received on {format(new Date(alert.created_at!), 'dd MMM yyyy')}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </div>
                 </TabsContent>
 

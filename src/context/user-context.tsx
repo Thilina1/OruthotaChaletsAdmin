@@ -73,7 +73,6 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
   if (loading) {
     return (
       <div className="w-screen h-screen flex flex-col items-center justify-center space-y-4">
-        <p className="text-lg font-semibold text-primary animate-pulse">Loading Your Experience...</p>
         <Skeleton className="h-4 w-[250px]" />
         <Skeleton className="h-4 w-[200px]" />
       </div>

@@ -58,20 +58,20 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="px-4 md:px-8 -mt-20 md:-mt-24 relative z-10">
-        <div className="flex flex-col md:flex-row md:items-end gap-6 mb-8">
-          <Avatar className="w-32 h-32 md:w-44 md:h-44 border-8 border-background shadow-2xl ring-2 ring-primary/10">
+      <div className="px-4 md:px-8 relative z-10">
+        <div className="flex flex-col md:flex-row md:items-start gap-6 mb-8">
+          <Avatar className="w-32 h-32 md:w-44 md:h-44 border-8 border-background shadow-2xl ring-2 ring-primary/10 -mt-16 md:-mt-22 shrink-0">
             {avatar && <AvatarImage src={avatar.imageUrl} alt={user.name} />}
             <AvatarFallback className="text-4xl bg-muted">
               {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
             </AvatarFallback>
           </Avatar>
           
-          <div className="flex-1 pb-2">
-            <h1 className="text-3xl md:text-5xl font-bold font-headline text-foreground drop-shadow-sm">
+          <div className="flex-1 md:pt-3 pb-2">
+            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-headline text-foreground drop-shadow-sm">
               {user.name}
             </h1>
-            <div className="flex flex-wrap items-center gap-3 mt-2">
+            <div className="flex flex-wrap items-center gap-3 mt-3">
               <Badge className="bg-primary text-primary-foreground px-3 py-1 text-sm font-medium capitalize">
                 {user.role}
               </Badge>

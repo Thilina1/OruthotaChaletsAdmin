@@ -60,7 +60,7 @@ export default function MenuManagementPage() {
             const [itemsRes, categoriesRes, inventoryRes, deptsRes] = await Promise.all([
                 supabase.from('menu_items').select('*').order('name'),
                 fetch('/api/admin/menu-sections').then(res => res.json()),
-                supabase.from('hotel_inventory_items').select('id, name, unit, current_stock').eq('status', 'active').order('name'),
+                supabase.from('hotel_inventory_items').select('id, name, unit, current_stock, department_id').eq('status', 'active').order('name'),
                 supabase.from('inventory_departments').select('*').order('name')
             ]);
 
@@ -255,6 +255,7 @@ export default function MenuManagementPage() {
             <PaginatedMenuCategory
                 items={filteredItems}
                 inventoryItems={inventoryItems}
+                departments={departments}
                 onAvailabilityChange={handleAvailabilityChange}
                 onEditClick={handleEditItemClick}
                 fetchError={fetchError}
@@ -329,12 +330,14 @@ export default function MenuManagementPage() {
 function PaginatedMenuCategory({
     items,
     inventoryItems,
+    departments,
     onAvailabilityChange,
     onEditClick,
     fetchError
 }: {
     items: MenuItemType[],
     inventoryItems: HotelInventoryItem[],
+    departments: InventoryDepartment[],
     onAvailabilityChange: (item: MenuItemType, checked: boolean) => void,
     onEditClick: (item: MenuItemType) => void,
     fetchError: string | null
@@ -373,7 +376,24 @@ function PaginatedMenuCategory({
                                     ? (item.linked_inventory_item_id
                                         ? (() => {
                                             const linkedItem = inventoryItems.find(inv => inv.id === item.linked_inventory_item_id);
-                                            return linkedItem ? `${linkedItem.current_stock ?? 0} (Hotel Inv.)` : 'Linked to Hotel Inv.';
+                                            if (linkedItem) {
+                                                const restDept = departments.find(d => d.name.toLowerCase() === 'restaurant' || d.name.toLowerCase() === 'kitchen');
+                                                const storeDept = departments.find(d => d.name.toLowerCase() === 'store');
+                                                
+                                                const restItem = restDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === restDept.id) : null;
+                                                const storeItem = storeDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === storeDept.id) : null;
+                                                
+                                                const restQty = restItem ? (restItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? 0 : (linkedItem.current_stock ?? 0));
+                                                const storeQty = storeItem ? (storeItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? (linkedItem.current_stock ?? 0) : 0);
+                                                
+                                                return (
+                                                    <div className="flex flex-col">
+                                                        <span className="font-semibold">{restQty} / {storeQty} {linkedItem.unit || ''}</span>
+                                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">(Rest. / Store)</span>
+                                                    </div>
+                                                );
+                                            }
+                                            return 'Linked to Hotel Inv.';
                                         })()
                                         : item.stock)
                                     : 'N/A'}

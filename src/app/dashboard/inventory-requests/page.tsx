@@ -400,7 +400,7 @@ export default function InventoryRequestsPage() {
                            deptName.includes('wearehouse');
                 });
 
-                const targetItemId = storeItem ? storeItem.id : itemId;
+                const targetItemId = storeItem ? storeItem.id : firstReq.item_id;
                 const defaultSum = group.reduce((sum, r) => sum + (r.requested_quantity || 0), 0);
                 const qtyToRequest = bulkCustomQuantities[itemName] ? Number(bulkCustomQuantities[itemName]) : defaultSum;
 

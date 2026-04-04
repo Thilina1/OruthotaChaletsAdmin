@@ -36,6 +36,7 @@ import {
   Search,
   Utensils,
   CheckCircle,
+  Trash2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -131,13 +132,11 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   const [localOrder, setLocalOrder] = useState<Record<string, number>>({});
 
-  // reset on close
+  // reset UI state on close (but keep localOrder for persistence)
   useEffect(() => {
     if (!isOpen) {
-      setLocalOrder({});
       setSearchTerm('');
       setSelectedCategory(null);
-
     }
   }, [isOpen]);
 
@@ -147,17 +146,19 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       let currentLocalItems = menuItems;
       if (orderItems) {
         currentLocalItems = currentLocalItems.map((menuItem) => {
-          const orderedItem = orderItems.find((oi) => oi.menu_item_id === menuItem.id);
-          if (orderedItem && menuItem.stock_type === 'Inventoried') {
+          const orderedItemsForThisMenu = orderItems.filter((oi) => oi.menu_item_id === menuItem.id);
+          const totalQuantity = orderedItemsForThisMenu.reduce((sum, item) => sum + item.quantity, 0);
+
+          if (totalQuantity > 0 && menuItem.stock_type === 'Inventoried') {
             if (menuItem.linked_inventory_item_id) {
               return {
                 ...menuItem,
                 hotel_inventory_items: {
-                  current_stock: ((menuItem as any).hotel_inventory_items?.current_stock || 0) - orderedItem.quantity
+                  current_stock: ((menuItem as any).hotel_inventory_items?.current_stock || 0) - totalQuantity
                 }
               } as any;
             }
-            return { ...menuItem, stock: (menuItem.stock || 0) - orderedItem.quantity };
+            return { ...menuItem, stock: (menuItem.stock || 0) - totalQuantity };
           }
           return menuItem;
         });
@@ -165,6 +166,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       setLocalMenuItems(currentLocalItems);
     }
   }, [menuItems, orderItems]);
+
+  // Real-time subscription for Order Items
+  useEffect(() => {
+    if (!openOrder?.id || !isOpen) return;
+
+    const channel = supabase.channel(`admin-order-items-${openOrder.id}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'order_items', 
+          filter: `order_id=eq.${openOrder.id}` 
+        }, 
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [openOrder?.id, isOpen, fetchData, supabase]);
 
 
 
@@ -260,13 +284,32 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
           }
 
           if (menuItem.stock_type === 'Inventoried') {
-            // Decrement stock
-            const { error: rpcError } = await supabase.rpc('decrement_stock', { item_id: menuItem.id, quantity: quantityToAdd });
-            if (rpcError) {
-              // Fallback if RPC doesn't exist: read-write
-              const { data: currentItem } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
+            if (menuItem.linked_inventory_item_id) {
+              // Deduct from Hotel Inventory
+              const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
               if (currentItem) {
-                await supabase.from('menu_items').update({ stock: (currentItem.stock || 0) - quantityToAdd }).eq('id', menuItem.id);
+                const newStock = (currentItem.current_stock || 0) - quantityToAdd;
+                await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
+
+                // Record transaction
+                await supabase.from('inventory_transactions').insert([{
+                  item_id: menuItem.linked_inventory_item_id,
+                  transaction_type: 'issue',
+                  quantity: quantityToAdd,
+                  previous_stock: currentItem.current_stock || 0,
+                  new_stock: newStock,
+                  reason: 'Sold via Admin POS',
+                  created_by: currentUser?.id,
+                }]);
+              }
+            } else {
+              // Decrement manual stock
+              const { error: rpcError } = await supabase.rpc('decrement_stock', { item_id: menuItem.id, quantity: quantityToAdd });
+              if (rpcError) {
+                const { data: currentItem } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
+                if (currentItem) {
+                  await supabase.from('menu_items').update({ stock: (currentItem.stock || 0) - quantityToAdd }).eq('id', menuItem.id);
+                }
               }
             }
           }
@@ -294,6 +337,116 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     } catch (error) {
       console.error('Error adding items to order:', error);
       toast({ variant: 'destructive', title: 'Order Failed', description: 'Could not add items to the order.' });
+    }
+  };
+
+  const handleUpdateOrderItemQuantity = async (item: OrderItem, delta: number) => {
+    if (delta === 0) return;
+    const newQuantity = item.quantity + delta;
+    if (newQuantity < 1) {
+      handleRemoveOrderItem(item);
+      return;
+    }
+
+    const menuItem = menuItems.find(m => m.id === item.menu_item_id);
+    if (delta > 0 && menuItem && menuItem.stock_type === 'Inventoried') {
+      const itemInLocalMenu = localMenuItems?.find((m) => m.id === item.menu_item_id);
+      const isLinked = !!itemInLocalMenu?.linked_inventory_item_id;
+      const effectiveStock = isLinked
+        ? ((itemInLocalMenu as any)?.hotel_inventory_items?.current_stock ?? 0)
+        : (itemInLocalMenu?.stock ?? 0);
+
+      if (effectiveStock <= 0) {
+        toast({ variant: 'destructive', title: 'Out of Stock' });
+        return;
+      }
+    }
+
+    try {
+      await supabase.from('order_items').update({ quantity: newQuantity }).eq('id', item.id);
+
+      if (menuItem && menuItem.stock_type === 'Inventoried') {
+        const adjustment = delta;
+        if (menuItem.linked_inventory_item_id) {
+          const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
+          if (currentItem) {
+            const newStock = (currentItem.current_stock || 0) - adjustment;
+            await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
+            
+            await supabase.from('inventory_transactions').insert([{
+              item_id: menuItem.linked_inventory_item_id,
+              transaction_type: adjustment > 0 ? 'issue' : 'return',
+              quantity: Math.abs(adjustment),
+              previous_stock: currentItem.current_stock || 0,
+              new_stock: newStock,
+              reason: 'Updated quantity in Admin POS',
+              created_by: currentUser?.id,
+            }]);
+          }
+        } else {
+          const { data: currentM } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
+          if (currentM) {
+            await supabase.from('menu_items').update({ stock: (currentM.stock || 0) - adjustment }).eq('id', menuItem.id);
+          }
+        }
+      }
+
+      const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', openOrder?.id).single();
+      const currentTotal = freshOrder?.total_price || 0;
+      await supabase.from('orders').update({
+        total_price: currentTotal + (item.price * delta),
+        updated_at: new Date().toISOString(),
+      }).eq('id', openOrder?.id);
+
+      fetchData();
+    } catch (error) {
+      console.error('Error updating item quantity:', error);
+      toast({ variant: 'destructive', title: 'Update Failed' });
+    }
+  };
+
+  const handleRemoveOrderItem = async (item: OrderItem) => {
+    try {
+      const menuItem = menuItems.find(m => m.id === item.menu_item_id);
+      await supabase.from('order_items').delete().eq('id', item.id);
+
+      if (menuItem && menuItem.stock_type === 'Inventoried') {
+        if (menuItem.linked_inventory_item_id) {
+          const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
+          if (currentItem) {
+            const newStock = (currentItem.current_stock || 0) + item.quantity;
+            await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
+            
+            await supabase.from('inventory_transactions').insert([{
+              item_id: menuItem.linked_inventory_item_id,
+              transaction_type: 'return',
+              quantity: item.quantity,
+              previous_stock: currentItem.current_stock || 0,
+              new_stock: newStock,
+              reason: 'Removed from Admin POS bill',
+              created_by: currentUser?.id,
+            }]);
+          }
+        } else {
+          const { data: currentM } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
+          if (currentM) {
+            await supabase.from('menu_items').update({ stock: (currentM.stock || 0) + item.quantity }).eq('id', menuItem.id);
+          }
+        }
+      }
+
+      const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', openOrder?.id).single();
+      const currentTotal = freshOrder?.total_price || 0;
+      await supabase.from('orders').update({
+        total_price: Math.max(0, currentTotal - (item.price * item.quantity)),
+        updated_at: new Date().toISOString(),
+      }).eq('id', openOrder?.id);
+
+      fetchData();
+      toast({ title: 'Item Removed' });
+    } catch (error) {
+      console.error('Error removing item:', error);
+      toast({ variant: 'destructive', title: 'Removal Failed' });
     }
   };
 
@@ -431,18 +584,33 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                 <div className="space-y-4">
                   <Separator />
                   <h3 className="font-semibold">Current Order</h3>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {isLoading ? (
                       <Skeleton className="h-16 w-full" />
                     ) : orderItems && orderItems.length > 0 ? (
                       orderItems.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center text-sm">
-                          <p>{item.name} x {item.quantity}</p>
-                          <p>LKR {(item.price * item.quantity).toFixed(2)}</p>
+                        <div key={item.id} className="flex justify-between items-center text-sm bg-secondary/20 p-2 rounded-md">
+                          <div className="flex-1">
+                            <p className="font-medium">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
+                              <MinusCircle className="h-3 w-3" />
+                            </Button>
+                            <span className="w-4 text-center font-bold">{item.quantity}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
+                              <PlusCircle className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">No items in the current order.</p>
+                      <p className="text-sm text-muted-foreground pt-1">No items in the current order.</p>
                     )}
                   </div>
 

@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_price } = body;
+        const { guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost } = body;
 
         if (!guest_name || !room_id || !check_in_date || !check_out_date) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
                 check_in_date,
                 check_out_date,
                 status: status || 'pending',
-                total_price: total_price || 0
+                total_cost: total_cost || 0
             })
             .select()
             .single();
@@ -89,7 +89,7 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_price } = body;
+        const { id, guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
@@ -102,7 +102,7 @@ export async function PUT(request: Request) {
                 check_in_date,
                 check_out_date,
                 status,
-                total_price,
+                total_cost,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)

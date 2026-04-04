@@ -15,7 +15,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,7 +68,7 @@ export default function ReservationsPage() {
   const [checkInDate, setCheckInDate] = useState('');
   const [checkOutDate, setCheckOutDate] = useState('');
   const [status, setStatus] = useState<ReservationStatus>('booked');
-  const [totalPrice, setTotalPrice] = useState('');
+  const [totalCost, setTotalCost] = useState('');
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -105,18 +104,12 @@ export default function ReservationsPage() {
       if (room && room.pricePerNight) {
         const start = new Date(checkInDate);
         const end = new Date(checkOutDate);
-
-        // Calculate difference in time
         const diffTime = Math.abs(end.getTime() - start.getTime());
-        // Calculate difference in days (round up to ensure at least 1 night if same day, though usually checks are distinct)
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        // Ensure at least 1 night
         const nights = diffDays > 0 ? diffDays : 1;
-
         if (!isNaN(nights) && nights > 0) {
           const calculatedPrice = (nights * room.pricePerNight).toFixed(2);
-          setTotalPrice(calculatedPrice);
+          setTotalCost(calculatedPrice);
         }
       }
     }
@@ -129,7 +122,7 @@ export default function ReservationsPage() {
     setCheckInDate('');
     setCheckOutDate('');
     setStatus('booked');
-    setTotalPrice('');
+    setTotalCost('');
     setEditingReservation(null);
   };
 
@@ -142,7 +135,7 @@ export default function ReservationsPage() {
       setCheckInDate(reservation.check_in_date);
       setCheckOutDate(reservation.check_out_date);
       setStatus(reservation.status);
-      setTotalPrice(reservation.total_price.toString());
+      setTotalCost(reservation.total_cost.toString());
     } else {
       resetForm();
     }
@@ -152,7 +145,6 @@ export default function ReservationsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const url = editingReservation ? '/api/admin/reservations' : '/api/admin/reservations';
       const method = editingReservation ? 'PUT' : 'POST';
       const body = {
         id: editingReservation?.id,
@@ -162,10 +154,10 @@ export default function ReservationsPage() {
         check_in_date: checkInDate,
         check_out_date: checkOutDate,
         status,
-        total_price: parseFloat(totalPrice)
+        total_cost: parseFloat(totalCost)
       };
 
-      const res = await fetch(url, {
+      const res = await fetch('/api/admin/reservations', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -262,7 +254,7 @@ export default function ReservationsPage() {
                       {res.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">LKR {res.total_price.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">LKR {(res.total_cost ?? 0).toFixed(2)}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(res)}>
                       <Pencil className="h-4 w-4" />
@@ -296,21 +288,11 @@ export default function ReservationsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="guestName">Guest Name</Label>
-                <Input
-                  id="guestName"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  required
-                />
+                <Input id="guestName" value={guestName} onChange={(e) => setGuestName(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="guestEmail">Guest Email</Label>
-                <Input
-                  id="guestEmail"
-                  type="email"
-                  value={guestEmail}
-                  onChange={(e) => setGuestEmail(e.target.value)}
-                />
+                <Input id="guestEmail" type="email" value={guestEmail} onChange={(e) => setGuestEmail(e.target.value)} />
               </div>
             </div>
 
@@ -333,23 +315,11 @@ export default function ReservationsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="checkIn">Check-in Date</Label>
-                <Input
-                  id="checkIn"
-                  type="date"
-                  value={checkInDate}
-                  onChange={(e) => setCheckInDate(e.target.value)}
-                  required
-                />
+                <Input id="checkIn" type="date" value={checkInDate} onChange={(e) => setCheckInDate(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="checkOut">Check-out Date</Label>
-                <Input
-                  id="checkOut"
-                  type="date"
-                  value={checkOutDate}
-                  onChange={(e) => setCheckOutDate(e.target.value)}
-                  required
-                />
+                <Input id="checkOut" type="date" value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} required />
               </div>
             </div>
 
@@ -370,15 +340,8 @@ export default function ReservationsPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="totalPrice">Total Price</Label>
-                <Input
-                  id="totalPrice"
-                  type="number"
-                  step="0.01"
-                  value={totalPrice}
-                  onChange={(e) => setTotalPrice(e.target.value)}
-                  required
-                />
+                <Label htmlFor="totalCost">Total Cost</Label>
+                <Input id="totalCost" type="number" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} required />
               </div>
             </div>
 

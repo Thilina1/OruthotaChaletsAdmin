@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -39,6 +39,8 @@ export const inventoryMenuItems: MenuItem[] = [
 export const roomBookingMenuItems: MenuItem[] = [
     { href: '/dashboard/room-management', icon: BedDouble, label: 'Room Management', roles: ['admin'] },
     { href: '/dashboard/reservations', icon: BedDouble, label: 'Reservation Management', roles: ['admin'] },
+    { href: '/dashboard/inquiries', icon: MessageSquare, label: 'Inquiries', roles: ['admin'] },
+    { href: '/dashboard/buffet-bookings', icon: Utensils, label: 'Buffet Bookings', roles: ['admin'] },
 ];
 
 export const otherMenue: MenuItem[] = [

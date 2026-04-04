@@ -28,6 +28,7 @@ import { RoomForm } from '@/components/dashboard/room-management/room-form';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
     DialogTrigger,
@@ -72,7 +73,7 @@ export default function RoomManagementPage() {
 
     const handleEditRoomClick = (room: Room) => {
         setEditingRoom(room);
-        setIsDialogOpen(true);
+        setTimeout(() => setIsDialogOpen(true), 50); // Delay allows DropdownMenu to release pointer-events lock
     };
 
     const handleDeleteRoom = async (id: string) => {
@@ -106,7 +107,6 @@ export default function RoomManagementPage() {
             room_number: values.roomNumber,
             description: values.description,
             type: values.type,
-            price_per_night: values.pricePerNight,
             pricePerNight: values.pricePerNight,
             roomCount: values.roomCount,
             view: values.view,
@@ -180,18 +180,20 @@ export default function RoomManagementPage() {
                     <h1 className="text-3xl font-headline font-bold">Room Management</h1>
                     <p className="text-muted-foreground">Manage all rooms in the hotel.</p>
                 </div>
-                <Dialog open={isDialogOpen} onOpenChange={(open) => {
-                    if (!open) setEditingRoom(null);
-                    setIsDialogOpen(open);
-                }}>
-                    <DialogTrigger asChild>
-                        <Button onClick={handleAddRoomClick}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add Room
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center gap-4">
+                    <Button onClick={handleAddRoomClick}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Room
+                    </Button>
+                    <Dialog open={isDialogOpen} onOpenChange={(open) => {
+                        if (!open) setEditingRoom(null);
+                        setIsDialogOpen(open);
+                    }}>
+                        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle>{editingRoom ? 'Edit Room' : 'Add New Room'}</DialogTitle>
+                            <DialogDescription className="text-sm text-muted-foreground">
+                                {editingRoom ? 'Update the details of this room.' : 'Fill out the form below to add a new room.'}
+                            </DialogDescription>
                         </DialogHeader>
                         <RoomForm
                             room={editingRoom}
@@ -199,6 +201,7 @@ export default function RoomManagementPage() {
                         />
                     </DialogContent>
                 </Dialog>
+                </div>
             </div>
 
             <Card>

@@ -39,7 +39,8 @@ export async function GET(request: Request) {
             .select(`
                 *,
                 item:hotel_inventory_items(name, unit, category),
-                user:users!inventory_transactions_created_by_fkey(name)
+                user:users!inventory_transactions_created_by_fkey(name),
+                ref_dept:inventory_departments!inventory_transactions_reference_department_fkey(name)
             `)
             .order('created_at', { ascending: false });
 

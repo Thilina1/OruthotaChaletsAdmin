@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -25,6 +26,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import type { HotelInventoryItem, InventoryDepartment, MenuSection } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CreatableCombobox } from '@/components/ui/creatable-combobox';
 
 const INVENTORY_CATEGORIES = [
   'Food & Beverage',
@@ -48,7 +50,10 @@ const formSchema = z.object({
   description: z.string().optional(),
   category: z.enum(INVENTORY_CATEGORIES),
   department_id: z.string().min(1, { message: 'Please select an assigned department.' }),
-  unit: z.enum(UOM_TYPES),
+  unit: z.string().min(1, { message: 'Unit of measure is required.' }),
+  item_size: z.string().optional(),
+  brand: z.string().optional(),
+  supplier: z.string().optional(),
   buying_price: z.coerce.number().min(0, { message: 'Must be a positive number.' }),
   current_stock: z.coerce.number().min(0),
   safety_stock: z.coerce.number().min(0, { message: 'Safety stock cannot be negative.' }),
@@ -76,6 +81,9 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
       category: (item?.category as any) || 'Food & Beverage',
       department_id: item?.department_id || (departments.find(d => d.name === 'Store')?.id || departments.find(d => d.name.toLowerCase() === 'store')?.id || (departments.length > 0 ? departments[0].id : '')),
       unit: (item?.unit as any) || 'Nos',
+      item_size: item?.item_size || '',
+      brand: item?.brand || '',
+      supplier: item?.supplier || '',
       buying_price: item?.buying_price || 0,
       current_stock: item?.current_stock || 0,
       safety_stock: item?.safety_stock || 0,
@@ -87,6 +95,62 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
       menu_category: item?.menu_items?.[0]?.category || 'Beverages',
     },
   });
+
+  const [metadata, setMetadata] = useState<{
+    brands: string[],
+    suppliers: string[],
+    sizes: string[],
+    units: string[]
+  }>({
+    brands: [],
+    suppliers: [],
+    sizes: [],
+    units: []
+  });
+
+  const fetchMetadata = async () => {
+    try {
+      const res = await fetch('/api/admin/inventory-metadata');
+      if (!res.ok) {
+         console.warn(`Metadata fetch failed with status ${res.status}`);
+         return;
+      }
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await res.json();
+        if (data && !data.error) {
+          setMetadata({
+            ...data,
+            units: Array.from(new Set([...UOM_TYPES, ...(data.units || [])]))
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching inventory metadata:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMetadata();
+  }, []);
+
+  const handleCreateMetadata = async (type: string, name: string) => {
+    if (!name) return;
+    try {
+      const res = await fetch('/api/admin/inventory-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, name })
+      });
+      const data = await res.json();
+      if (data.success || data.error === 'Already exists') {
+        // Refresh metadata to show the new item in the list
+        await fetchMetadata();
+      }
+    } catch (err) {
+      console.error(`Failed to create ${type}:`, err);
+    }
+  };
 
   const isMenuItem = form.watch('is_menu_item');
 
@@ -117,14 +181,62 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                 name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Description / Brand</FormLabel>
+                    <FormLabel>Item Description</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Specific details or brand" {...field} />
+                      <Textarea placeholder="Specific details about the item" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+                <FormField
+                  control={form.control}
+                  name="brand"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Brand</FormLabel>
+                      <FormControl>
+                        <CreatableCombobox 
+                            options={metadata.brands}
+                            value={field.value}
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && !metadata.brands.some(b => b.toLowerCase() === val.toLowerCase())) {
+                                handleCreateMetadata('brand', val);
+                              }
+                            }}
+                            placeholder="Select or type brand"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="supplier"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default Supplier / Vendor</FormLabel>
+                      <FormControl>
+                        <CreatableCombobox 
+                            options={metadata.suppliers}
+                            value={field.value}
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && !metadata.suppliers.some(s => s.toLowerCase() === val.toLowerCase())) {
+                                handleCreateMetadata('supplier', val);
+                              }
+                            }}
+                            placeholder="Select or type supplier"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
             </div>
 
             <div className="space-y-4 mt-4">
@@ -178,28 +290,54 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
 
             <div className="space-y-4 mt-4">
               <h3 className="text-lg font-semibold border-b pb-2">Unit & Pricing</h3>
-              <FormField
-                control={form.control}
-                name="unit"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unit of Measurement (UoM)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select UoM" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {UOM_TYPES.map(u => (
-                          <SelectItem key={u} value={u}>{u}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>UoM</FormLabel>
+                        <FormControl>
+                          <CreatableCombobox 
+                            options={metadata.units}
+                            value={field.value}
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && !metadata.units.some(u => u.toLowerCase() === val.toLowerCase())) {
+                                handleCreateMetadata('unit', val);
+                              }
+                            }}
+                            placeholder="Select or type unit"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="item_size"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Size / Pkg</FormLabel>
+                        <FormControl>
+                          <CreatableCombobox 
+                            options={metadata.sizes}
+                            value={field.value}
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && !metadata.sizes.some(s => s.toLowerCase() === val.toLowerCase())) {
+                                handleCreateMetadata('size', val);
+                              }
+                            }}
+                            placeholder="Select or type size"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               <FormField
                 control={form.control}
                 name="buying_price"
