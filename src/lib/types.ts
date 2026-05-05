@@ -97,6 +97,25 @@ export type OrderItem = {
   quantity: number;
 };
 
+export const INVENTORY_UOM = [
+  'kg', 
+  'g', 
+  'Ltr', 
+  'Ml', 
+  'Nos', 
+  'Box', 
+  'Btl', 
+  'Pkt', 
+  'Can', 
+  'Roll', 
+  'Bundle', 
+  'Crtn', 
+  'Tin',
+  'Ream',
+  'Cylinder',
+  'Card'
+] as const;
+
 export type Bill = {
   id: string;
   bill_number: string;
@@ -307,25 +326,139 @@ export type InventoryDepartment = {
   created_at?: string;
 };
 
-export type HotelInventoryItem = {
+export type InventoryWarehouse = {
+  id: string;
+  name: string;
+  type: 'MAIN' | 'DEPARTMENT';
+  department_id?: string;
+  is_main: boolean;
+  status: 'active' | 'inactive';
+  is_active: boolean;
+  description?: string;
+  department?: { id: string; name: string };
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type InventoryItemCategory = {
   id: string;
   name: string;
   description?: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type InventoryUnit = {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type InventoryItem = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  category_id: string;
+  category?: InventoryItemCategory;
+  unit_id: string;
+  unit?: InventoryUnit;
+  item_size?: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+  
+  // Computed fields for UI
+  total_stock: number;
+  warehouse_stock?: {
+    id: string;
+    name: string;
+    total_stock: number;
+    batches?: InventoryBatch[];
+  }[];
+  batches?: InventoryBatch[];
+};
+
+export type InventoryBatch = {
+  id: string;
+  item_id: string;
+  item?: InventoryItem;
+  batch_number: string;
+  buying_price: number;
+  expiry_date?: string;
+  supplier?: string;
+  status: 'active' | 'expired' | 'depleted';
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type InventoryStock = {
+  id: string;
+  warehouse_id: string;
+  warehouse?: InventoryWarehouse;
+  item_id: string;
+  item?: InventoryItem;
+  batch_id: string;
+  batch?: InventoryBatch;
+  quantity: number;
+  last_updated: string;
+};
+
+export type HotelInventoryProduct = {
+  id: string;
+  name: string;
+  description?: string;
+  brand?: string;
+  item_size?: string;
   category: string;
+  unit: string;
+  safety_stock: number;
+  reorder_level: number;
+  maximum_level?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type LegacyInventoryBatch = {
+  id: string;
+  product_id: string;
+  product?: HotelInventoryProduct;
+  batch_number?: string;
+  supplier?: string;
+  buying_price: number;
+  expiry_date?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HotelInventoryItem = {
+  id: string;
+  product_id: string;
+  product?: HotelInventoryProduct;
+  batch_id?: string;
+  batch?: LegacyInventoryBatch;
+  name?: string; // Legacy/Display
+  description?: string; // Legacy/Display
+  category?: string | InventoryItemCategory; // Legacy or Normalized
+  unit?: string | InventoryUnit; // Legacy or Normalized
   department_id: string;
   department?: { name: string };
-  unit: string;
   item_size?: string;
   buying_price: number;
   current_stock: number;
-  safety_stock: number;
-  reorder_level: number;
-  maximum_level: number;
+  safety_stock?: number; // Legacy/Moved to product
+  reorder_level?: number; // Legacy/Moved to product
+  maximum_level?: number; // Legacy/Moved to product
   status: 'active' | 'inactive';
   brand?: string;
   supplier?: string;
   barcode?: string;
   expiry_date?: string;
+  batch_number?: string;
   created_at?: string;
   updated_at?: string;
   menu_items?: { id: string; price: number; category: string }[];
@@ -334,7 +467,13 @@ export type HotelInventoryItem = {
 export type InventoryTransaction = {
   id: string;
   item_id: string;
-  item?: { name: string };
+  item?: { 
+    name: string; 
+    category?: { name: string };
+    unit?: { name: string };
+  };
+  batch_id?: string;
+  batch?: InventoryBatch;
   transaction_type: 'receive' | 'issue' | 'damage' | 'audit_adjustment' | 'initial_stock';
   quantity: number;
   item_size?: string;
@@ -359,7 +498,7 @@ export type InventoryRequest = {
     id: string;
     request_type: 'NEW_ITEM' | 'ADD_STOCK' | 'receive' | 'issue' | 'damage' | 'audit_adjustment' | 'initial_stock' | 'TRANSFER_REQUEST';
     item_id: string | null;
-    item?: HotelInventoryItem;
+    item?: InventoryItem;
     requested_quantity: number;
     estimated_cost?: number;
     status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';

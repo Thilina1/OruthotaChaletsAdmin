@@ -127,7 +127,7 @@ export default function WaiterDashboard() {
                 <Card className="relative z-10 w-full max-w-md bg-white/10 backdrop-blur-xl border-white/20 shadow-2xl p-8 rounded-[2rem]">
                     <div className="text-center mb-8">
                         <div className="flex justify-center mb-6">
-                           <Logo className="h-32 w-32 text-white" />
+                           <Logo className="h-16 w-64 text-white" />
                         </div>
                         <h1 className="text-3xl font-headline font-bold text-white mb-2">Staff Portal</h1>
                         <p className="text-white/50 text-sm">Please log in to your waiter account</p>

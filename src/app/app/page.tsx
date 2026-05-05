@@ -74,7 +74,7 @@ export default function AppsPage() {
               <ArrowLeft className="h-6 w-6" />
             </Button>
           </Link>
-          <Logo className="h-12 w-12 text-white" />
+          <Logo className="h-10 w-40 text-white" />
           <div>
             <h1 className="text-xl font-headline font-bold text-white leading-none">Oruthota Chalets</h1>
             <p className="text-xs text-white/60 tracking-widest uppercase mt-1">Command Center</p>

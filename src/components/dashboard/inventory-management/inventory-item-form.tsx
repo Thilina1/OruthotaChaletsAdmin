@@ -25,30 +25,19 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import type { HotelInventoryItem, InventoryDepartment, MenuSection } from '@/lib/types';
+import { INVENTORY_UOM } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CreatableCombobox } from '@/components/ui/creatable-combobox';
+import { useMemo } from 'react';
 
-const INVENTORY_CATEGORIES = [
-  'Food & Beverage',
-  'Cleaning Materials & Chemicals',
-  'Guest Amenities',
-  'Linen & Fabrics',
-  'Maintenance & Hardware',
-  'Garden Supplies',
-  'Stationery & Packaging',
-  'Crockery, Cutlery & Glassware',
-  'Kitchen Utensils',
-  'Staff Uniforms',
-  'Fuel & Gas',
-  'First Aid & Safety'
-] as const;
+// Categories will be fetched dynamically from the API
 
-const UOM_TYPES = ['kg', 'packets', 'L', 'bottles', 'Nos', 'rolls', 'tins', 'reams', 'cylinders', 'cards'] as const;
+// The standard units will be merged with dynamic metadata units in the component
 
 const formSchema = z.object({
   name: z.string().min(1, { message: 'Item name is required.' }),
   description: z.string().optional(),
-  category: z.enum(INVENTORY_CATEGORIES),
+  category: z.string().min(1, { message: 'Category is required.' }),
   department_id: z.string().min(1, { message: 'Please select an assigned department.' }),
   unit: z.string().min(1, { message: 'Unit of measure is required.' }),
   item_size: z.string().optional(),
@@ -63,6 +52,8 @@ const formSchema = z.object({
   is_menu_item: z.boolean().default(false).optional(),
   menu_price: z.coerce.number().optional(),
   menu_category: z.string().optional(),
+  batch_number: z.string().optional(),
+  expiry_date: z.string().optional(),
 });
 
 interface InventoryItemFormProps {
@@ -76,23 +67,25 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: item?.name || '',
-      description: item?.description || '',
-      category: (item?.category as any) || 'Food & Beverage',
+      name: item?.product?.name || item?.name || '',
+      description: item?.product?.description || item?.description || '',
+      category: (item?.product?.category || item?.category || 'Food & Beverage') as any,
       department_id: item?.department_id || (departments.find(d => d.name === 'Store')?.id || departments.find(d => d.name.toLowerCase() === 'store')?.id || (departments.length > 0 ? departments[0].id : '')),
-      unit: (item?.unit as any) || 'Nos',
+      unit: (item?.product?.unit || item?.unit || 'Nos') as any,
       item_size: item?.item_size || '',
       brand: item?.brand || '',
       supplier: item?.supplier || '',
       buying_price: item?.buying_price || 0,
       current_stock: item?.current_stock || 0,
-      safety_stock: item?.safety_stock || 0,
-      reorder_level: item?.reorder_level || 0,
+      safety_stock: item?.product?.safety_stock ?? item?.safety_stock ?? 0,
+      reorder_level: item?.product?.reorder_level ?? item?.reorder_level ?? 0,
       maximum_level: item?.maximum_level || 0,
       status: item?.status || 'active',
       is_menu_item: !!item?.menu_items && item.menu_items.length > 0,
       menu_price: item?.menu_items?.[0]?.price || 0,
       menu_category: item?.menu_items?.[0]?.category || 'Beverages',
+      batch_number: item?.batch_number || '',
+      expiry_date: item?.expiry_date || '',
     },
   });
 
@@ -100,31 +93,45 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
     brands: string[],
     suppliers: string[],
     sizes: string[],
-    units: string[]
+    units: string[],
+    categories: string[],
+    itemNames: string[]
   }>({
     brands: [],
     suppliers: [],
     sizes: [],
-    units: []
+    units: [],
+    categories: [],
+    itemNames: []
   });
+
+  const [categoriesData, setCategoriesData] = useState<any[]>([]);
+  const [unitsData, setUnitsData] = useState<any[]>([]);
 
   const fetchMetadata = async () => {
     try {
-      const res = await fetch('/api/admin/inventory-metadata');
-      if (!res.ok) {
-         console.warn(`Metadata fetch failed with status ${res.status}`);
-         return;
-      }
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await res.json();
-        if (data && !data.error) {
-          setMetadata({
-            ...data,
-            units: Array.from(new Set([...UOM_TYPES, ...(data.units || [])]))
-          });
-        }
-      }
+      const [catRes, unitRes, itemNamesRes, sizesRes] = await Promise.all([
+        fetch('/api/admin/inventory/categories'),
+        fetch('/api/admin/inventory/units'),
+        fetch('/api/admin/inventory/item-names'),
+        fetch('/api/admin/inventory/sizes')
+      ]);
+
+      const catJson = await catRes.json();
+      const unitJson = await unitRes.json();
+      const itemNamesData = await itemNamesRes.json();
+      const sizesData = await sizesRes.json();
+
+      setCategoriesData(catJson.categories || []);
+      setUnitsData(unitJson.units || []);
+
+      setMetadata(prev => ({
+        ...prev,
+        categories: catJson.categories?.map((c: any) => c.name) || [],
+        units: Array.from(new Set([...INVENTORY_UOM, ...(unitJson.units?.map((u: any) => u.name) || [])])),
+        itemNames: itemNamesData.itemNames?.map((n: any) => n.name) || [],
+        sizes: sizesData.sizes?.map((s: any) => s.name) || []
+      }));
     } catch (err) {
       console.error('Error fetching inventory metadata:', err);
     }
@@ -137,19 +144,29 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
   const handleCreateMetadata = async (type: string, name: string) => {
     if (!name) return;
     try {
-      const res = await fetch('/api/admin/inventory-metadata', {
+      let endpoint = '';
+      if (type === 'category') endpoint = '/api/admin/inventory/categories';
+      else if (type === 'unit') endpoint = '/api/admin/inventory/units';
+      else if (type === 'itemName') endpoint = '/api/admin/inventory/item-names';
+      else if (type === 'size') endpoint = '/api/admin/inventory/sizes';
+      
+      if (!endpoint) return;
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, name })
+        body: JSON.stringify({ name })
       });
-      const data = await res.json();
-      if (data.success || data.error === 'Already exists') {
-        // Refresh metadata to show the new item in the list
+      
+      if (res.ok) {
+        const data = await res.json();
         await fetchMetadata();
+        return data[type];
       }
     } catch (err) {
       console.error(`Failed to create ${type}:`, err);
     }
+    return null;
   };
 
   const isMenuItem = form.watch('is_menu_item');
@@ -170,7 +187,17 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., A4 Paper, Soap, Dhal" {...field} />
+                        <CreatableCombobox 
+                            options={metadata.itemNames}
+                            value={field.value}
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && !metadata.itemNames.some(n => n.toLowerCase() === val.toLowerCase())) {
+                                handleCreateMetadata('itemName', val);
+                              }
+                            }}
+                            placeholder="Select or type item name (e.g., A4 Paper)"
+                        />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -237,6 +264,34 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                     </FormItem>
                   )}
                 />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="batch_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Batch Number</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., B-101" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="expiry_date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Expiry Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             <div className="space-y-4 mt-4">
@@ -247,18 +302,19 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INVENTORY_CATEGORIES.map(cat => (
-                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                        <CreatableCombobox 
+                            options={metadata.categories}
+                            value={field.value}
+                            onValueChange={async (val) => {
+                              field.onChange(val);
+                              if (val && !metadata.categories.some(c => c.toLowerCase() === val.toLowerCase())) {
+                                await handleCreateMetadata('category', val);
+                              }
+                            }}
+                            placeholder="Select or type category"
+                        />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -294,25 +350,33 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                   <FormField
                     control={form.control}
                     name="unit"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>UoM</FormLabel>
-                        <FormControl>
-                          <CreatableCombobox 
-                            options={metadata.units}
-                            value={field.value}
-                            onValueChange={(val) => {
-                              field.onChange(val);
-                              if (val && !metadata.units.some(u => u.toLowerCase() === val.toLowerCase())) {
-                                handleCreateMetadata('unit', val);
-                              }
-                            }}
-                            placeholder="Select or type unit"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      const allUnits = useMemo(() => {
+                        const standard = [...INVENTORY_UOM];
+                        const fromMeta = metadata.units || [];
+                        return Array.from(new Set([...standard, ...fromMeta])).sort();
+                      }, [metadata.units]);
+
+                      return (
+                        <FormItem>
+                          <FormLabel>UoM</FormLabel>
+                          <FormControl>
+                            <CreatableCombobox 
+                              options={allUnits}
+                              value={field.value}
+                              onValueChange={async (val) => {
+                                field.onChange(val);
+                                if (val && !allUnits.some(u => u.toLowerCase() === val.toLowerCase())) {
+                                  await handleCreateMetadata('unit', val);
+                                }
+                              }}
+                              placeholder="Select or type unit"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
                   <FormField
                     control={form.control}
@@ -324,10 +388,10 @@ export function InventoryItemForm({ item, onSubmit, departments, menuCategories 
                           <CreatableCombobox 
                             options={metadata.sizes}
                             value={field.value}
-                            onValueChange={(val) => {
+                            onValueChange={async (val) => {
                               field.onChange(val);
                               if (val && !metadata.sizes.some(s => s.toLowerCase() === val.toLowerCase())) {
-                                handleCreateMetadata('size', val);
+                                await handleCreateMetadata('size', val);
                               }
                             }}
                             placeholder="Select or type size"

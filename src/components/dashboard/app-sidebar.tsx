@@ -33,6 +33,7 @@ import {
   otherMenue,
   hrmsMenuItems,
   otherMenuItems,
+  allMenuItems,
   MenuItem
 } from '@/lib/route-config';
 
@@ -60,7 +61,7 @@ const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boo
   return accessibleItems.map(item => {
     const isActive = pathname === item.href || (
       pathname.startsWith(item.href + '/') &&
-      !items.some(other => other.href !== item.href && pathname.startsWith(other.href) && other.href.length > item.href.length)
+      !allMenuItems.some(other => other.href !== item.href && pathname.startsWith(other.href) && other.href.length > item.href.length)
     );
 
     return (
@@ -100,9 +101,8 @@ export default function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarRail />
       <SidebarHeader>
-        <Link href="/dashboard/profile" className="flex items-center gap-2">
-          <Logo className="w-7 h-7 text-primary" />
-          <h2 className="text-lg font-headline font-bold text-sidebar-foreground group-data-[collapsible=icon]:hidden">Oruthota Chalets</h2>
+        <Link href="/dashboard/profile" className="flex items-center justify-center py-2">
+          <Logo className="h-7 w-28 text-primary" />
         </Link>
       </SidebarHeader>
       <SidebarContent>

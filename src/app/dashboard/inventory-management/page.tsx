@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import Link from 'next/link';
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,7 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PlusCircle, Pencil, Trash2, ArrowRightLeft, AlertTriangle, Search, Filter, Warehouse } from 'lucide-react';
+import { 
+  PlusCircle, Pencil, Trash2, ArrowRightLeft, AlertTriangle, Search, Filter, Warehouse,
+  ChevronRight, ChevronDown, Edit, MoveRight, Package, Calendar, Truck, Tag, Layers 
+} from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,8 +40,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { HotelInventoryItem, InventoryDepartment, MenuSection } from '@/lib/types';
-import { InventoryItemForm } from '@/components/dashboard/inventory-management/inventory-item-form';
+import type { InventoryItem, InventoryWarehouse, MenuSection } from '@/lib/types';
+import { InventoryItemFormV2 } from '@/components/dashboard/inventory-management/inventory-item-form-v2';
 import { InventoryTransactionForm } from '@/components/dashboard/inventory-management/inventory-transaction-form';
 import { StockIntakeForm } from '@/components/dashboard/inventory-management/stock-intake-form';
 import { InventoryRequestForm } from '@/components/dashboard/inventory-management/request-form';
@@ -46,18 +50,18 @@ import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TransactionHistoryTable } from '@/components/dashboard/inventory-management/transaction-history-table';
+import { cn } from "@/lib/utils";
 
 export default function InventoryManagementPage() {
   const { toast } = useToast();
-  const [items, setItems] = useState<HotelInventoryItem[]>([]);
-  const [departments, setDepartments] = useState<InventoryDepartment[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([]);
   const [menuCategories, setMenuCategories] = useState<MenuSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false);
   const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false);
-  const [isGRNDialogOpen, setIsGRNDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<HotelInventoryItem | null>(null);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('inventory');
   const [refreshHistory, setRefreshHistory] = useState(0);
@@ -67,28 +71,41 @@ export default function InventoryManagementPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [selectedReorderStatus, setSelectedReorderStatus] = useState<string>('all');
+  const [inventoryCategories, setInventoryCategories] = useState<any[]>([]);
+  const [inventoryUnits, setInventoryUnits] = useState<any[]>([]);
+  const [inventorySuppliers, setInventorySuppliers] = useState<any[]>([]);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [itemsRes, deptsRes, categoriesRes] = await Promise.all([
-        fetch('/api/admin/hotel-inventory'),
-        fetch('/api/admin/inventory-departments'),
-        fetch('/api/admin/menu-sections')
+      const [itemsRes, warehousesRes, categoriesRes, invCategoriesRes, unitsRes, suppliersRes] = await Promise.all([
+        fetch('/api/admin/inventory/items'),
+        fetch('/api/admin/inventory/warehouses'), 
+        fetch('/api/admin/menu-sections'),
+        fetch('/api/admin/inventory/categories'),
+        fetch('/api/admin/inventory/units'),
+        fetch('/api/admin/inventory/suppliers')
       ]);
 
       const dataItems = await itemsRes.json();
-      const dataDepts = await deptsRes.json();
+      const dataWarehouses = await warehousesRes.json();
       const dataCategories = await categoriesRes.json();
+      const dataInvCats = await invCategoriesRes.json();
+      const dataUnits = await unitsRes.json();
+      const dataSuppliers = await suppliersRes.json();
 
       if (dataItems.error) throw new Error(dataItems.error);
       setItems(dataItems.items || []);
 
-      if (dataDepts.error) throw new Error(dataDepts.error);
-      setDepartments(dataDepts.departments || []);
+      if (dataWarehouses.error) throw new Error(dataWarehouses.error);
+      setWarehouses(dataWarehouses.warehouses || []);
 
       if (dataCategories.error) throw new Error(dataCategories.error);
       setMenuCategories(dataCategories.sections || []);
+
+      setInventoryCategories(dataInvCats.categories || []);
+      setInventoryUnits(dataUnits.units || []);
+      setInventorySuppliers(dataSuppliers.suppliers || []);
 
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -102,77 +119,48 @@ export default function InventoryManagementPage() {
     fetchData();
   }, []);
 
-  const handleOpenDialog = (item?: HotelInventoryItem) => {
+  const handleOpenDialog = (item?: InventoryItem) => {
     setEditingItem(item || null);
     setIsDialogOpen(true);
   };
 
-  const handleOpenTransactionDialog = (item: HotelInventoryItem) => {
+  const handleOpenTransactionDialog = (item: InventoryItem) => {
     setEditingItem(item);
     setIsTransactionDialogOpen(true);
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleDelete = async (id: string) => {
+    // Check if item has stock before deletion
+    const item = items.find(i => i.id === id);
+    if (item && item.total_stock > 0) {
+      toast({ variant: 'destructive', title: "Cannot Delete", description: "This item currently has stock. Please adjust or issue the stock before deleting." });
+      return;
+    }
+
     try {
-      const url = editingItem ? '/api/admin/hotel-inventory' : '/api/admin/hotel-inventory';
-      const method = editingItem ? 'PUT' : 'POST';
-
-      const body = {
-        id: editingItem?.id,
-        name: values.name,
-        description: values.description,
-        category: values.category,
-        department_id: values.department_id,
-        unit: values.unit,
-        buying_price: values.buying_price,
-        current_stock: values.current_stock,
-        safety_stock: values.safety_stock,
-        reorder_level: values.reorder_level,
-        maximum_level: values.maximum_level,
-        item_size: values.item_size,
-        brand: values.brand,
-        supplier: values.supplier,
-        is_menu_item: values.is_menu_item,
-        menu_price: values.menu_price,
-        menu_category: values.menu_category
-      };
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const res = await fetch(`/api/admin/inventory/items?id=${id}`, {
+        method: 'DELETE',
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // If new item and starting stock > 0, we could automatically record an initial_stock transaction.
-      // But for simplicity, we'll let them add stock manually or just set it here.
-
-      toast({
-        title: editingItem ? "Item Updated" : "Item Created",
-        description: editingItem ? "Inventory details updated." : "New inventory item added.",
-      });
-
-      setIsDialogOpen(false);
-      setEditingItem(null);
+      toast({ title: "Item Deleted", description: "The inventory entry has been removed." });
       fetchData();
     } catch (error) {
-      console.error("Error saving item:", error);
-      toast({ variant: 'destructive', title: "Error", description: "Failed to save item." });
+      console.error("Error deleting item:", error);
+      toast({ variant: 'destructive', title: "Error", description: "Failed to delete item." });
     }
-  };
-
-  const handleDelete = async () => {
-    toast({ variant: 'destructive', title: "Deletion Disabled", description: "To maintain historical records and avoid transaction issues, deletion is disabled. Please set the status to inactive instead." });
-    setDeleteId(null);
   };
 
   const handleRequestSubmit = async (values: any) => {
     try {
-      const res = await fetch('/api/admin/inventory-requests', {
+      const res = await fetch('/api/admin/inventory/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          warehouse_id: warehouses.find(w => w.is_main)?.id || warehouses[0]?.id // Default to main store for requests
+        }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -189,22 +177,27 @@ export default function InventoryManagementPage() {
     }
   };
 
-  const uniqueCategories = Array.from(new Set(items.map(item => item.category))).filter(Boolean);
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      const itemName = item.name || '';
+      const itemCode = item.code || '';
+      const itemDescription = item.description || '';
 
-  const filteredItems = items.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesSearch = 
+        itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemDescription.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
-    const matchesDepartment = selectedDepartment === 'all' || item.department_id === selectedDepartment;
+      const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory;
+      const matchesWarehouse = selectedDepartment === 'all' || item.warehouse_stock?.some(ws => ws.id === selectedDepartment);
 
-    const matchesReorderStatus = selectedReorderStatus === 'all' ||
-      (selectedReorderStatus === 'critical' && item.current_stock <= item.safety_stock) ||
-      (selectedReorderStatus === 'needs_reorder' && item.current_stock <= item.reorder_level && item.current_stock > item.safety_stock) ||
-      (selectedReorderStatus === 'healthy' && item.current_stock > item.reorder_level);
+      const matchesStatus = selectedReorderStatus === 'all' ||
+        (selectedReorderStatus === 'critical' && item.total_stock === 0) ||
+        (selectedReorderStatus === 'healthy' && item.total_stock > 0);
 
-    return matchesSearch && matchesCategory && matchesDepartment && matchesReorderStatus;
-  });
+      return matchesSearch && matchesCategory && matchesWarehouse && matchesStatus;
+    });
+  }, [items, searchQuery, selectedCategory, selectedDepartment, selectedReorderStatus]);
 
   const {
     currentPage,
@@ -214,6 +207,12 @@ export default function InventoryManagementPage() {
     itemsPerPage,
     setCurrentPage,
   } = usePagination(filteredItems, 20);
+
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  const toggleRow = (id: string) => {
+    setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -232,9 +231,11 @@ export default function InventoryManagementPage() {
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Item
             </Button>
           )}
-          <Button onClick={() => setIsGRNDialogOpen(true)} variant="default" className="bg-primary hover:bg-primary/90 font-bold">
-            <PlusCircle className="mr-2 h-4 w-4" /> Stock In (GRN)
-          </Button>
+          <Link href="/dashboard/inventory-management/grn/new">
+            <Button variant="default" className="bg-primary hover:bg-primary/90 font-bold">
+              <PlusCircle className="mr-2 h-4 w-4" /> Stock In (GRN)
+            </Button>
+          </Link>
           <Button onClick={() => setIsRequestDialogOpen(true)} variant="outline">
             Request Products
           </Button>
@@ -243,9 +244,9 @@ export default function InventoryManagementPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3 md:w-fit">
-          <TabsTrigger value="inventory" className="px-8">📦 Inventory List</TabsTrigger>
-          <TabsTrigger value="grn" className="px-8">📥 Stock In (GRN)</TabsTrigger>
-          <TabsTrigger value="history" className="px-8">🧭 Movement History</TabsTrigger>
+          <TabsTrigger value="inventory" className="px-8 font-bold">📦 Inventory List</TabsTrigger>
+          <TabsTrigger value="grn" className="px-8 font-bold">📥 Stock In (GRN)</TabsTrigger>
+          <TabsTrigger value="history" className="px-8 font-bold">🧭 Movement History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="inventory" className="space-y-6">
@@ -260,145 +261,155 @@ export default function InventoryManagementPage() {
               />
             </div>
             <div className="flex gap-2 w-full sm:w-auto">
-              {/* ... filters ... */}
-          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-            <SelectTrigger className="w-full sm:w-[150px]">
-              <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              {uniqueCategories.map(category => (
-                <SelectItem key={category} value={category}>{category}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-full sm:w-[150px]">
+                  <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {inventoryCategories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-          <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-            <SelectTrigger className="w-full sm:w-[150px]">
-              <SelectValue placeholder="Store" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Stores</SelectItem>
-              {departments.map(dept => (
-                <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger className="w-full sm:w-[150px]">
+                  <SelectValue placeholder="Warehouse" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Warehouses</SelectItem>
+                  {warehouses.map(wh => (
+                    <SelectItem key={wh.id} value={wh.id}>{wh.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-          <Select value={selectedReorderStatus} onValueChange={setSelectedReorderStatus}>
-            <SelectTrigger className="w-full sm:w-[150px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="critical">Critical Stock</SelectItem>
-              <SelectItem value="needs_reorder">Needs Reorder</SelectItem>
-              <SelectItem value="healthy">Healthy</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+              <Select value={selectedReorderStatus} onValueChange={setSelectedReorderStatus}>
+                <SelectTrigger className="w-full sm:w-[150px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="critical">Out of Stock</SelectItem>
+                  <SelectItem value="healthy">In Stock</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Item Name</TableHead>
-              <TableHead>Category & Store</TableHead>
-              <TableHead>Stock (UoM)</TableHead>
-              <TableHead>Reorder Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-10">Loading...</TableCell>
-              </TableRow>
-            ) : filteredItems.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No inventory items found.</TableCell>
-              </TableRow>
-            ) : (
-              paginatedItems.map((item) => {
-                const isLowStock = item.current_stock <= item.reorder_level;
-                const isCriticalStock = item.current_stock <= item.safety_stock;
-
-                return (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{item.name}</span>
-                        {item.item_size && (
-                          <span className="text-xs text-muted-foreground">Size: {item.item_size}</span>
-                        )}
-                        {(item.brand || item.supplier) && (
-                          <div className="flex gap-2 mt-1">
-                            {item.brand && <Badge variant="secondary" className="text-[10px] py-0 px-1">Brand: {item.brand}</Badge>}
-                            {item.supplier && <Badge variant="outline" className="text-[10px] py-0 px-1 truncate max-w-[150px]">Supplier: {item.supplier}</Badge>}
-                          </div>
-                        )}
-                        {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40px]"></TableHead>
+                  <TableHead className="w-[120px]">Code</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Total Stock</TableHead>
+                  <TableHead className="w-[150px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        Loading items...
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm">{item.category}</span>
-                        <Badge variant="outline" className="w-fit text-xs">{item.department?.name}</Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-bold flex items-center gap-2">
-                        <span className={isCriticalStock ? 'text-destructive' : isLowStock ? 'text-orange-500' : ''}>
-                          {item.current_stock}
-                        </span>
-                        <span className="text-sm font-normal text-muted-foreground">{item.unit}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {isCriticalStock ? (
-                        <div className="flex items-center text-destructive text-sm font-semibold">
-                          <AlertTriangle className="h-4 w-4 mr-1" />
-                          Critical Stock
-                        </div>
-                      ) : isLowStock ? (
-                        <div className="flex items-center text-orange-500 text-sm font-semibold">
-                          <AlertTriangle className="h-4 w-4 mr-1" />
-                          Needs Reorder
-                        </div>
-                      ) : (
-                        <span className="text-green-600 text-sm">Healthy</span>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Reorder at: {item.reorder_level}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => handleOpenTransactionDialog(item)}>
-                        <ArrowRightLeft className="h-4 w-4 mr-2" /> Match / Transfer
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(item)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
                     </TableCell>
                   </TableRow>
-                );
-              })
+                ) : paginatedItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                      No inventory items found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedItems.map((item) => (
+                    <React.Fragment key={item.id}>
+                      <TableRow className={cn("cursor-pointer hover:bg-slate-50", expandedRows[item.id] && "bg-slate-50/50")}>
+                        <TableCell onClick={() => toggleRow(item.id)}>
+                          <div className={cn("p-1 rounded-full transition-transform", expandedRows[item.id] && "rotate-180")}>
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs" onClick={() => toggleRow(item.id)}>{item.code}</TableCell>
+                        <TableCell className="font-medium" onClick={() => toggleRow(item.id)}>
+                          <div className="flex flex-col">
+                            <span>{item.name}</span>
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[300px]">{item.description}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell onClick={() => toggleRow(item.id)}>
+                          <Badge variant="outline" className="bg-slate-100/50">{item.category?.name || 'Uncategorized'}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-bold" onClick={() => toggleRow(item.id)}>
+                          <div className="flex flex-col items-end">
+                            <span className={cn(item.total_stock === 0 ? "text-destructive" : "text-primary")}>
+                              {item.total_stock}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground uppercase">{item.unit?.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(item)}>
+                              <Edit className="h-4 w-4 text-primary" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={() => handleOpenTransactionDialog(item)}>
+                              <ArrowRightLeft className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteId(item.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      
+                      {expandedRows[item.id] && (
+                        <TableRow className="bg-slate-50/30">
+                          <TableCell colSpan={6} className="p-0 border-t-0">
+                            <div className="p-4 bg-slate-100/30 flex flex-col gap-3">
+                              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Store-wise Stock Breakdown</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {item.warehouse_stock && item.warehouse_stock.length > 0 ? (
+                                  item.warehouse_stock.map((ws: any) => (
+                                    <div key={ws.id} className="flex items-center justify-between p-3 bg-white border rounded-lg shadow-sm">
+                                      <div className="flex items-center gap-2">
+                                        <Warehouse className="h-3.5 w-3.5 text-primary/70" />
+                                        <span className="text-xs font-semibold">{ws.name}</span>
+                                      </div>
+                                      <span className="text-sm font-bold">{ws.total_stock} <span className="text-[10px] font-normal text-muted-foreground uppercase">{item.unit?.name}</span></span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="col-span-3 text-center py-4 text-xs text-muted-foreground italic">
+                                    No stock recorded for this item in any warehouse.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            {!isLoading && (
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage}
+              />
             )}
-          </TableBody>
-        </Table>
-        {!isLoading && (
-          <DataTablePagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={totalItems}
-            itemsPerPage={itemsPerPage}
-            onPageChange={setCurrentPage}
-          />
-        )}
-      </div>
-    </TabsContent>
+          </div>
+        </TabsContent>
 
         <TabsContent value="grn">
           <TransactionHistoryTable 
@@ -421,32 +432,23 @@ export default function InventoryManagementPage() {
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Item' : 'New Inventory Item'}</DialogTitle>
           </DialogHeader>
-          <InventoryItemForm
+          <InventoryItemFormV2
             key={editingItem ? editingItem.id : 'new'}
             item={editingItem}
-            onSubmit={handleSubmit}
-            departments={departments}
-            menuCategories={menuCategories}
-          />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isGRNDialogOpen} onOpenChange={setIsGRNDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Goods Received Note (GRN)</DialogTitle>
-          </DialogHeader>
-          <StockIntakeForm
-            items={items}
-            departments={departments}
             onSuccess={() => {
-              setIsGRNDialogOpen(false);
-              setRefreshHistory(prev => prev + 1);
+              setIsDialogOpen(false);
+              setEditingItem(null);
               fetchData();
+              toast({
+                title: editingItem ? "Item Updated" : "Item Created",
+                description: editingItem ? "Inventory details updated." : "New inventory item added.",
+              });
             }}
           />
         </DialogContent>
       </Dialog>
+
+
 
       <Dialog open={isTransactionDialogOpen} onOpenChange={setIsTransactionDialogOpen}>
         <DialogContent className="max-w-md">
@@ -455,8 +457,8 @@ export default function InventoryManagementPage() {
           </DialogHeader>
           {editingItem && (
             <InventoryTransactionForm
-              item={editingItem}
-              departments={departments}
+              item={editingItem as any}
+              departments={warehouses as any}
               onSuccess={() => {
                 setIsTransactionDialogOpen(false);
                 fetchData();
@@ -475,7 +477,7 @@ export default function InventoryManagementPage() {
             <DialogTitle>Request Inventory Products</DialogTitle>
           </DialogHeader>
           <InventoryRequestForm
-            items={items}
+            items={items as any}
             onSubmit={handleRequestSubmit}
           />
         </DialogContent>
@@ -491,6 +493,9 @@ export default function InventoryManagementPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteId && handleDelete(deleteId)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

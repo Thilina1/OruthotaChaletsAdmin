@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -29,11 +29,14 @@ export const restaurantMenuItems: MenuItem[] = [
 
 export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management/warehouses', icon: Warehouse, label: 'Manage Store', roles: ['admin'] },
-    { href: '/dashboard/inventory-management/stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
-    // { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/add-item', icon: PackagePlus, label: 'Add New Item', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
-    { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
+    { href: '/dashboard/inventory-requests/history', icon: History, label: 'Inventory Approvals', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },
+    { href: '/dashboard/purchase-orders/approvals', icon: ClipboardCheck, label: 'PO Approvals', roles: ['admin'] },
+    { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/grn', icon: Truck, label: 'GRN (Stock In)', roles: ['admin'] },
+    { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
 ];
 
 export const roomBookingMenuItems: MenuItem[] = [

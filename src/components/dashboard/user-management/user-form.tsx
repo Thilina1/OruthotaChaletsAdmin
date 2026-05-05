@@ -29,37 +29,76 @@ import { STAFF_HIERARCHY, DEPARTMENTS } from '@/lib/staff-hierarchy';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
-const APP_SECTIONS = [
-  { path: '/dashboard', label: 'Dashboard' },
-  { path: '/dashboard/profile', label: 'Profile' },
-  { path: '/dashboard/user-management', label: 'User Management' },
-  { path: '/dashboard/settings/roles', label: 'Roles & Permissions' },
-  { path: '/dashboard/customers', label: 'Customers' },
-  { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
-  { path: '/dashboard/billing', label: 'Restaurant Billing' },
-  { path: '/dashboard/menu-management', label: 'Menu Management' },
-  { path: '/dashboard/table-management', label: 'Table Management' },
-  // { path: '/dashboard/inventory-management', label: 'Inventory' },
-  { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
-  { path: '/dashboard/inventory-management/stock-overview', label: 'Store Overview' },
-  { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
-  { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
-  { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
-  { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
-  { path: '/dashboard/expenses', label: 'Expenses' },
-  { path: '/dashboard/other-incomes', label: 'Other Incomes' },
-  { path: '/dashboard/room-management', label: 'Room Management' },
-  { path: '/dashboard/reservations', label: 'Reservation Management' },
-  { path: '/dashboard/hrms/employees', label: 'HRMS: Employees' },
-  { path: '/dashboard/hrms/leaves', label: 'HRMS: Leaves' },
-  { path: '/dashboard/hrms/reports', label: 'HRMS: Daily Reports' },
-  { path: '/dashboard/hrms/payroll', label: 'HRMS: Payroll' },
-  { path: '/dashboard/hrms/attendance', label: 'HRMS: Attendance' },
-  { path: '/dashboard/activities', label: 'Activities' },
-  { path: '/dashboard/experiences', label: 'Experiences' },
-  { path: '/dashboard/blogs', label: 'Blog Management' },
-  { path: '/dashboard/reports', label: 'Financial Reports' },
-  { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
+const APP_SECTION_GROUPS = [
+  {
+    name: 'General',
+    sections: [
+      { path: '/dashboard', label: 'Dashboard' },
+      { path: '/dashboard/profile', label: 'Profile' },
+      { path: '/dashboard/user-management', label: 'User Management' },
+      { path: '/dashboard/settings/roles', label: 'Roles & Permissions' },
+    ]
+  },
+  {
+    name: 'Customers',
+    sections: [
+      { path: '/dashboard/customers', label: 'Customers' },
+      { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
+    ]
+  },
+  {
+    name: 'Restaurant',
+    sections: [
+      { path: '/dashboard/billing', label: 'Restaurant Billing' },
+      { path: '/dashboard/menu-management', label: 'Menu Management' },
+      { path: '/dashboard/table-management', label: 'Table Management' },
+      { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
+      { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
+    ]
+  },
+  {
+    name: 'Inventory',
+    sections: [
+      { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
+      { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
+      { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
+    ]
+  },
+  {
+    name: 'Rooms & Bookings',
+    sections: [
+      { path: '/dashboard/room-management', label: 'Room Management' },
+      { path: '/dashboard/reservations', label: 'Reservation Management' },
+      { path: '/dashboard/inquiries', label: 'Inquiries' },
+      { path: '/dashboard/buffet-bookings', label: 'Buffet Bookings' },
+    ]
+  },
+  {
+    name: 'Financial',
+    sections: [
+      { path: '/dashboard/expenses', label: 'Expenses' },
+      { path: '/dashboard/other-incomes', label: 'Other Incomes' },
+      { path: '/dashboard/reports', label: 'Financial Reports' },
+    ]
+  },
+  {
+    name: 'HRMS',
+    sections: [
+      { path: '/dashboard/hrms/employees', label: 'HRMS: Employees' },
+      { path: '/dashboard/hrms/leaves', label: 'HRMS: Leaves' },
+      { path: '/dashboard/hrms/reports', label: 'HRMS: Daily Reports' },
+      { path: '/dashboard/hrms/payroll', label: 'HRMS: Payroll' },
+      { path: '/dashboard/hrms/attendance', label: 'HRMS: Attendance' },
+    ]
+  },
+  {
+    name: 'Other Content',
+    sections: [
+      { path: '/dashboard/activities', label: 'Activities' },
+      { path: '/dashboard/experiences', label: 'Experiences' },
+      { path: '/dashboard/blogs', label: 'Blog Management' },
+    ]
+  },
 ];
 
 const formSchema = z.object({
@@ -437,42 +476,49 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
             control={form.control}
             name="permissions"
             render={() => (
-              <FormItem>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-                  {APP_SECTIONS.map((item) => (
-                    <FormField
-                      key={item.path}
-                      control={form.control}
-                      name="permissions"
-                      render={({ field }) => {
-                        return (
-                          <FormItem
-                            key={item.path}
-                            className="flex flex-row items-start space-x-3 space-y-0"
-                          >
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value?.includes(item.path)}
-                                onCheckedChange={(checked) => {
-                                  return checked
-                                    ? field.onChange([...field.value, item.path])
-                                    : field.onChange(
-                                      field.value?.filter(
-                                        (value) => value !== item.path
-                                      )
-                                    )
-                                }}
-                              />
-                            </FormControl>
-                            <FormLabel className="font-normal text-sm cursor-pointer">
-                              {item.label}
-                            </FormLabel>
-                          </FormItem>
-                        )
-                      }}
-                    />
-                  ))}
-                </div>
+              <FormItem className="space-y-4">
+                {APP_SECTION_GROUPS.map((group) => (
+                  <div key={group.name} className="space-y-2">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 border-b pb-1 mb-2">
+                      {group.name}
+                    </h4>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-2">
+                      {group.sections.map((item) => (
+                        <FormField
+                          key={item.path}
+                          control={form.control}
+                          name="permissions"
+                          render={({ field }) => {
+                            return (
+                              <FormItem
+                                key={item.path}
+                                className="flex flex-row items-start space-x-3 space-y-0"
+                              >
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value?.includes(item.path)}
+                                    onCheckedChange={(checked) => {
+                                      return checked
+                                        ? field.onChange([...(field.value || []), item.path])
+                                        : field.onChange(
+                                          field.value?.filter(
+                                            (value) => value !== item.path
+                                          )
+                                        )
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal text-sm cursor-pointer whitespace-nowrap">
+                                  {item.label}
+                                </FormLabel>
+                              </FormItem>
+                            )
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
                 <FormMessage />
               </FormItem>
             )}

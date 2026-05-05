@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Loader2 } from 'lucide-react';
-import type { InventoryDepartment } from '@/lib/types';
+import { Plus, Trash2, Loader2, Warehouse as WarehouseIcon } from 'lucide-react';
+import type { InventoryWarehouse } from '@/lib/types';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -17,9 +17,10 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from '@/components/ui/badge';
 
 interface StoreManagementProps {
-    warehouses: InventoryDepartment[];
+    warehouses: InventoryWarehouse[];
     onUpdate: () => void;
 }
 
@@ -37,12 +38,14 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
 
         setIsSubmitting(true);
         try {
-            const res = await fetch('/api/admin/inventory-departments', {
+            const res = await fetch('/api/admin/inventory/warehouses', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: newName.trim(),
                     description: newDescription.trim(),
+                    type: 'DEPARTMENT',
+                    is_active: true,
                 }),
             });
 
@@ -73,7 +76,7 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
         if (!deleteId) return;
         setIsDeleting(true);
         try {
-            const res = await fetch(`/api/admin/inventory-departments?id=${deleteId}`, {
+            const res = await fetch(`/api/admin/inventory/warehouses?id=${deleteId}`, {
                 method: 'DELETE',
             });
 
@@ -100,67 +103,90 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
 
     return (
         <div className="space-y-6 pt-2">
-            <form onSubmit={handleCreate} className="space-y-4 p-4 rounded-lg border bg-muted/20">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Add New Store</h3>
-                <div className="grid gap-4">
+            <form onSubmit={handleCreate} className="space-y-4 p-6 rounded-xl border bg-gradient-to-br from-primary/5 to-transparent">
+                <div className="flex items-center gap-2 mb-2">
+                    <WarehouseIcon className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary">Provision New Store</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="warehouse-name">Name</Label>
+                        <Label htmlFor="warehouse-name" className="text-xs font-semibold">Store Name</Label>
                         <Input
                             id="warehouse-name"
                             placeholder="e.g., Main Stores, Wine Cellar"
                             value={newName}
                             onChange={(e) => setNewName(e.target.value)}
+                            className="bg-white/50"
                             required
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="warehouse-desc">Description (Optional)</Label>
+                        <Label htmlFor="warehouse-desc" className="text-xs font-semibold">Location / Description</Label>
                         <Input
                             id="warehouse-desc"
-                            placeholder="Short description or location"
+                            placeholder="Briefly describe the physical location"
                             value={newDescription}
                             onChange={(e) => setNewDescription(e.target.value)}
+                            className="bg-white/50"
                         />
                     </div>
-                    <Button type="submit" disabled={isSubmitting || !newName.trim()} className="w-full">
-                        {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                        Create Store
-                    </Button>
                 </div>
+                <Button type="submit" disabled={isSubmitting || !newName.trim()} className="w-full h-11 font-bold">
+                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                    Initialize Warehouse Location
+                </Button>
             </form>
 
             <div className="space-y-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Existing Stores</h3>
-                <div className="divide-y rounded-md border">
+                <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Storage Units</h3>
+                    <Badge variant="secondary" className="text-[10px]">{warehouses.length} Total</Badge>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
                     {warehouses.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">No stores found.</div>
+                        <div className="p-8 text-center border border-dashed rounded-lg text-sm text-muted-foreground">No active stores found.</div>
                     ) : (
                         warehouses.map((warehouse) => {
-                            const itemCount = warehouse.items_count?.[0]?.count || 0;
-                            const canDelete = itemCount === 0;
+                            // In the new schema, total_stock or items might be counted differently.
+                            // For now we'll assume the API provides a basic count if available.
+                            const isActive = warehouse.is_active;
 
                             return (
-                                <div key={warehouse.id} className="flex items-center justify-between p-4">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium">{warehouse.name}</span>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${itemCount > 0 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
-                                                {itemCount} {itemCount === 1 ? 'item' : 'items'}
-                                            </span>
+                                <div key={warehouse.id} className="flex items-center justify-between p-4 bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-2 bg-primary/10 rounded-lg">
+                                            <WarehouseIcon className="h-5 w-5 text-primary" />
                                         </div>
-                                        {warehouse.description && (
-                                            <div className="text-xs text-muted-foreground">{warehouse.description}</div>
-                                        )}
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-slate-800">{warehouse.name}</span>
+                                                {warehouse.is_main && (
+                                                    <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-4">Main Store</Badge>
+                                                )}
+                                            </div>
+                                            {warehouse.description && (
+                                                <div className="text-xs text-muted-foreground mt-0.5">{warehouse.description}</div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className={`${canDelete ? 'text-destructive hover:text-destructive hover:bg-destructive/10' : 'text-muted-foreground cursor-not-allowed opacity-50'}`}
-                                        onClick={() => canDelete && setDeleteId(warehouse.id)}
-                                        title={canDelete ? "Deactivate Store" : "Cannot delete store with items"}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right hidden sm:block mr-4">
+                                            <div className="text-[10px] font-bold text-muted-foreground uppercase">Status</div>
+                                            <div className={`text-xs font-bold ${isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                {isActive ? 'Active' : 'Offline'}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+                                            onClick={() => setDeleteId(warehouse.id)}
+                                            disabled={warehouse.is_main} // Cannot delete main store easily
+                                            title={warehouse.is_main ? "Cannot delete main store" : "Deactivate Store"}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 </div>
                             );
                         })
@@ -169,25 +195,25 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
             </div>
 
             <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && !isDeleting && setDeleteId(null)}>
-                <AlertDialogContent>
+                <AlertDialogContent className="rounded-2xl">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogTitle>Deactivate Warehouse?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will deactivate the store. It can only be deactivated if there are no inventory items associated with it.
+                            This will mark the storage location as inactive. You can only do this if there are no pending transactions for this location.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel disabled={isDeleting} className="rounded-xl">Cancel Operation</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={(e) => {
                                 e.preventDefault();
                                 handleDelete();
                             }}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
                             disabled={isDeleting}
                         >
                             {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Deactivate
+                            Confirm Deactivation
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

@@ -264,7 +264,7 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                           <SelectItem value="none">Create New Hotel Inventory Item</SelectItem>
                           {inventoryItems?.map(invItem => (
                             <SelectItem key={invItem.id} value={invItem.id}>
-                              {invItem.name} ({invItem.unit})
+                              {invItem.name} ({typeof invItem.unit === 'string' ? invItem.unit : (invItem.unit?.name ?? '')})
                             </SelectItem>
                           ))}
                         </SelectContent>

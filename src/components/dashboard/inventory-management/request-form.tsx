@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -38,13 +38,16 @@ import {
 } from "@/components/ui/popover";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { HotelInventoryItem } from '@/lib/types';
+import type { InventoryItem } from '@/lib/types';
 
 const requestFormSchema = z.object({
     request_type: z.enum(['ADD_STOCK', 'NEW_ITEM']),
     item_id: z.string().optional(),
     requested_quantity: z.coerce.number().min(1, { message: 'Must be at least 1.' }),
     estimated_cost: z.coerce.number().optional(),
+    brand: z.string().optional(),
+    supplier_name: z.string().optional(),
+    item_size: z.string().optional(),
     notes: z.string().optional(),
 }).superRefine((data, ctx) => {
     if (data.request_type === 'ADD_STOCK' && !data.item_id) {
@@ -64,7 +67,7 @@ const requestFormSchema = z.object({
 });
 
 interface RequestFormProps {
-    items: HotelInventoryItem[];
+    items: InventoryItem[];
     onSubmit: (values: z.infer<typeof requestFormSchema>) => void;
     defaultItemId?: string;
 }
@@ -77,6 +80,9 @@ export function InventoryRequestForm({ items, onSubmit, defaultItemId }: Request
             item_id: defaultItemId || '',
             requested_quantity: 1,
             estimated_cost: 0,
+            brand: '',
+            supplier_name: '',
+            item_size: '',
             notes: '',
         },
     });
@@ -148,17 +154,20 @@ export function InventoryRequestForm({ items, onSubmit, defaultItemId }: Request
                                                 <CommandEmpty>No product found.</CommandEmpty>
                                                 <CommandGroup>
                                                     {items.map((item) => {
-                                                        const isLowStock = item.current_stock <= item.reorder_level;
+                                                        const itemName = item.name || '';
+                                                        const itemUnit = item.unit?.name || 'Nos';
+                                                        const totalStock = item.total_stock || 0;
+                                                        
                                                         return (
                                                             <CommandItem
-                                                                value={item.name}
+                                                                value={itemName}
                                                                 key={item.id}
                                                                 onSelect={() => {
                                                                     form.setValue("item_id", item.id, { shouldValidate: true });
                                                                     setOpen(false);
                                                                 }}
                                                             >
-                                                                <div className={cn("flex items-center gap-2 w-full", isLowStock ? "text-red-500 font-medium" : "")}>
+                                                                <div className={cn("flex items-center gap-2 w-full", totalStock === 0 ? "text-red-500 font-medium" : "")}>
                                                                     <Check
                                                                         className={cn(
                                                                             "mr-2 h-4 w-4 flex-shrink-0",
@@ -167,9 +176,9 @@ export function InventoryRequestForm({ items, onSubmit, defaultItemId }: Request
                                                                                 : "opacity-0"
                                                                         )}
                                                                     />
-                                                                    <span className="truncate">{item.name}</span>
-                                                                    <span className={cn("ml-auto text-xs", isLowStock ? "text-red-400" : "text-muted-foreground")}>
-                                                                        {item.current_stock} {item.unit} in stock
+                                                                    <span className="truncate">{itemName}</span>
+                                                                    <span className={cn("ml-auto text-xs", totalStock === 0 ? "text-red-400" : "text-muted-foreground")}>
+                                                                        {totalStock} {itemUnit} in stock
                                                                     </span>
                                                                 </div>
                                                             </CommandItem>
@@ -189,10 +198,54 @@ export function InventoryRequestForm({ items, onSubmit, defaultItemId }: Request
                 <div className="grid grid-cols-2 gap-4">
                     <FormField
                         control={form.control}
+                        name="brand"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Brand / Make</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="e.g. Samsung, Holcim" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="item_size"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Size / Pkg</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="e.g. 50kg, 1L, Large" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                </div>
+
+                <FormField
+                    control={form.control}
+                    name="supplier_name"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Preferred Supplier</FormLabel>
+                            <FormControl>
+                                <Input placeholder="e.g. Keells, Local Vendor" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                        control={form.control}
                         name="requested_quantity"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Quantity {selectedItem ? `(${selectedItem.unit})` : ''}</FormLabel>
+                                <FormLabel>Quantity {selectedItem ? `(${selectedItem.unit?.name || 'Nos'})` : ''}</FormLabel>
                                 <FormControl>
                                     <Input type="number" {...field} />
                                 </FormControl>

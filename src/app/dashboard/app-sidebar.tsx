@@ -12,12 +12,18 @@ import {
     SidebarTrigger,
     SidebarGroup,
     SidebarGroupLabel,
+    SidebarMenuBadge,
+    SidebarMenuSub,
+    SidebarMenuSubItem,
+    SidebarMenuSubButton,
+    SidebarRail,
     SidebarSeparator,
     SidebarGroupContent,
-    SidebarRail,
+} from '@/components/ui/sidebar';
+import {
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Calendar, Wallet, Banknote, Gem, Percent } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Calendar, Wallet, Banknote, Gem, Percent, PackagePlus, ShoppingCart, ClipboardCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, TableIcon } from '@/components/icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -49,6 +55,10 @@ const restaurantMenuItems: MenuItem[] = [
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
+    { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/add-item', icon: PackagePlus, label: 'Add Inventory Item', roles: ['admin'] },
+    { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Order', roles: ['admin'] },
+    { href: '/dashboard/purchase-orders/approvals', icon: ClipboardCheck, label: 'PO Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin', 'waiter', 'payment', 'kitchen'] },
 ];
 

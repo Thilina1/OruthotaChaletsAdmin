@@ -11,7 +11,10 @@ import {
   Settings,
   ChefHat,
   BookOpenCheck,
-  CreditCard,
+    CreditCard,
+    PackagePlus,
+    ShoppingCart,
+    ClipboardCheck,
 } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 import type { UserRole } from '@/lib/types';
@@ -21,6 +24,7 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   roles: UserRole[];
+  isSubItem?: boolean;
 };
 
 const navItems: NavItem[] = [
@@ -53,6 +57,27 @@ const navItems: NavItem[] = [
     label: 'Inventory',
     icon: ChefHat,
     roles: ['admin'],
+  },
+  {
+    href: '/dashboard/purchase-orders',
+    label: 'Purchase Order',
+    icon: ShoppingCart,
+    roles: ['admin'],
+    isSubItem: true,
+  },
+  {
+    href: '/dashboard/purchase-orders/approvals',
+    label: 'PO Approvals',
+    icon: ClipboardCheck,
+    roles: ['admin'],
+    isSubItem: true,
+  },
+  {
+    href: '/dashboard/inventory-management/add-item',
+    label: 'Register Item',
+    icon: PackagePlus,
+    roles: ['admin'],
+    isSubItem: true,
   },
   {
     href: '/dashboard/user-management',
@@ -92,7 +117,10 @@ export function Sidebar() {
             key={item.href}
             asChild
             variant={pathname === item.href ? 'secondary' : 'ghost'}
-            className="w-full justify-start"
+            className={cn(
+              "w-full justify-start",
+              item.isSubItem && "pl-10 text-muted-foreground scale-95"
+            )}
           >
             <Link href={item.href}>
               <item.icon className="mr-2 h-4 w-4" />

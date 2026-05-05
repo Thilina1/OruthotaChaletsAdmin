@@ -57,11 +57,13 @@ export default function MenuManagementPage() {
         setIsLoading(true);
         setFetchError(null);
         try {
-            const [itemsRes, categoriesRes, inventoryRes, deptsRes] = await Promise.all([
+            const [itemsRes, categoriesRes, inventoryRes, deptsRes, invCatsRes, invUnitsRes] = await Promise.all([
                 supabase.from('menu_items').select('*').order('name'),
                 fetch('/api/admin/menu-sections').then(res => res.json()),
-                supabase.from('hotel_inventory_items').select('id, name, unit, current_stock, department_id').eq('status', 'active').order('name'),
-                supabase.from('inventory_departments').select('*').order('name')
+                fetch('/api/admin/inventory/items').then(res => res.json()),
+                supabase.from('inventory_departments').select('*').order('name'),
+                fetch('/api/admin/inventory-categories').then(res => res.json()),
+                fetch('/api/admin/inventory-units').then(res => res.json())
             ]);
 
             if (itemsRes.error) throw itemsRes.error;
@@ -70,8 +72,8 @@ export default function MenuManagementPage() {
             if (categoriesRes.error) throw new Error(categoriesRes.error);
             setCategories(categoriesRes.sections || []);
 
-            if (inventoryRes.error) throw inventoryRes.error;
-            setInventoryItems((inventoryRes.data as HotelInventoryItem[]) || []);
+            if (inventoryRes.error) throw new Error(inventoryRes.error);
+            setInventoryItems(inventoryRes.items || []);
 
             if (deptsRes.error) throw deptsRes.error;
             setDepartments((deptsRes.data as InventoryDepartment[]) || []);
@@ -132,16 +134,17 @@ export default function MenuManagementPage() {
                     status: 'active',
                 };
 
-                const { data: newInvItem, error: invError } = await supabase.from('hotel_inventory_items').insert([{
-                    ...newInventoryData,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                }]).select().single();
+                const res = await fetch('/api/admin/inventory/items', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newInventoryData),
+                });
+                const newInvItem = await res.json();
+                if (newInvItem.error) throw new Error(newInvItem.error);
+                
+                finalLinkedId = newInvItem.item.id;
 
-                if (invError) throw invError;
-                finalLinkedId = newInvItem.id;
-
-                setInventoryItems(prev => [...prev, newInvItem as HotelInventoryItem].sort((a, b) => a.name.localeCompare(b.name)));
+                setInventoryItems(prev => [...prev, newInvItem.item as HotelInventoryItem].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
 
                 if (values.stock && values.stock > 0) {
                     await supabase.from('inventory_transactions').insert([{
@@ -377,8 +380,8 @@ function PaginatedMenuCategory({
                                         ? (() => {
                                             const linkedItem = inventoryItems.find(inv => inv.id === item.linked_inventory_item_id);
                                             if (linkedItem) {
-                                                const restDept = departments.find(d => d.name.toLowerCase() === 'restaurant' || d.name.toLowerCase() === 'kitchen');
-                                                const storeDept = departments.find(d => d.name.toLowerCase() === 'store');
+                                                const restDept = departments.find(d => d.name.toLowerCase().includes('restaurant') || d.name.toLowerCase().includes('kitchen'));
+                                                const storeDept = departments.find(d => d.name.toLowerCase().includes('store') || d.name.toLowerCase().includes('main'));
                                                 
                                                 const restItem = restDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === restDept.id) : null;
                                                 const storeItem = storeDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === storeDept.id) : null;
@@ -388,7 +391,7 @@ function PaginatedMenuCategory({
                                                 
                                                 return (
                                                     <div className="flex flex-col">
-                                                        <span className="font-semibold">{restQty} / {storeQty} {linkedItem.unit || ''}</span>
+                                                        <span className="font-semibold">{restQty} / {storeQty} {typeof linkedItem.unit === 'string' ? linkedItem.unit : (linkedItem.unit?.name ?? '')}</span>
                                                         <span className="text-[10px] text-muted-foreground whitespace-nowrap">(Rest. / Store)</span>
                                                     </div>
                                                 );

@@ -125,9 +125,9 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-premium-gradient/60 backdrop-blur-[2px]"></div>
         <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center text-white">
           <div className="animate-fade-in-up stagger-1">
-            <Logo className="h-[432px] w-[432px] text-white drop-shadow-2xl" />
+            <Logo className="h-40 w-full max-w-[500px] text-white drop-shadow-2xl" />
           </div>
-          <p className="animate-fade-in-up stagger-2 text-xl font-body max-w-lg opacity-90 leading-relaxed text-shadow-premium">
+          <p className="animate-fade-in-up stagger-2 -mt-4 text-xl font-body max-w-lg opacity-90 leading-relaxed text-shadow-premium">
             Experience the pinnacle of hospitality where nature meets luxury in the heart of the hills.
           </p>
           <div className="animate-fade-in-up stagger-3 mt-12 flex gap-4">
@@ -141,7 +141,7 @@ export default function LoginPage() {
       {/* Right Side - Form */}
       <div className="relative flex w-full items-center justify-center lg:w-2/5 p-8 bg-background">
         <div className="absolute top-8 left-8 lg:hidden animate-fade-in-up">
-          <Logo className="h-36 w-36 text-primary" />
+          <Logo className="h-10 w-40 text-white" />
         </div>
 
         <div className="w-full max-w-md animate-fade-in-up stagger-2">

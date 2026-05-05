@@ -20,7 +20,7 @@ import {
 import { format } from 'date-fns';
 import {
     ShoppingCart, PlusCircle, Printer, Trash2, Plus, X, ChevronRight,
-    ClipboardList, Loader2, PackageCheck, Send,
+    ClipboardList, Loader2, PackageCheck, Send, Pencil
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -32,25 +32,41 @@ type PurchaseOrderItem = {
     quantity: number;
     unit_price: number | null;
     total_price: number | null;
+    brand: string | null;
+    supplier_name: string | null;
+    item_size: string | null;
 };
 
 type PurchaseOrder = {
     id: string;
     po_number: string;
-    status: 'draft' | 'sent' | 'received' | 'cancelled';
+    status: 'draft' | 'pending_approval' | 'approved' | 'sent' | 'received' | 'cancelled';
     supplier_name: string | null;
     notes: string | null;
     created_at: string;
     created_by_user?: { name: string; email: string };
+    approved_by?: string;
+    approved_at?: string;
+    approved_by_user?: { name: string; email: string };
     purchase_order_items: PurchaseOrderItem[];
 };
 
-type InventoryItem = { id: string; name: string; unit: string };
+type InventoryItem = { 
+    id: string; 
+    name: string; 
+    unit?: { id: string; name: string } | string; 
+    category?: { id: string; name: string };
+    brand?: string; 
+    supplier?: string; 
+    item_size?: string 
+};
 
 const STATUS_CONFIG = {
     draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700 border-gray-300' },
+    pending_approval: { label: 'Pending Approval', className: 'bg-amber-100 text-amber-700 border-amber-300' },
+    approved: { label: 'Approved', className: 'bg-green-100 text-green-700 border-green-300' },
     sent: { label: 'Sent', className: 'bg-blue-100 text-blue-700 border-blue-300' },
-    received: { label: 'Received', className: 'bg-green-100 text-green-700 border-green-300' },
+    received: { label: 'Received', className: 'bg-teal-100 text-teal-700 border-teal-300' },
     cancelled: { label: 'Cancelled', className: 'bg-red-100 text-red-700 border-red-300' },
 };
 
@@ -62,19 +78,14 @@ export default function PurchaseOrdersPage() {
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
     const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [viewPO, setViewPO] = useState<PurchaseOrder | null>(null);
     const [receivePO, setReceivePO] = useState<PurchaseOrder | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [receivedQuantities, setReceivedQuantities] = useState<Record<string, string>>({});
-
-    // Create form state
-    const [supplierName, setSupplierName] = useState('');
-    const [notes, setNotes] = useState('');
-    const [lineItems, setLineItems] = useState<{ item_id: string; item_name: string; unit: string; quantity: string }[]>([
-        { item_id: '', item_name: '', unit: 'units', quantity: '' }
-    ]);
+    const [batchNumbers, setBatchNumbers] = useState<Record<string, string>>({});
+    const [expiryDates, setExpiryDates] = useState<Record<string, string>>({});
+    const [receiveMetadata, setReceiveMetadata] = useState<Record<string, { brand: string, supplier: string, size: string }>>({});
     const [itemPrices, setItemPrices] = useState<Record<string, string>>({});
 
     const fetchAll = async () => {
@@ -82,7 +93,7 @@ export default function PurchaseOrdersPage() {
         try {
             const [poRes, invRes] = await Promise.all([
                 fetch('/api/admin/purchase-orders'),
-                fetch('/api/admin/hotel-inventory'),
+                fetch('/api/admin/inventory/items'),
             ]);
             const [poData, invData] = await Promise.all([poRes.json(), invRes.json()]);
             if (poData.error) throw new Error(poData.error);
@@ -96,51 +107,6 @@ export default function PurchaseOrdersPage() {
     };
 
     useEffect(() => { fetchAll(); }, []);
-
-    // Line item helpers
-    const addLine = () => setLineItems(prev => [...prev, { item_id: '', item_name: '', unit: 'units', quantity: '' }]);
-    const removeLine = (idx: number) => setLineItems(prev => prev.filter((_, i) => i !== idx));
-    const updateLine = (idx: number, field: string, value: string) => {
-        setLineItems(prev => prev.map((item, i) => {
-            if (i !== idx) return item;
-            if (field === 'item_id') {
-                const inv = inventoryItems.find(it => it.id === value);
-                return { ...item, item_id: value, item_name: inv?.name ?? '', unit: inv?.unit ?? 'units' };
-            }
-            return { ...item, [field]: value };
-        }));
-    };
-
-    const handleCreate = async () => {
-        const validItems = lineItems.filter(l => l.item_name && l.quantity);
-        if (validItems.length === 0) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Please add at least one item with a quantity.' });
-            return;
-        }
-        setIsSubmitting(true);
-        try {
-            const res = await fetch('/api/admin/purchase-orders', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    supplier_name: supplierName || undefined,
-                    notes: notes || undefined,
-                    items: validItems.map(l => ({ item_id: l.item_id || null, item_name: l.item_name, unit: l.unit, quantity: parseFloat(l.quantity) })),
-                }),
-            });
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            toast({ title: 'Purchase Order Created', description: `${data.purchase_order.po_number} has been created.` });
-            setIsCreateOpen(false);
-            setSupplierName(''); setNotes('');
-            setLineItems([{ item_id: '', item_name: '', unit: 'units', quantity: '' }]);
-            fetchAll();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Error', description: err.message });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
 
     const handleStatusUpdate = async (id: string, status: string) => {
         try {
@@ -167,6 +133,11 @@ export default function PurchaseOrdersPage() {
                 quantity: item.quantity,
                 unit_price: itemPrices[item.id] ? parseFloat(itemPrices[item.id]) : null,
                 received_quantity: receivedQuantities[item.id] ? parseFloat(receivedQuantities[item.id]) : item.quantity,
+                batch_number: batchNumbers[item.id] || '',
+                expiry_date: expiryDates[item.id] || null,
+                brand: receiveMetadata[item.id]?.brand || item.brand || '',
+                supplier_name: receiveMetadata[item.id]?.supplier || item.supplier_name || receivePO.supplier_name || '',
+                item_size: receiveMetadata[item.id]?.size || item.item_size || '',
             }));
             const res = await fetch(`/api/admin/purchase-orders/${receivePO.id}`, {
                 method: 'PUT',
@@ -179,6 +150,9 @@ export default function PurchaseOrdersPage() {
             setReceivePO(null);
             setItemPrices({});
             setReceivedQuantities({});
+            setBatchNumbers({});
+            setExpiryDates({});
+            setReceiveMetadata({});
             fetchAll();
         } catch (err: any) {
             toast({ variant: 'destructive', title: 'Error', description: err.message });
@@ -222,10 +196,12 @@ export default function PurchaseOrdersPage() {
                     </h1>
                     <p className="text-muted-foreground mt-1">Create, manage, and track all procurement purchase orders.</p>
                 </div>
-                <Button className="gap-2" onClick={() => setIsCreateOpen(true)}>
-                    <PlusCircle className="h-4 w-4" />
-                    Create Purchase Order
-                </Button>
+                <Link href="/dashboard/purchase-orders/create">
+                    <Button className="gap-2">
+                        <PlusCircle className="h-4 w-4" />
+                        Create Purchase Order
+                    </Button>
+                </Link>
             </div>
 
             {/* PO List */}
@@ -281,11 +257,24 @@ export default function PurchaseOrdersPage() {
                                                 <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => setViewPO(po)}>
                                                     View
                                                 </Button>
+                                                {(po.status === 'draft' || po.status === 'pending_approval') && (
+                                                    <Link href={`/dashboard/purchase-orders/${po.id}/edit`}>
+                                                        <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                                                            <Pencil className="h-3 w-3" /> Edit
+                                                        </Button>
+                                                    </Link>
+                                                )}
                                                 <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => handlePrint(po)}>
                                                     <Printer className="h-3 w-3" />
                                                     Print
                                                 </Button>
                                                 {po.status === 'draft' && (
+                                                    <Button variant="ghost" size="sm" className="text-amber-600 text-xs gap-1"
+                                                        onClick={() => handleStatusUpdate(po.id, 'pending_approval')}>
+                                                        Submit for Approval
+                                                    </Button>
+                                                )}
+                                                {po.status === 'approved' && (
                                                     <Button variant="ghost" size="sm" className="text-blue-600 text-xs gap-1"
                                                         onClick={() => handleStatusUpdate(po.id, 'sent')}>
                                                         <Send className="h-3 w-3" /> Mark Sent
@@ -318,80 +307,6 @@ export default function PurchaseOrdersPage() {
                     </TableBody>
                 </Table>
             </div>
-
-            {/* Create PO Dialog */}
-            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <ShoppingCart className="h-5 w-5 text-primary" />
-                            Create Purchase Order
-                        </DialogTitle>
-                        <DialogDescription>Select items from inventory and specify quantities.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label>Supplier Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                                <Input className="mt-1" placeholder="e.g. ABC Suppliers" value={supplierName} onChange={e => setSupplierName(e.target.value)} />
-                            </div>
-                            <div>
-                                <Label>Notes <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                                <Input className="mt-1" placeholder="Any additional notes…" value={notes} onChange={e => setNotes(e.target.value)} />
-                            </div>
-                        </div>
-
-                        <div>
-                            <Label className="mb-2 block">Items</Label>
-                            <div className="space-y-2">
-                                {lineItems.map((line, idx) => (
-                                    <div key={idx} className="flex gap-2 items-center">
-                                        <select
-                                            className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                            value={line.item_id}
-                                            onChange={e => updateLine(idx, 'item_id', e.target.value)}
-                                        >
-                                            <option value="">Select item…</option>
-                                            {inventoryItems.map(it => (
-                                                <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>
-                                            ))}
-                                        </select>
-                                        {!line.item_id && (
-                                            <Input
-                                                className="flex-1"
-                                                placeholder="Or type item name"
-                                                value={line.item_name}
-                                                onChange={e => updateLine(idx, 'item_name', e.target.value)}
-                                            />
-                                        )}
-                                        <Input
-                                            className="w-28"
-                                            type="number"
-                                            placeholder="Qty"
-                                            value={line.quantity}
-                                            onChange={e => updateLine(idx, 'quantity', e.target.value)}
-                                        />
-                                        <span className="text-xs text-muted-foreground w-12 shrink-0">{line.unit}</span>
-                                        <Button variant="ghost" size="icon" className="text-destructive shrink-0" onClick={() => removeLine(idx)}>
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                            <Button variant="outline" size="sm" className="mt-3 gap-2" onClick={addLine}>
-                                <Plus className="h-4 w-4" /> Add Item
-                            </Button>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-                        <Button onClick={handleCreate} disabled={isSubmitting} className="gap-2">
-                            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                            Create PO
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             {/* View PO Dialog */}
             <Dialog open={!!viewPO} onOpenChange={(open) => !open && setViewPO(null)}>
@@ -427,7 +342,8 @@ export default function PurchaseOrdersPage() {
                                     <TableRow>
                                         <TableHead>#</TableHead>
                                         <TableHead>Item</TableHead>
-                                        <TableHead>Unit</TableHead>
+                                        <TableHead>Brand / Supplier</TableHead>
+                                        <TableHead>Size / Pkg</TableHead>
                                         <TableHead className="text-right">Qty</TableHead>
                                         <TableHead className="text-right">Unit Price</TableHead>
                                         <TableHead className="text-right">Total</TableHead>
@@ -437,13 +353,19 @@ export default function PurchaseOrdersPage() {
                                     {viewPO.purchase_order_items.map((item, idx) => (
                                         <TableRow key={item.id}>
                                             <TableCell>{idx + 1}</TableCell>
-                                            <TableCell className="font-medium">{item.item_name}</TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell className="text-right">{item.quantity}</TableCell>
+                                            <TableCell className="font-medium">
+                                                {item.item_name}
+                                                <div className="text-[10px] text-muted-foreground uppercase">{item.unit}</div>
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {item.brand || '—'} / {item.supplier_name || '—'}
+                                            </TableCell>
+                                            <TableCell className="text-xs">{item.item_size || '—'}</TableCell>
+                                            <TableCell className="text-right font-semibold">{item.quantity}</TableCell>
                                             <TableCell className="text-right">
                                                 {item.unit_price != null ? `LKR ${item.unit_price.toFixed(2)}` : <span className="text-muted-foreground italic">—</span>}
                                             </TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="text-right font-bold">
                                                 {item.total_price != null ? `LKR ${item.total_price.toFixed(2)}` : <span className="text-muted-foreground italic">—</span>}
                                             </TableCell>
                                         </TableRow>
@@ -465,7 +387,7 @@ export default function PurchaseOrdersPage() {
 
             {/* Receive Goods Dialog */}
             <Dialog open={!!receivePO} onOpenChange={(open) => !open && setReceivePO(null)}>
-                <DialogContent className="max-w-lg">
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <PackageCheck className="h-5 w-5 text-green-600" />
@@ -474,33 +396,79 @@ export default function PurchaseOrdersPage() {
                         <DialogDescription>Enter the unit price for each received item. Leave blank if not yet known.</DialogDescription>
                     </DialogHeader>
                     {receivePO && (
-                        <div className="space-y-4 py-2">
-                             <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-semibold text-muted-foreground px-1">
-                                <div className="col-span-5">Item Details</div>
-                                <div className="col-span-3">Received Qty</div>
-                                <div className="col-span-4">Unit Price (LKR)</div>
+                        <div className="space-y-6 py-2">
+                             <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wider">
+                                <div className="col-span-3">Item details</div>
+                                <div className="col-span-2">Receipt Info</div>
+                                <div className="col-span-2">Batch/Expiry</div>
+                                <div className="col-span-5">Identity (Brand/Supplier/Size)</div>
                             </div>
                             {receivePO.purchase_order_items.map(item => (
-                                <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-                                    <div className="col-span-5">
-                                        <p className="text-sm font-medium truncate">{item.item_name}</p>
-                                        <p className="text-xs text-muted-foreground">PO Qty: {item.quantity} {item.unit}</p>
-                                    </div>
+                                <div key={item.id} className="grid grid-cols-12 gap-3 items-start p-3 border rounded-lg bg-slate-50/50">
                                     <div className="col-span-3">
+                                        <p className="text-sm font-bold truncate">{item.item_name}</p>
+                                        <p className="text-xs text-muted-foreground">Ordered: {item.quantity} {item.unit}</p>
+                                    </div>
+                                    <div className="col-span-2 space-y-2">
                                         <Input
+                                            className="h-8 text-xs"
                                             type="number"
                                             placeholder="Qty"
                                             value={receivedQuantities[item.id] ?? ''}
                                             onChange={e => setReceivedQuantities(prev => ({ ...prev, [item.id]: e.target.value }))}
                                         />
-                                    </div>
-                                    <div className="col-span-4">
                                         <Input
+                                            className="h-8 text-xs"
                                             type="number"
                                             step="0.01"
-                                            placeholder="Unit price"
+                                            placeholder="Price"
                                             value={itemPrices[item.id] ?? ''}
                                             onChange={e => setItemPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="col-span-2 space-y-2">
+                                        <Input
+                                            className="h-8 text-xs font-mono"
+                                            placeholder="Batch #"
+                                            value={batchNumbers[item.id] ?? ''}
+                                            onChange={e => setBatchNumbers(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        />
+                                        <Input
+                                            className="h-8 text-xs"
+                                            type="date"
+                                            value={expiryDates[item.id] ?? ''}
+                                            onChange={e => setExpiryDates(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="col-span-5 grid grid-cols-1 gap-2">
+                                        <div className="flex gap-2">
+                                            <Input
+                                                className="h-8 text-xs"
+                                                placeholder="Brand"
+                                                value={receiveMetadata[item.id]?.brand ?? item.brand ?? ''}
+                                                onChange={e => setReceiveMetadata(prev => ({ 
+                                                    ...prev, 
+                                                    [item.id]: { ...(prev[item.id] || { brand: item.brand || '', supplier: item.supplier_name || '', size: item.item_size || '' }), brand: e.target.value } 
+                                                }))}
+                                            />
+                                            <Input
+                                                className="h-8 text-xs"
+                                                placeholder="Size"
+                                                value={receiveMetadata[item.id]?.size ?? item.item_size ?? ''}
+                                                onChange={e => setReceiveMetadata(prev => ({ 
+                                                    ...prev, 
+                                                    [item.id]: { ...(prev[item.id] || { brand: item.brand || '', supplier: item.supplier_name || '', size: item.item_size || '' }), size: e.target.value } 
+                                                }))}
+                                            />
+                                        </div>
+                                        <Input
+                                            className="h-8 text-xs"
+                                            placeholder="Supplier Name"
+                                            value={receiveMetadata[item.id]?.supplier ?? item.supplier_name ?? receivePO.supplier_name ?? ''}
+                                            onChange={e => setReceiveMetadata(prev => ({ 
+                                                ...prev, 
+                                                [item.id]: { ...(prev[item.id] || { brand: item.brand || '', supplier: item.supplier_name || '', size: item.item_size || '' }), supplier: e.target.value } 
+                                            }))}
                                         />
                                     </div>
                                 </div>
@@ -559,10 +527,17 @@ export default function PurchaseOrdersPage() {
                                 <p className="font-semibold">{viewPO.created_by_user?.name || 'Store Manager'}</p>
                                 <p className="text-gray-600">Procurement &amp; Inventory</p>
                             </div>
-                            <div>
+                             <div>
                                 <p className="font-bold uppercase tracking-wider text-gray-500 mb-1 text-xs">Status</p>
                                 <p className="font-semibold capitalize">{viewPO.status}</p>
                             </div>
+                            {viewPO.approved_by_user && (
+                                <div>
+                                    <p className="font-bold uppercase tracking-wider text-gray-500 mb-1 text-xs">Approved By</p>
+                                    <p className="font-semibold">{viewPO.approved_by_user.name}</p>
+                                    <p className="text-xs text-gray-400">{viewPO.approved_at ? format(new Date(viewPO.approved_at), 'PP p') : ''}</p>
+                                </div>
+                            )}
                         </div>
 
                         <table className="w-full text-left border-collapse text-sm">

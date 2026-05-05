@@ -31,7 +31,20 @@ export async function GET(req: NextRequest) {
             .from('inventory_transactions')
             .select(`
                 *,
-                item:hotel_inventory_items(name, unit, category),
+                item:inventory_items(
+                    id, 
+                    name, 
+                    description,
+                    category:inventory_categories(id, name),
+                    unit:inventory_units(id, name)
+                ),
+                batch:inventory_batches(
+                    id,
+                    batch_number,
+                    expiry_date,
+                    supplier,
+                    buying_price
+                ),
                 user:users(id, name)
             `)
             .order('created_at', { ascending: false })

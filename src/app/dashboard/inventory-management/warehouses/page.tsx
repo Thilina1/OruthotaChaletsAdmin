@@ -3,22 +3,22 @@
 import { useState, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { StoreManagement } from '@/components/dashboard/inventory-management/store-management';
-import type { InventoryDepartment } from '@/lib/types';
 import { Warehouse, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+import type { InventoryWarehouse } from '@/lib/types';
 
 export default function WarehouseManagementPage() {
     const { toast } = useToast();
-    const [warehouses, setWarehouses] = useState<InventoryDepartment[]>([]);
+    const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     const fetchWarehouses = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch('/api/admin/inventory-departments');
+            const res = await fetch('/api/admin/inventory/warehouses');
             const data = await res.json();
             if (data.error) throw new Error(data.error);
-            setWarehouses(data.departments || []);
+            setWarehouses(data.warehouses || []);
         } catch (error: any) {
             console.error("Error fetching warehouses:", error);
             toast({

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
+import { Logo } from '@/components/icons';
 
 export default function ProfilePage() {
   const { user, loading } = useUserContext();
@@ -49,8 +50,9 @@ export default function ProfilePage() {
   return (
     <div className="container mx-auto pb-12">
       {/* Hero Header */}
-      <div className="relative h-48 md:h-64 w-full rounded-xl overflow-hidden bg-gradient-to-r from-primary/80 via-primary to-accent/50 shadow-lg">
+      <div className="relative h-48 md:h-64 w-full rounded-xl overflow-hidden bg-gradient-to-r from-primary/80 via-primary to-accent/50 shadow-lg flex items-center justify-center">
         <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]" />
+        <Logo className="relative z-10 h-20 w-80 text-white drop-shadow-2xl" />
         <div className="absolute bottom-4 right-4 flex gap-2">
            <Badge variant="secondary" className="bg-background/20 text-white border-white/20 backdrop-blur-md">
              Active Account

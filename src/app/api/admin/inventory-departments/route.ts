@@ -23,10 +23,7 @@ export async function GET(request: Request) {
 
         let query = supabase
             .from('inventory_departments')
-            .select(`
-                *,
-                items_count:hotel_inventory_items(count)
-            `)
+            .select('*')
             .order('name');
 
         if (!includeInactive) {
@@ -63,6 +60,9 @@ export async function POST(req: Request) {
 
         if (error) throw error;
 
+        // Note: Linked warehouse creation is now handled automatically by a DB trigger
+        // (trigger_sync_department_warehouse on inventory_departments)
+
         return NextResponse.json({ department: data }, { status: 201 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -82,21 +82,8 @@ export async function DELETE(request: Request) {
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-        // 1. Check if ANY items are assigned to this department
-        const { count, error: countError } = await supabase
-            .from('hotel_inventory_items')
-            .select('*', { count: 'exact', head: true })
-            .eq('department_id', id);
-
-        if (countError) throw countError;
-
-        if (count && count > 0) {
-            return NextResponse.json({
-                error: `Cannot delete store. It still has ${count} inventory items associated with it. Please reassign them first.`
-            }, { status: 400 });
-        }
-
-        // 2. Perform soft delete (deactivate)
+        // 1. Perform soft delete (deactivate)
+        // Note: Stock check removed as hotel_inventory_items table was deleted.
         const { error: updateError } = await supabase
             .from('inventory_departments')
             .update({ status: 'inactive' })

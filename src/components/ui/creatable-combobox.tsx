@@ -28,9 +28,12 @@ export function CreatableCombobox({
   const wrapperRef = React.useRef<HTMLDivElement>(null)
 
   // Sync internal input value if external value changes (e.g. form reset or parent set)
+  // But ONLY if we're not currently open (typing) or if the value is meaningfully different
   React.useEffect(() => {
-    setInputValue(value || "")
-  }, [value])
+    if (!open && value !== undefined && value !== inputValue) {
+      setInputValue(value || "")
+    }
+  }, [value, open])
 
   const filteredOptions = React.useMemo(() => {
     if (!inputValue) return options
@@ -87,7 +90,9 @@ export function CreatableCombobox({
           placeholder={placeholder}
           value={inputValue}
           onChange={(e) => {
-            setInputValue(e.target.value)
+            const val = e.target.value;
+            setInputValue(val)
+            // Removed: onValueChange(val) - We only want to notify parent on explicit selection
             setOpen(true)
           }}
           onFocus={() => setOpen(true)}
@@ -106,51 +111,50 @@ export function CreatableCombobox({
           }}
           onBlur={(e) => {
             // Delay closing to allow onClick/onMouseDown events inside the dropdown to fire first.
-            // If focus moves completely outside our wrapper, we commit the text.
             setTimeout(() => {
               if (wrapperRef.current && !wrapperRef.current.contains(document.activeElement)) {
                 setOpen(false)
-                const trimmed = inputValue.trim();
-                if (trimmed && trimmed !== value) {
-                    handleSelect(trimmed);
-                } else {
-                    setInputValue(value || "");
-                }
+                // We DON'T automatically commit on blur anymore to avoid unintentional creation
+                // But we should sync back to current 'value' if we didn't commit
+                setInputValue(value || "");
               }
             }, 100);
           }}
-          className="w-full pr-10 bg-background"
+          className="w-full pr-10 bg-white text-slate-900 placeholder:text-slate-400 border-none focus-visible:ring-2 focus-visible:ring-blue-500"
         />
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="absolute right-0 top-0 h-full w-9 px-0 opacity-50 hover:bg-transparent"
-          onClick={() => setOpen(!open)}
+          className="absolute right-0 top-0 h-full w-9 px-0 text-slate-400 hover:text-slate-600 hover:bg-transparent"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(!open);
+          }}
           tabIndex={-1}
         >
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
         </Button>
       </div>
 
       {open && (
         <div className="absolute top-full left-0 z-[100] mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95">
           <div className="max-h-60 overflow-y-auto p-1">
-            {!isExactMatch && inputValue.trim().length > 0 && (
+            {/* Show Add option if no exact match */}
+            {inputValue && !isExactMatch && (
               <button
                 type="button"
-                className="w-full flex items-center justify-start text-primary hover:bg-accent hover:text-primary font-medium gap-2 px-2 py-2 rounded-sm text-sm"
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                }}
+                className="flex w-full cursor-pointer select-none items-center rounded-sm py-2 px-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left text-blue-600 font-medium"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleSelect(inputValue.trim())
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelect(inputValue);
                 }}
               >
-                <Plus className="h-4 w-4" />
-                Add "{inputValue.trim()}"
+                <Plus className="mr-2 h-4 w-4" />
+                Add "{inputValue}"
               </button>
             )}
 

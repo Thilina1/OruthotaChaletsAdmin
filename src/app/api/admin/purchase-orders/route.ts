@@ -22,6 +22,7 @@ export async function GET() {
             .select(`
                 *,
                 created_by_user:users!purchase_orders_created_by_fkey (name, email),
+                approved_by_user:users!purchase_orders_approved_by_fkey (name, email),
                 purchase_order_items (*)
             `)
             .order('created_at', { ascending: false });
@@ -81,8 +82,11 @@ export async function POST(request: Request) {
             item_name: item.item_name,
             unit: item.unit || 'units',
             quantity: Number(item.quantity),
-            unit_price: null,
-            total_price: null,
+            unit_price: item.unit_price ? Number(item.unit_price) : null,
+            total_price: (item.unit_price && item.quantity) ? Number(item.unit_price) * Number(item.quantity) : null,
+            brand: item.brand || null,
+            supplier_name: item.supplier_name || null,
+            item_size: item.item_size || null,
         }));
 
         const { error: itemsError } = await supabase
