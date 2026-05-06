@@ -128,12 +128,15 @@ export default function NewInventoryRequestPage() {
                 ws.department?.id === selectedDeptId ||
                 ws.id === selectedDeptId
             );
+            
+            if (!deptStock) return null;
+
             return {
                 ...item,
                 local_stock: deptStock ? deptStock.total_stock : 0,
                 batches: deptStock ? deptStock.batches : []
             };
-        }).filter(item => item.local_stock > 0);
+        }).filter((item): item is any => item !== null);
     }, [inventoryItems, searchQuery, selectedDeptId]);
 
     const handleOpenRequest = (item: any) => {
@@ -270,9 +273,9 @@ export default function NewInventoryRequestPage() {
             {/* Items Table (Grid) */}
             <div className="space-y-6">
                 <div className="flex items-center justify-between pl-2">
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Currently Available Items</h2>
-                    <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
-                        {filteredItems.length} Items with Stock
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Department Inventory</h2>
+                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
+                        {filteredItems.length} Total Items
                     </Badge>
                 </div>
 
@@ -308,8 +311,10 @@ export default function NewInventoryRequestPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col">
-                                            <span className="text-2xl font-black text-slate-800">{item.local_stock}</span>
-                                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">In Stock</span>
+                                            <span className={cn("text-2xl font-black", item.local_stock > 0 ? "text-slate-800" : "text-slate-300")}>{item.local_stock}</span>
+                                            <span className={cn("text-[10px] font-black uppercase tracking-widest", item.local_stock > 0 ? "text-emerald-500" : "text-slate-400")}>
+                                                {item.local_stock > 0 ? 'In Stock' : 'Out of Stock'}
+                                            </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right pr-8">

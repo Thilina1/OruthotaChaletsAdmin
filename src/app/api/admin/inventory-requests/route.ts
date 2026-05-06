@@ -121,12 +121,12 @@ export async function POST(request: Request) {
         };
 
         // NEW: Immediate Processing for New System (Stock Overview)
-        if (body.immediate && ['transfer', 'audit_adjustment', 'issue', 'damage'].includes(request_type)) {
+        if (body.immediate && ['transfer', 'audit_adjustment', 'issue', 'damage', 'initial_stock'].includes(request_type)) {
             const userId = decoded.userId || decoded.id || decoded.sub;
             dataToSave.status = 'COMPLETED';
             dataToSave.reviewed_by = userId;
 
-            const totalRequestedQuantity = Number(requested_quantity);
+            const totalRequestedQuantity = Number(requested_quantity || 0);
             const source_warehouse_id = body.warehouse_id;
             const target_warehouse_id = body.to_warehouse_id || action_metadata?.transfer_to_warehouse_id;
             const selected_batch_id = batch_id || null;
@@ -135,119 +135,190 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Missing metadata for immediate processing' }, { status: 400 });
             }
 
-            // 1. Fetch relevant stock entries from source (either specific batch or all FIFO)
-            let query = supabase.from('inventory_stock').select('*')
-                .eq('warehouse_id', source_warehouse_id)
-                .eq('item_id', item_id)
-                .gt('quantity', 0);
-            
-            if (selected_batch_id) {
-                query = query.eq('batch_id', selected_batch_id);
-            } else {
-                query = query.order('last_updated', { ascending: true }); // FIFO order
-            }
-
-            const { data: stockEntries, error: stockFetchError } = await query;
-            if (stockFetchError) throw stockFetchError;
-
-            if (!stockEntries || stockEntries.length === 0) {
-                return NextResponse.json({ error: 'No stock found in source warehouse for this item.' }, { status: 400 });
-            }
-
-            // 2. Process Deduction (Iterate through batches to fulfill total quantity)
-            let remainingQuantity = totalRequestedQuantity;
-            const processedBatches: string[] = [];
-
-            for (const stock of stockEntries) {
-                if (remainingQuantity <= 0) break;
-
-                const takeAmt = Math.min(Number(stock.quantity), remainingQuantity);
-                const current_batch_id = stock.batch_id;
+            if (request_type === 'initial_stock') {
+                // Specialized Logic for Initialization
+                // 1. Resolve/Create a default batch if none specified
+                let activeBatchId = selected_batch_id;
                 
-                // A. Update Source Stock
-                await supabase.from('inventory_stock')
-                    .update({ quantity: Number(stock.quantity) - takeAmt, last_updated: new Date().toISOString() })
-                    .eq('id', stock.id);
-
-                if (request_type === 'transfer') {
-                    if (!target_warehouse_id) return NextResponse.json({ error: 'Destination warehouse is required for transfer' }, { status: 400 });
-
-                    // B. Update/Create Destination Stock
-                    const { data: targetStock } = await supabase.from('inventory_stock')
-                        .select('*').eq('warehouse_id', target_warehouse_id).eq('item_id', item_id).eq('batch_id', current_batch_id).maybeSingle();
-
-                    if (targetStock) {
-                        await supabase.from('inventory_stock').update({ quantity: Number(targetStock.quantity) + takeAmt, last_updated: new Date().toISOString() }).eq('id', targetStock.id);
+                if (!activeBatchId || activeBatchId === 'auto') {
+                    const { data: existingBatch } = await supabase
+                        .from('inventory_batches')
+                        .select('id')
+                        .eq('item_id', item_id)
+                        .eq('batch_number', 'INITIAL')
+                        .maybeSingle();
+                    
+                    if (existingBatch) {
+                        activeBatchId = existingBatch.id;
                     } else {
-                        await supabase.from('inventory_stock').insert([{ warehouse_id: target_warehouse_id, item_id, batch_id: current_batch_id, quantity: takeAmt }]);
+                        const { data: newBatch, error: batchError } = await supabase
+                            .from('inventory_batches')
+                            .insert([{
+                                item_id,
+                                batch_number: 'INITIAL',
+                                buying_price: 0,
+                                supplier: 'System Initialization',
+                                status: 'active'
+                            }])
+                            .select()
+                            .single();
+                        if (batchError) throw batchError;
+                        activeBatchId = newBatch.id;
                     }
-
-                    // C. Record Dual Transactions
-                    await supabase.from('inventory_transactions').insert([
-                        {
-                            item_id,
-                            batch_id: current_batch_id,
-                            transaction_type: 'issue',
-                            quantity: takeAmt,
-                            department_id: source_warehouse_id,
-                            reference_department: target_warehouse_id,
-                            remarks: `FIFO Transfer to ${target_warehouse_id}. Ref: ${notes || 'Immediate'}`,
-                            created_by: userId
-                        },
-                        {
-                            item_id,
-                            batch_id: current_batch_id,
-                            transaction_type: 'receive',
-                            quantity: takeAmt,
-                            department_id: target_warehouse_id,
-                            reference_department: source_warehouse_id,
-                            remarks: `FIFO Transfer from ${source_warehouse_id}. Ref: ${notes || 'Immediate'}`,
-                            created_by: userId
-                        }
-                    ]);
-                } else if (['issue', 'damage'].includes(request_type)) {
-                    // C. Record Single Transaction
-                    await supabase.from('inventory_transactions').insert([{
-                        item_id,
-                        batch_id: current_batch_id,
-                        transaction_type: request_type,
-                        quantity: takeAmt,
-                        department_id: source_warehouse_id,
-                        remarks: notes || 'Immediate Adjustment',
-                        created_by: userId
-                    }]);
-                } else if (request_type === 'audit_adjustment') {
-                    // Specialized Audit Logic: One batch only (usually audit is per batch)
-                    // If multiple batches exist, we can't easily "audit" without knowing which one is which count.
-                    // For now, let's keep audit to the first/selected batch.
-                    await supabase.from('inventory_stock').update({ quantity: totalRequestedQuantity, last_updated: new Date().toISOString() }).eq('id', stock.id);
-                    await supabase.from('inventory_transactions').insert([{
-                        item_id,
-                        batch_id: current_batch_id,
-                        transaction_type: 'audit_adjustment',
-                        quantity: totalRequestedQuantity - Number(stock.quantity),
-                        department_id: source_warehouse_id,
-                        remarks: notes || 'Immediate Audit',
-                        created_by: userId
-                    }]);
-                    remainingQuantity = 0; // Stop after first batch for audit
-                    break;
                 }
 
-                remainingQuantity -= takeAmt;
-                processedBatches.push(current_batch_id);
-            }
+                // 2. Create Stock Entry if it doesn't exist
+                const { data: existingStock } = await supabase
+                    .from('inventory_stock')
+                    .select('*')
+                    .eq('warehouse_id', source_warehouse_id)
+                    .eq('item_id', item_id)
+                    .eq('batch_id', activeBatchId)
+                    .maybeSingle();
 
-            if (remainingQuantity > 0 && request_type !== 'audit_adjustment') {
-                return NextResponse.json({ error: `Insufficient total stock. Could only process ${totalRequestedQuantity - remainingQuantity} of ${totalRequestedQuantity} requested.` }, { status: 400 });
-            }
+                if (!existingStock) {
+                    await supabase.from('inventory_stock').insert([{
+                        warehouse_id: source_warehouse_id,
+                        item_id,
+                        batch_id: activeBatchId,
+                        quantity: totalRequestedQuantity,
+                        last_updated: new Date().toISOString()
+                    }]);
 
-            // Update request record with involved batches (Skipped due to missing column)
-            /*
-            if (processedBatches.length > 0) {
-                dataToSave.batch_id = processedBatches[0];
+                    // 3. Record Transaction
+                    await supabase.from('inventory_transactions').insert([{
+                        item_id,
+                        batch_id: activeBatchId,
+                        transaction_type: 'initial_stock',
+                        quantity: totalRequestedQuantity,
+                        department_id: source_warehouse_id,
+                        remarks: notes || 'Item initialized in warehouse',
+                        created_by: userId
+                    }]);
+                } else if (totalRequestedQuantity > 0) {
+                    // If it exists and we have quantity, we might want to ADD to it? 
+                    // But usually initial_stock is for the very first time.
+                    // For now, let's just update if it's 0.
+                    if (Number(existingStock.quantity) === 0) {
+                        await supabase.from('inventory_stock')
+                            .update({ quantity: totalRequestedQuantity, last_updated: new Date().toISOString() })
+                            .eq('id', existingStock.id);
+                        
+                        await supabase.from('inventory_transactions').insert([{
+                            item_id,
+                            batch_id: activeBatchId,
+                            transaction_type: 'initial_stock',
+                            quantity: totalRequestedQuantity,
+                            department_id: source_warehouse_id,
+                            remarks: notes || 'Stock adjusted via initial_stock request',
+                            created_by: userId
+                        }]);
+                    }
+                }
+            } else {
+                // Existing logic for transfer, issue, damage, audit
+                // 1. Fetch relevant stock entries from source (either specific batch or all FIFO)
+                let query = supabase.from('inventory_stock').select('*')
+                    .eq('warehouse_id', source_warehouse_id)
+                    .eq('item_id', item_id)
+                    .gt('quantity', 0);
+                
+                if (selected_batch_id) {
+                    query = query.eq('batch_id', selected_batch_id);
+                } else {
+                    query = query.order('last_updated', { ascending: true }); // FIFO order
+                }
+
+                const { data: stockEntries, error: stockFetchError } = await query;
+                if (stockFetchError) throw stockFetchError;
+
+                if (!stockEntries || stockEntries.length === 0) {
+                    return NextResponse.json({ error: 'No stock found in source warehouse for this item.' }, { status: 400 });
+                }
+
+                // 2. Process Deduction (Iterate through batches to fulfill total quantity)
+                let remainingQuantity = totalRequestedQuantity;
+
+                for (const stock of stockEntries) {
+                    if (remainingQuantity <= 0) break;
+
+                    const takeAmt = Math.min(Number(stock.quantity), remainingQuantity);
+                    const current_batch_id = stock.batch_id;
+                    
+                    // A. Update Source Stock
+                    await supabase.from('inventory_stock')
+                        .update({ quantity: Number(stock.quantity) - takeAmt, last_updated: new Date().toISOString() })
+                        .eq('id', stock.id);
+
+                    if (request_type === 'transfer') {
+                        if (!target_warehouse_id) return NextResponse.json({ error: 'Destination warehouse is required for transfer' }, { status: 400 });
+
+                        // B. Update/Create Destination Stock
+                        const { data: targetStock } = await supabase.from('inventory_stock')
+                            .select('*').eq('warehouse_id', target_warehouse_id).eq('item_id', item_id).eq('batch_id', current_batch_id).maybeSingle();
+
+                        if (targetStock) {
+                            await supabase.from('inventory_stock').update({ quantity: Number(targetStock.quantity) + takeAmt, last_updated: new Date().toISOString() }).eq('id', targetStock.id);
+                        } else {
+                            await supabase.from('inventory_stock').insert([{ warehouse_id: target_warehouse_id, item_id, batch_id: current_batch_id, quantity: takeAmt }]);
+                        }
+
+                        // C. Record Dual Transactions
+                        await supabase.from('inventory_transactions').insert([
+                            {
+                                item_id,
+                                batch_id: current_batch_id,
+                                transaction_type: 'issue',
+                                quantity: takeAmt,
+                                department_id: source_warehouse_id,
+                                reference_department: target_warehouse_id,
+                                remarks: `FIFO Transfer to ${target_warehouse_id}. Ref: ${notes || 'Immediate'}`,
+                                created_by: userId
+                            },
+                            {
+                                item_id,
+                                batch_id: current_batch_id,
+                                transaction_type: 'receive',
+                                quantity: takeAmt,
+                                department_id: target_warehouse_id,
+                                reference_department: source_warehouse_id,
+                                remarks: `FIFO Transfer from ${source_warehouse_id}. Ref: ${notes || 'Immediate'}`,
+                                created_by: userId
+                            }
+                        ]);
+                    } else if (['issue', 'damage'].includes(request_type)) {
+                        // C. Record Single Transaction
+                        await supabase.from('inventory_transactions').insert([{
+                            item_id,
+                            batch_id: current_batch_id,
+                            transaction_type: request_type,
+                            quantity: takeAmt,
+                            department_id: source_warehouse_id,
+                            remarks: notes || 'Immediate Adjustment',
+                            created_by: userId
+                        }]);
+                    } else if (request_type === 'audit_adjustment') {
+                        await supabase.from('inventory_stock').update({ quantity: totalRequestedQuantity, last_updated: new Date().toISOString() }).eq('id', stock.id);
+                        await supabase.from('inventory_transactions').insert([{
+                            item_id,
+                            batch_id: current_batch_id,
+                            transaction_type: 'audit_adjustment',
+                            quantity: totalRequestedQuantity - Number(stock.quantity),
+                            department_id: source_warehouse_id,
+                            remarks: notes || 'Immediate Audit',
+                            created_by: userId
+                        }]);
+                        remainingQuantity = 0; // Stop after first batch for audit
+                        break;
+                    }
+
+                    remainingQuantity -= takeAmt;
+                }
+
+                if (remainingQuantity > 0 && request_type !== 'audit_adjustment') {
+                    return NextResponse.json({ error: `Insufficient total stock. Could only process ${totalRequestedQuantity - remainingQuantity} of ${totalRequestedQuantity} requested.` }, { status: 400 });
+                }
             }
-            */
         }
 
         const { data, error } = await supabase

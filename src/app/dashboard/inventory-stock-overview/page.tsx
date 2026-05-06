@@ -353,13 +353,15 @@ function StockOverviewContent() {
                         <span className="text-xs font-black text-slate-400 group-hover:text-primary">{item.name.substring(0, 2).toUpperCase()}</span>
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-2">
+                        <span className="font-black text-slate-900 leading-tight group-hover:text-primary transition-colors truncate text-sm">
+                          {item.name}
+                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] font-black tracking-widest text-primary/60 uppercase">{item.code}</span>
                           <Badge variant="outline" className="text-[9px] h-4 font-medium border-slate-200 bg-slate-50/50">
                             {item.category?.name || 'Item'}
                           </Badge>
                         </div>
-                        <span className="font-bold text-slate-800 leading-tight group-hover:text-primary transition-colors truncate">{item.name}</span>
                       </div>
                     </div>
                     

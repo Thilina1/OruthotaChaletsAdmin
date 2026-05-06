@@ -50,6 +50,7 @@ import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TransactionHistoryTable } from '@/components/dashboard/inventory-management/transaction-history-table';
+import { WarehouseItemMatrix } from '@/components/dashboard/inventory-management/warehouse-item-matrix';
 import { cn } from "@/lib/utils";
 
 export default function InventoryManagementPage() {
@@ -245,6 +246,7 @@ export default function InventoryManagementPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3 md:w-fit">
           <TabsTrigger value="inventory" className="px-8 font-bold">📦 Inventory List</TabsTrigger>
+          <TabsTrigger value="warehouses" className="px-8 font-bold">🏢 Warehouse Items</TabsTrigger>
           <TabsTrigger value="grn" className="px-8 font-bold">📥 Stock In (GRN)</TabsTrigger>
           <TabsTrigger value="history" className="px-8 font-bold">🧭 Movement History</TabsTrigger>
         </TabsList>
@@ -409,6 +411,15 @@ export default function InventoryManagementPage() {
               />
             )}
           </div>
+        </TabsContent>
+        
+        <TabsContent value="warehouses" className="space-y-6">
+          <WarehouseItemMatrix 
+            items={items} 
+            warehouses={warehouses} 
+            onRefresh={fetchData} 
+            isLoading={isLoading}
+          />
         </TabsContent>
 
         <TabsContent value="grn">
