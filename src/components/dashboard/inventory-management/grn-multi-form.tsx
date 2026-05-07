@@ -52,7 +52,11 @@ export function GRNMultiForm({
     const [warehouseId, setWarehouseId] = useState('');
 
     useEffect(() => {
-        const storeWh = warehouses.find(w => w.name.toLowerCase() === 'store') || warehouses.find(w => w.is_main) || warehouses[0];
+        const storeWh = warehouses.find(w => w.is_main) || 
+                        warehouses.find(w => w.name.toLowerCase() === 'store') || 
+                        warehouses.find(w => w.name.toLowerCase().includes('store')) ||
+                        warehouses.find(w => w.name.toLowerCase().includes('main')) ||
+                        warehouses[0];
         if (storeWh) setWarehouseId(storeWh.id);
     }, [warehouses]);
 
