@@ -172,12 +172,12 @@ export function GRNMultiForm({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="space-y-2">
                         <Label className="text-sm font-semibold">Target Warehouse <span className="text-destructive">*</span></Label>
-                        <Select onValueChange={setWarehouseId} value={warehouseId} disabled>
-                            <SelectTrigger className="bg-slate-100 cursor-not-allowed">
+                        <Select onValueChange={setWarehouseId} value={warehouseId}>
+                            <SelectTrigger className="bg-white">
                                 <SelectValue placeholder="Select warehouse" />
                             </SelectTrigger>
                             <SelectContent>
-                                {warehouses.map(w => (
+                                {warehouses.filter(w => w.is_main).map(w => (
                                     <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
                                 ))}
                             </SelectContent>
