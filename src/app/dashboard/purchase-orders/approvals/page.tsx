@@ -18,6 +18,8 @@ import {
     ShoppingCart, CheckCircle2, XCircle, Loader2, ChevronRight, Eye, ClipboardCheck, Pencil
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
 type PurchaseOrderItem = {
     id: string;
@@ -59,6 +61,12 @@ export default function POApprovalsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [viewPO, setViewPO] = useState<PurchaseOrder | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const newApprovals = purchaseOrders.filter(po => po.status === 'pending_approval');
+    const alreadyApproved = purchaseOrders.filter(po => po.status === 'approved' || po.status === 'sent' || po.status === 'received');
+
+    const paginatedNew = usePagination(newApprovals, 15);
+    const paginatedAlready = usePagination(alreadyApproved, 15);
 
     const fetchOrders = async () => {
         setIsLoading(true);
@@ -102,8 +110,6 @@ export default function POApprovalsPage() {
         }
     };
 
-    const newApprovals = purchaseOrders.filter(po => po.status === 'pending_approval');
-    const alreadyApproved = purchaseOrders.filter(po => po.status === 'approved' || po.status === 'sent' || po.status === 'received');
 
     return (
         <div className="space-y-6">
@@ -162,7 +168,7 @@ export default function POApprovalsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    newApprovals.map((po) => (
+                                    paginatedNew.paginatedItems.map((po) => (
                                         <TableRow key={po.id}>
                                             <TableCell className="font-mono font-semibold text-sm">{po.po_number}</TableCell>
                                             <TableCell>
@@ -189,6 +195,13 @@ export default function POApprovalsPage() {
                                 )}
                             </TableBody>
                         </Table>
+                        <DataTablePagination
+                            currentPage={paginatedNew.currentPage}
+                            totalPages={paginatedNew.totalPages}
+                            totalItems={paginatedNew.totalItems}
+                            itemsPerPage={paginatedNew.itemsPerPage}
+                            onPageChange={paginatedNew.setCurrentPage}
+                        />
                     </div>
                 </TabsContent>
 
@@ -220,7 +233,7 @@ export default function POApprovalsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    alreadyApproved.map((po) => (
+                                    paginatedAlready.paginatedItems.map((po) => (
                                         <TableRow key={po.id}>
                                             <TableCell className="font-mono font-semibold text-sm">{po.po_number}</TableCell>
                                             <TableCell>{format(new Date(po.created_at), 'PPP')}</TableCell>
@@ -245,6 +258,13 @@ export default function POApprovalsPage() {
                                 )}
                             </TableBody>
                         </Table>
+                        <DataTablePagination
+                            currentPage={paginatedAlready.currentPage}
+                            totalPages={paginatedAlready.totalPages}
+                            totalItems={paginatedAlready.totalItems}
+                            itemsPerPage={paginatedAlready.itemsPerPage}
+                            onPageChange={paginatedAlready.setCurrentPage}
+                        />
                     </div>
                 </TabsContent>
             </Tabs>

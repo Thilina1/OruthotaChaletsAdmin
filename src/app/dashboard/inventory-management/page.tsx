@@ -244,11 +244,11 @@ export default function InventoryManagementPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3 md:w-fit">
-          <TabsTrigger value="inventory" className="px-8 font-bold">📦 Inventory List</TabsTrigger>
-          <TabsTrigger value="warehouses" className="px-8 font-bold">🏢 Warehouse Items</TabsTrigger>
-          <TabsTrigger value="grn" className="px-8 font-bold">📥 Stock In (GRN)</TabsTrigger>
-          <TabsTrigger value="history" className="px-8 font-bold">🧭 Movement History</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4 md:w-fit">
+          <TabsTrigger value="inventory" className="px-4 sm:px-8 font-bold text-xs sm:text-sm">📦 Inventory List</TabsTrigger>
+          <TabsTrigger value="warehouses" className="px-4 sm:px-8 font-bold text-xs sm:text-sm">🏢 Warehouse Items</TabsTrigger>
+          <TabsTrigger value="grn" className="px-4 sm:px-8 font-bold text-xs sm:text-sm">📥 Stock In (GRN)</TabsTrigger>
+          <TabsTrigger value="history" className="px-4 sm:px-8 font-bold text-xs sm:text-sm">🧭 Movement History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="inventory" className="space-y-6">
@@ -424,7 +424,7 @@ export default function InventoryManagementPage() {
 
         <TabsContent value="grn">
           <TransactionHistoryTable 
-            type="receive,initial_stock" 
+            type="receive" 
             title="Recent Stock Intake (GRN)" 
             refreshKey={refreshHistory}
           />

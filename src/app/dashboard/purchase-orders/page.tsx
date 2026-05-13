@@ -23,6 +23,9 @@ import {
     ClipboardList, Loader2, PackageCheck, Send, Pencil
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import { useSearchParams } from 'next/navigation';
 
 type PurchaseOrderItem = {
     id: string;
@@ -73,6 +76,8 @@ const STATUS_CONFIG = {
 export default function PurchaseOrdersPage() {
     const { toast } = useToast();
     const { user } = useUserContext();
+    const searchParams = useSearchParams();
+    const receiveParamId = searchParams.get('receive');
     const printRef = useRef<HTMLDivElement>(null);
 
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -87,6 +92,15 @@ export default function PurchaseOrdersPage() {
     const [expiryDates, setExpiryDates] = useState<Record<string, string>>({});
     const [receiveMetadata, setReceiveMetadata] = useState<Record<string, { brand: string, supplier: string, size: string }>>({});
     const [itemPrices, setItemPrices] = useState<Record<string, string>>({});
+
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(purchaseOrders, 20);
 
     const fetchAll = async () => {
         setIsLoading(true);
@@ -107,6 +121,23 @@ export default function PurchaseOrdersPage() {
     };
 
     useEffect(() => { fetchAll(); }, []);
+
+    // Handle 'receive' query parameter
+    useEffect(() => {
+        if (receiveParamId && purchaseOrders.length > 0 && !receivePO) {
+            const po = purchaseOrders.find(p => p.id === receiveParamId);
+            if (po && (po.status === 'sent' || po.status === 'approved')) {
+                setReceivePO(po);
+                const initialQtys: Record<string, string> = {};
+                po.purchase_order_items.forEach(i => initialQtys[i.id] = String(i.quantity));
+                setReceivedQuantities(initialQtys);
+                // Clear the URL parameter without refreshing
+                const url = new URL(window.location.href);
+                url.searchParams.delete('receive');
+                window.history.replaceState({}, '', url.toString());
+            }
+        }
+    }, [receiveParamId, purchaseOrders, receivePO]);
 
     const handleStatusUpdate = async (id: string, status: string) => {
         try {
@@ -233,7 +264,7 @@ export default function PurchaseOrdersPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            purchaseOrders.map((po) => {
+                            paginatedItems.map((po) => {
                                 const cfg = STATUS_CONFIG[po.status];
                                 return (
                                     <TableRow key={po.id}>
@@ -306,6 +337,13 @@ export default function PurchaseOrdersPage() {
                         )}
                     </TableBody>
                 </Table>
+                <DataTablePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={totalItems}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                />
             </div>
 
             {/* View PO Dialog */}

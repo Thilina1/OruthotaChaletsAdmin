@@ -136,8 +136,12 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                     {tx.created_at ? format(new Date(tx.created_at), "yyyy-MM-dd HH:mm") : 'N/A'}
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium text-sm">{(tx.item as any)?.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{(tx.item as any)?.category?.name || (tx.item as any)?.category}</div>
+                    <div className="font-medium text-sm">
+                      {(tx.item as any)?.name || (tx.remarks?.includes('PO Received') ? tx.remarks : (tx.remarks || 'Legacy / Unlinked Item'))}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {(tx.item as any)?.category?.name || (tx.item as any)?.category || (tx.remarks?.includes('Initial') ? 'Opening Stock' : 'Manual Entry')}
+                    </div>
                     <div className="flex flex-wrap gap-1 mt-1 opacity-80">
                       {(tx.brand || (tx.item as any)?.product?.brand || (tx.item as any)?.brand) && (
                         <Badge variant="outline" className="text-[9px] px-1 h-4 bg-slate-50 border-slate-200 font-medium">
@@ -164,7 +168,9 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                   </TableCell>
                   <TableCell className="text-center">
                     <div className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
-                        {tx.batch?.batch_number || tx.batch_number || '-'}
+                        {tx.transaction_type === 'initial_stock' || tx.batch?.batch_number === 'INITIAL' || tx.batch_number === 'INITIAL' 
+                          ? '-' 
+                          : (tx.batch?.batch_number || tx.batch_number || '-')}
                     </div>
                   </TableCell>
                   <TableCell className="text-center">
@@ -254,7 +260,7 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                     <div>
                       <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Supplier / Batch</div>
                       <div className="font-semibold">{selectedTransaction.supplier || selectedTransaction.batch?.supplier || 'N/A'}</div>
-                      <div className="text-xs text-muted-foreground">Batch: <span className="font-mono">{selectedTransaction.batch?.batch_number || selectedTransaction.batch_number || 'N/A'}</span></div>
+                      <div className="text-xs text-muted-foreground">Batch: <span className="font-mono">{(selectedTransaction.batch?.batch_number === 'INITIAL' || selectedTransaction.batch_number === 'INITIAL') ? '-' : (selectedTransaction.batch?.batch_number || selectedTransaction.batch_number || 'N/A')}</span></div>
                       {selectedTransaction.unit_price && <div className="text-xs font-bold text-blue-700 mt-1">LKR {selectedTransaction.unit_price} / unit</div>}
                     </div>
                   </div>

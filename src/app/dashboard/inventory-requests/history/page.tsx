@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { usePagination } from '@/hooks/use-pagination';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from "@/components/ui/button";
@@ -49,6 +51,20 @@ export default function InventoryRequestHistoryPage() {
     const [existingRequests, setExistingRequests] = useState<any[]>([]);
     const [inventoryItems, setInventoryItems] = useState<any[]>([]);
     const [requestFilter, setRequestFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+    
+    // Pagination
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems: paginatedRequests,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(useMemo(() => {
+        return existingRequests
+            .filter(r => requestFilter === 'ALL' || r.status === requestFilter)
+            .filter(r => !deptIdParam || r.action_metadata?.requesting_department_id === deptIdParam);
+    }, [existingRequests, requestFilter, deptIdParam]), 20);
 
     // Transfer Modal State
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -118,6 +134,11 @@ export default function InventoryRequestHistoryPage() {
         setSelectedBatches(selectedBatches.filter((_, i) => i !== index));
     };
 
+    // Reset page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [requestFilter, deptIdParam, setCurrentPage]);
+
     const handleFulfillTransfer = async () => {
         const totalAllocated = selectedBatches.reduce((sum, b) => sum + b.quantity, 0);
 
@@ -166,9 +187,9 @@ export default function InventoryRequestHistoryPage() {
     }
 
     return (
-        <div className="space-y-8 pb-20">
+        <div className="space-y-4 pb-10">
             {/* Header Section */}
-            <div className="relative overflow-hidden bg-slate-900 rounded-[3rem] p-12 text-white">
+            <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 text-white">
                 <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 bg-primary/20 rounded-full blur-[100px]" />
                 <div className="relative z-10">
                     <div className="flex items-center gap-4 mb-6">
@@ -184,15 +205,15 @@ export default function InventoryRequestHistoryPage() {
                             Inventory Approvals & Transfers
                         </Badge>
                     </div>
-                    <h1 className="text-5xl font-black mb-4 tracking-tight">Inventory Approvals & Transfers</h1>
-                    <p className="text-xl text-slate-400 max-w-2xl font-medium leading-relaxed">
+                    <h1 className="text-3xl font-black mb-2 tracking-tight">Inventory Approvals & Transfers</h1>
+                    <p className="text-lg text-slate-400 max-w-2xl font-medium leading-tight">
                         Track and manage all stock requests across departments.
                     </p>
                 </div>
             </div>
 
             {/* Main Content */}
-            <div className="space-y-6">
+            <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -226,7 +247,7 @@ export default function InventoryRequestHistoryPage() {
                     </div>
                 </div>
 
-                <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     <Table>
                         <TableHeader className="bg-slate-50/50">
                             <TableRow className="hover:bg-transparent border-slate-100">
@@ -239,10 +260,7 @@ export default function InventoryRequestHistoryPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {existingRequests
-                                .filter(r => requestFilter === 'ALL' || r.status === requestFilter)
-                                .filter(r => !deptIdParam || r.action_metadata?.requesting_department_id === deptIdParam)
-                                .map((req) => (
+                            {paginatedRequests.map((req) => (
                                     <TableRow key={req.id} className="group hover:bg-slate-50/30 transition-colors border-slate-50">
                                         <TableCell className="py-5 pl-8">
                                             <div className="flex flex-col">
@@ -319,6 +337,14 @@ export default function InventoryRequestHistoryPage() {
                         </TableBody>
                     </Table>
                 </div>
+
+                <DataTablePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={totalItems}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                />
             </div>
 
             {/* Transfer Modal */}

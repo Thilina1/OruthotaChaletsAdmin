@@ -9,9 +9,12 @@ const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
-export async function GET(request: Request, context: { params: { id: string } }) {
+export async function GET(
+    request: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
     try {
-        const params = await context.params;
+        const { id } = await params;
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -25,7 +28,7 @@ export async function GET(request: Request, context: { params: { id: string } })
                 approved_by_user:users!purchase_orders_approved_by_fkey (name, email),
                 purchase_order_items (*)
             `)
-            .eq('id', params.id)
+            .eq('id', id)
             .single();
 
         if (error) throw error;
@@ -35,9 +38,12 @@ export async function GET(request: Request, context: { params: { id: string } })
     }
 }
 
-export async function PUT(request: Request, context: { params: { id: string } }) {
+export async function PUT(
+    request: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
     try {
-        const params = await context.params;
+        const { id } = await params;
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -53,7 +59,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
         const { data: currentPO, error: fetchError } = await supabase
             .from('purchase_orders')
             .select('status')
-            .eq('id', params.id)
+            .eq('id', id)
             .single();
         
         if (fetchError) throw fetchError;
@@ -74,7 +80,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
         const { data: po, error: poError } = await supabase
             .from('purchase_orders')
             .update(updatePayload)
-            .eq('id', params.id)
+            .eq('id', id)
             .select()
             .single();
 
@@ -86,7 +92,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
             const { data: existingItems } = await supabase
                 .from('purchase_order_items')
                 .select('id')
-                .eq('po_id', params.id);
+                .eq('po_id', id);
             
             const existingIds = existingItems?.map(i => i.id) || [];
             const incomingIds = items.filter(i => i.id).map(i => i.id);
@@ -104,7 +110,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
                     : null;
 
                 const itemData: any = {
-                    po_id: params.id,
+                    po_id: id,
                     item_id: item.item_id || null,
                     item_name: item.item_name,
                     unit: item.unit || 'units',
@@ -169,86 +175,146 @@ export async function PUT(request: Request, context: { params: { id: string } })
             }
         }
 
-        // 🚀 Stock Update Logic (unchanged from original except for param fixation)
+        // 🚀 Modern Stock Update Logic
         if (status === 'received' && currentPO.status !== 'received') {
-            // ... [original stock logic] ...
-            const { data: warehouseDept, error: deptError } = await supabase
-                .from('inventory_departments')
+            // 1. Find Main Warehouse
+            const { data: mainWarehouse } = await supabase
+                .from('inventory_warehouses')
                 .select('id')
-                .eq('name', 'Store')
-                .single();
-
-            const { data: itemsForStock, error: itemsError } = await supabase
-                .from('purchase_order_items')
-                .select('*')
-                .eq('po_id', params.id);
+                .eq('is_main', true)
+                .maybeSingle();
             
-            if (itemsError) throw itemsError;
+            const warehouse_id = mainWarehouse?.id;
+            if (!warehouse_id) throw new Error('Main warehouse not found. Please ensure a warehouse is marked as "Main Store".');
 
-            for (const item of itemsForStock) {
-                const requestItemData = item_prices?.find((ip: any) => ip.id === item.id);
-                const quantityToAdd = Number(requestItemData?.received_quantity || item.received_quantity || item.quantity);
-                if (quantityToAdd <= 0) continue;
+            // 2. Handle Extra Items: Add them to the PO record first so they exist in purchase_order_items
+            const extraItems = item_prices?.filter((ip: any) => ip.is_extra) || [];
+            if (extraItems.length > 0) {
+                const extraItemRows = extraItems.map((item: any) => ({
+                    po_id: id,
+                    item_id: item.item_id,
+                    item_name: item.item_name,
+                    unit: item.unit || 'units',
+                    quantity: 0, // Original quantity was 0
+                    received_quantity: Number(item.received_quantity || 0),
+                    unit_price: Number(item.unit_price || 0),
+                    batch_number: item.batch_number || '',
+                    expiry_date: item.expiry_date || null,
+                    brand: item.brand || '',
+                    item_size: item.item_size || '',
+                    supplier_name: item.supplier_name || po.supplier_name || '',
+                    status: 'received' // Mark as received immediately
+                }));
 
-                const brand = requestItemData?.brand || item.brand || '';
-                const supplier = requestItemData?.supplier_name || item.supplier_name || po.supplier_name || '';
-                const size = requestItemData?.item_size || item.item_size || '';
-                const batch = requestItemData?.batch_number || item.batch_number || '';
-                const expiry = requestItemData?.expiry_date || item.expiry_date || null;
-
-                let productId = null;
-                if (item.item_id) {
-                    const { data: invItem } = await supabase.from('hotel_inventory_items').select('product_id').eq('id', item.item_id).single();
-                    productId = invItem?.product_id;
-                }
-                if (!productId) {
-                    const { data: prod } = await supabase.from('hotel_inventory_products').select('id').eq('name', item.item_name).maybeSingle();
-                    productId = prod?.id;
-                }
-                if (!productId) continue;
-
-                const targetDeptId = warehouseDept?.id || (item as any).department_id;
-                const { data: existingBatchItem } = await supabase
-                    .from('hotel_inventory_items')
-                    .select('*')
-                    .eq('product_id', productId)
-                    .eq('department_id', targetDeptId)
-                    .eq('batch_number', batch)
-                    .eq('item_size', size)
-                    .eq('brand', brand)
-                    .eq('supplier', supplier)
-                    .is('deleted_at', null)
-                    .maybeSingle();
-
-                if (existingBatchItem) {
-                    const prevStock = Number(existingBatchItem.current_stock);
-                    const newStock = prevStock + quantityToAdd;
-                    await supabase.from('hotel_inventory_items').update({
-                        current_stock: newStock,
-                        buying_price: Number(requestItemData?.unit_price || item.unit_price || existingBatchItem.buying_price),
-                        expiry_date: expiry || existingBatchItem.expiry_date,
-                        updated_at: new Date().toISOString()
-                    }).eq('id', existingBatchItem.id);
-                    await supabase.from('inventory_transactions').insert({
-                        item_id: existingBatchItem.id, transaction_type: 'receive', quantity: quantityToAdd,
-                        previous_stock: prevStock, new_stock: newStock, remarks: `PO Received: ${po.po_number}`, created_by: userId
-                    });
-                } else {
-                    const { data: prodDetails } = await supabase.from('hotel_inventory_products').select('*').eq('id', productId).single();
-                    const { data: newItem } = await supabase.from('hotel_inventory_items').insert({
-                        product_id: productId, name: prodDetails?.name || item.item_name, category: prodDetails?.category || 'Food & Beverage',
-                        unit: prodDetails?.unit || item.unit || 'units', department_id: targetDeptId, current_stock: quantityToAdd,
-                        buying_price: Number(requestItemData?.unit_price || item.unit_price || 0), batch_number: batch,
-                        expiry_date: expiry, brand: brand, item_size: size, supplier: supplier,
-                    }).select().single();
-                    await supabase.from('inventory_transactions').insert({
-                        item_id: newItem.id, transaction_type: 'receive', quantity: quantityToAdd,
-                        previous_stock: 0, new_stock: quantityToAdd, remarks: `PO Received (New Batch): ${po.po_number}`, created_by: userId
-                    });
-                }
+                const { error: extrasError } = await supabase
+                    .from('purchase_order_items')
+                    .insert(extraItemRows);
+                
+                if (extrasError) console.error("Error adding extra items to PO:", extrasError);
             }
 
-            await supabase.from('inventory_requests').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('purchase_order_id', params.id).neq('status', 'COMPLETED');
+            // 3. Fetch all items (Original + just added Extras) to process stock
+            const { data: allItemsToProcess, error: fetchError } = await supabase
+                .from('purchase_order_items')
+                .select('*')
+                .eq('po_id', id);
+            
+            if (fetchError) throw fetchError;
+
+            // 4. Process each item for inventory
+            for (const item of allItemsToProcess) {
+                // Find matching metadata from frontend submission
+                // For original items, id is the DB id. For extras, we use item_id as a fallback for matching if needed, 
+                // but since we just inserted them, it's safer to just process all items that have received_quantity > 0.
+                
+                const requestItemData = item_prices?.find((ip: any) => 
+                    ip.is_extra ? (ip.item_id === item.item_id && ip.item_name === item.item_name) : (ip.id === item.id)
+                );
+
+                const quantityToAdd = Number(item.received_quantity || 0);
+                if (quantityToAdd <= 0) continue;
+
+                const batchNum = item.batch_number || `B-PO-${po.po_number}`;
+                const unitPrice = Number(item.unit_price || 0);
+                const item_id = item.item_id;
+
+                if (!item_id) continue;
+
+                // 4a. Resolve/Create Batch
+                const { data: targetBatch } = await supabase
+                    .from('inventory_batches')
+                    .select('*')
+                    .eq('item_id', item_id)
+                    .eq('batch_number', batchNum)
+                    .eq('buying_price', unitPrice)
+                    .maybeSingle();
+
+                let batch_id: string;
+                if (targetBatch) {
+                    batch_id = targetBatch.id;
+                } else {
+                    const { data: newBatch, error: batchError } = await supabase
+                        .from('inventory_batches')
+                        .insert([{
+                            item_id,
+                            batch_number: batchNum,
+                            supplier: item.supplier_name || po.supplier_name || '',
+                            buying_price: unitPrice,
+                            expiry_date: item.expiry_date,
+                            status: 'active'
+                        }])
+                        .select()
+                        .single();
+                    if (batchError) throw batchError;
+                    batch_id = newBatch.id;
+                }
+
+                // 4b. Update/Create Stock Entry
+                const { data: existingStock } = await supabase
+                    .from('inventory_stock')
+                    .select('*')
+                    .eq('warehouse_id', warehouse_id)
+                    .eq('item_id', item_id)
+                    .eq('batch_id', batch_id)
+                    .maybeSingle();
+
+                let finalQuantity: number;
+                if (existingStock) {
+                    finalQuantity = Number(existingStock.quantity) + quantityToAdd;
+                    await supabase
+                        .from('inventory_stock')
+                        .update({ quantity: finalQuantity, last_updated: new Date().toISOString() })
+                        .eq('id', existingStock.id);
+                } else {
+                    finalQuantity = quantityToAdd;
+                    await supabase
+                        .from('inventory_stock')
+                        .insert([{
+                            warehouse_id,
+                            item_id,
+                            batch_id,
+                            quantity: finalQuantity
+                        }]);
+                }
+
+                // 4c. Record Transaction in the modern system (ONLY use existing columns)
+                await supabase.from('inventory_transactions').insert([{
+                    item_id,
+                    batch_id,
+                    transaction_type: 'receive',
+                    quantity: quantityToAdd,
+                    new_stock: finalQuantity,
+                    department_id: warehouse_id, 
+                    remarks: `PO Received: ${po.po_number}${item.quantity === 0 ? ' (Extra Item)' : ''}`,
+                    created_by: userId
+                }]);
+            }
+
+            // Sync inventory requests
+            await supabase.from('inventory_requests')
+                .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+                .eq('purchase_order_id', id)
+                .neq('status', 'COMPLETED');
         }
 
         return NextResponse.json({ purchase_order: po }, { status: 200 });
@@ -257,9 +323,12 @@ export async function PUT(request: Request, context: { params: { id: string } })
     }
 }
 
-export async function DELETE(request: Request, context: { params: { id: string } }) {
+export async function DELETE(
+    request: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
     try {
-        const params = await context.params;
+        const { id } = await params;
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -268,7 +337,7 @@ export async function DELETE(request: Request, context: { params: { id: string }
         const { error } = await supabase
             .from('purchase_orders')
             .delete()
-            .eq('id', params.id);
+            .eq('id', id);
 
         if (error) throw error;
         return NextResponse.json({ success: true }, { status: 200 });

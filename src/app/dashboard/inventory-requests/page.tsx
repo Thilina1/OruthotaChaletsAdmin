@@ -202,9 +202,9 @@ export default function NewInventoryRequestPage() {
     }
 
     return (
-        <div className="space-y-12 pb-20">
+        <div className="space-y-4 pb-10">
             {/* Header Section */}
-            <div className="relative overflow-hidden bg-slate-900 rounded-[3rem] p-12 text-white">
+            <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 text-white">
                 <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 bg-primary/20 rounded-full blur-[100px]" />
                 <div className="relative z-10">
                     <div className="flex items-center gap-4 mb-6">
@@ -220,28 +220,28 @@ export default function NewInventoryRequestPage() {
                             Inventory Management
                         </Badge>
                     </div>
-                    <h1 className="text-5xl font-black mb-4 tracking-tight">Stock Request Portal</h1>
-                    <p className="text-xl text-slate-400 max-w-2xl font-medium leading-relaxed">
+                    <h1 className="text-3xl font-black mb-2 tracking-tight">Stock Request Portal</h1>
+                    <p className="text-lg text-slate-400 max-w-2xl font-medium leading-tight">
                         Request items from the Main Store or view your department's inventory status.
                     </p>
                 </div>
-                <div className="absolute bottom-12 right-12 flex gap-4 z-20">
+                <div className="absolute bottom-8 right-8 flex gap-4 z-20">
                     <Button
-                        className="bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-2xl h-14 px-8 font-black gap-2 border-none transition-all hover:scale-[1.02] active:scale-[0.98]"
-                        onClick={() => router.push(`/dashboard/inventory-requests/view-history?deptId=${selectedDeptId}`)}
+                        className="bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-2xl h-12 px-6 font-black gap-2 border-none transition-all hover:scale-[1.02] active:scale-[0.98]"
+                        onClick={() => router.push(`/dashboard/inventory-requests/history?deptId=${selectedDeptId}`)}
                     >
                         <Clock className="h-5 w-5" />
-                        View Approvals & Transfers
+                        View History
                     </Button>
                 </div>
             </div>
 
             {/* Department Selection & Search */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-1 space-y-4">
-                    <label className="text-sm font-black text-slate-500 uppercase tracking-widest pl-2">Active Department</label>
+                <div className="lg:col-span-1 space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Active Department</label>
                     <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
-                        <SelectTrigger className="h-16 rounded-3xl border-slate-200 bg-white shadow-sm font-bold text-lg px-6">
+                        <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white shadow-sm font-bold text-base px-4">
                             <div className="flex items-center gap-3">
                                 <Warehouse className="h-5 w-5 text-primary" />
                                 <SelectValue placeholder="Select Department" />
@@ -256,30 +256,29 @@ export default function NewInventoryRequestPage() {
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="lg:col-span-2 space-y-4">
-                    <label className="text-sm font-black text-slate-500 uppercase tracking-widest pl-2">Find Items</label>
+                <div className="lg:col-span-2 space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Find Items</label>
                     <div className="relative group">
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 h-6 w-6 text-slate-400 group-focus-within:text-primary transition-colors" />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
                         <Input
                             placeholder="Search by name or code..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="h-16 pl-16 pr-6 rounded-3xl border-slate-200 bg-white shadow-sm text-lg font-medium focus:ring-primary/20 transition-all"
+                            className="h-12 pl-12 pr-4 rounded-2xl border-slate-200 bg-white shadow-sm text-base font-medium focus:ring-primary/20 transition-all"
                         />
                     </div>
                 </div>
             </div>
 
             {/* Items Table (Grid) */}
-            <div className="space-y-6">
+            <div className="space-y-4">
                 <div className="flex items-center justify-between pl-2">
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Department Inventory</h2>
-                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Department Inventory</h2>
+                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 px-3 py-1 rounded-full font-black text-[10px] uppercase tracking-widest">
                         {filteredItems.length} Total Items
                     </Badge>
                 </div>
-
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     <Table>
                         <TableHeader className="bg-slate-50/50">
                             <TableRow className="hover:bg-transparent border-slate-100">
