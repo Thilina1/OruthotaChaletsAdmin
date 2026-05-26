@@ -240,7 +240,7 @@ export default function NewInventoryRequestPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1 space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Active Department</label>
-                    <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
+                    <Select value={selectedDeptId} onValueChange={setSelectedDeptId} disabled={!isAdmin}>
                         <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white shadow-sm font-bold text-base px-4">
                             <div className="flex items-center gap-3">
                                 <Warehouse className="h-5 w-5 text-primary" />

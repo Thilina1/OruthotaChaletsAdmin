@@ -41,7 +41,7 @@ interface MenuItem {
 }
 
 const generalMenuItems: MenuItem[] = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
+
     { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
 ];
@@ -53,6 +53,7 @@ const customerMenuItems: MenuItem[] = [
 
 const restaurantMenuItems: MenuItem[] = [
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Waiter Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Inventory', roles: ['admin'] },
     { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
@@ -155,7 +156,7 @@ export default function AppSidebar() {
                         <>
                             <SidebarSeparator className="my-2" />
                             <SidebarGroup>
-                                <SidebarGroupLabel className="flex items-center gap-2"><Building className="size-4" />Room Bookings</SidebarGroupLabel>
+                                <SidebarGroupLabel className="flex items-center gap-2"><Building className="size-4" />Reservations</SidebarGroupLabel>
                                 <SidebarGroupContent>{roomBookingSection}</SidebarGroupContent>
                             </SidebarGroup>
                         </>

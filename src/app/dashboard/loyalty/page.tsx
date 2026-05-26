@@ -146,6 +146,12 @@ export default function LoyaltyCustomerPage() {
           description: "Failed to add customer.",
         });
       } else {
+        // Auto-sync to the central customers table
+        await supabase.from('customers').insert({
+            name: values.name,
+            phone: values.mobile_number
+        });
+
         toast({
           title: "Customer Added",
           description: "A new loyalty customer has been registered.",

@@ -49,7 +49,7 @@ const formSchema = z.object({
   }).refine(data => data.from, { message: "Check-in date is required.", path: ["from"] }),
   numberOfGuests: z.coerce.number().min(1, { message: 'At least one guest is required.' }),
   specialRequests: z.string().optional(),
-  status: z.enum(['booked', 'confirmed', 'checked-in', 'checked-out', 'cancelled']),
+  status: z.enum(['booked', 'confirmed', 'checked-in', 'checked-out', 'completed', 'cancelled', 'pending']),
   items: z.array(itemSchema),
   totalCost: z.coerce.number(),
 }).refine(data => data.dateRange.from && data.dateRange.to && data.dateRange.to >= data.dateRange.from, {
@@ -159,14 +159,12 @@ export function BookingForm({ booking, rooms, onClose }: BookingFormProps) {
       status: values.status,
       total_cost: values.totalCost,
       items: values.items, // Assuming items is jsonb or similar? The schema dump didn't show items column. 
-      // Wait, existing schema `reservations` table DOES NOT have an `items` column.
-      // It has `total_cost`, `special_requests`.
-      // It does NOT show JSON storage for items.
-      // However, the types.ts doesn't have `items` either for Reservation.
-      // `items` in form seems to be for calculating cost + record keeping.
-      // If I send it to Supabase and column missing, it might error or ignore.
-      // Let's assume for now we ignore storing items structure unless I add a column.
-      // I'll leave it in the payload but Supabase might strip it if not in schema.
+      check_in_time: values.status === 'checked-in' 
+        ? (booking?.check_in_time || new Date().toISOString()) 
+        : (values.status === 'checked-out' || values.status === 'completed' ? booking?.check_in_time : null),
+      check_out_time: (values.status === 'checked-out' || values.status === 'completed')
+        ? (booking?.check_out_time || new Date().toISOString())
+        : null
     };
 
 
@@ -342,6 +340,7 @@ export function BookingForm({ booking, rooms, onClose }: BookingFormProps) {
                     <SelectItem value="confirmed">Confirmed</SelectItem>
                     <SelectItem value="checked-in">Checked-In</SelectItem>
                     <SelectItem value="checked-out">Checked-Out</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>

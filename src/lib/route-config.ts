@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -11,15 +11,17 @@ export interface MenuItem {
 
 export const generalMenuItems: MenuItem[] = [
     { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
 ];
 
 export const customerMenuItems: MenuItem[] = [
+    { href: '/dashboard/front-desk', icon: ClipboardCheck, label: 'Front Desk (Check In/Out)', roles: ['admin', 'waiter'] },
+    { href: '/dashboard/customers', icon: Users, label: 'All Customers', roles: ['admin', 'waiter'] },
     { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin'] },
 ];
 
 export const restaurantMenuItems: MenuItem[] = [
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/billing', icon: CreditCard, label: 'Restaurant Billing', roles: ['admin', 'payment'] },
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
@@ -37,6 +39,7 @@ export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
     { href: '/dashboard/inventory-management/grn', icon: Truck, label: 'GRN (Stock In)', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
+    { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
 ];
 
 export const roomBookingMenuItems: MenuItem[] = [
@@ -66,6 +69,12 @@ export const otherMenuItems: MenuItem[] = [
     { href: '/dashboard/reports', icon: BarChart, label: 'Reports', roles: ['admin', 'payment'] },
 ];
 
+export const servicesMenuItems: MenuItem[] = [
+    { href: '/dashboard/services/laundry', icon: Shirt, label: 'Laundry Income', roles: ['admin'] },
+    { href: '/dashboard/services/transport', icon: Car, label: 'Transport & Excursion', roles: ['admin'] },
+    { href: '/dashboard/services/spa', icon: Waves, label: 'Spa/Pool Income', roles: ['admin'] },
+];
+
 export const allMenuItems = [
     ...generalMenuItems,
     ...customerMenuItems,
@@ -73,6 +82,7 @@ export const allMenuItems = [
     ...inventoryMenuItems,
     ...roomBookingMenuItems,
     ...otherMenue,
+    ...servicesMenuItems,
     ...hrmsMenuItems,
     ...otherMenuItems,
 ];

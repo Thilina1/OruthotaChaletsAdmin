@@ -52,11 +52,14 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost } = body;
+        const { guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost, check_in_time, check_out_time } = body;
 
         if (!guest_name || !room_id || !check_in_date || !check_out_date) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
+
+        const final_check_in_time = check_in_time || (status === 'checked-in' ? new Date().toISOString() : null);
+        const final_check_out_time = check_out_time || ((status === 'checked-out' || status === 'completed') ? new Date().toISOString() : null);
 
         const { data, error } = await supabase
             .from('reservations')
@@ -67,7 +70,9 @@ export async function POST(request: Request) {
                 check_in_date,
                 check_out_date,
                 status: status || 'pending',
-                total_cost: total_cost || 0
+                total_cost: total_cost || 0,
+                check_in_time: final_check_in_time,
+                check_out_time: final_check_out_time
             })
             .select()
             .single();
@@ -89,9 +94,32 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost } = body;
+        const { id, guest_name, guest_email, room_id, check_in_date, check_out_date, status, total_cost, check_in_time, check_out_time } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        // Get existing reservation to compare status and preserve timestamps
+        const { data: existing } = await supabase
+            .from('reservations')
+            .select('status, check_in_time, check_out_time')
+            .eq('id', id)
+            .single();
+
+        let final_check_in_time = check_in_time || (existing ? existing.check_in_time : null);
+        let final_check_out_time = check_out_time || (existing ? existing.check_out_time : null);
+
+        if (status === 'checked-in') {
+            if (!final_check_in_time) final_check_in_time = new Date().toISOString();
+        } else if (status !== 'checked-out' && status !== 'completed') {
+            final_check_in_time = null;
+            final_check_out_time = null;
+        }
+
+        if (status === 'checked-out' || status === 'completed') {
+            if (!final_check_out_time) final_check_out_time = new Date().toISOString();
+        } else {
+            final_check_out_time = null;
+        }
 
         const { data, error } = await supabase
             .from('reservations')
@@ -103,6 +131,8 @@ export async function PUT(request: Request) {
                 check_out_date,
                 status,
                 total_cost,
+                check_in_time: final_check_in_time,
+                check_out_time: final_check_out_time,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)

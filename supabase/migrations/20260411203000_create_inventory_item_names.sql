@@ -13,3 +13,7 @@ ALTER TABLE public.inventory_item_names ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow authenticated full access to inventory_item_names" 
 ON public.inventory_item_names FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+
+
+

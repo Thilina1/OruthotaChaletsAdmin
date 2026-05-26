@@ -44,6 +44,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -79,15 +80,59 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     if (!isOpen) return;
     setIsLoading(true);
     try {
-      // Fetch Menu Items and Categories concurrently
-      const [tablesRes, menuRes, categoriesRes] = await Promise.all([
+      // Fetch Restaurant Warehouse ID
+      const { data: restaurantWH } = await supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle();
+      const restaurantWHId = restaurantWH?.id;
+
+      // Fetch Menu Items, Categories, and Stock concurrently
+      const [tablesRes, menuRes, categoriesRes, stockRes] = await Promise.all([
         supabase.from('restaurant_tables').select('*'),
-        supabase.from('menu_items').select('*, hotel_inventory_items(current_stock)'),
-        supabase.from('menu_sections').select('*').order('name')
+        supabase.from('menu_items').select('*'),
+        supabase.from('menu_sections').select('*').order('name'),
+        restaurantWHId ? supabase.from('inventory_stock').select('*, batch:inventory_batches(*)').eq('warehouse_id', restaurantWHId) : Promise.resolve({ data: [] })
       ]);
 
       if (menuRes.data) {
-        setMenuItems(menuRes.data as any);
+        const stockData = stockRes.data || [];
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const enhancedMenuItems = menuRes.data.map((item: any) => {
+          let available_batches: any[] = [];
+          let restaurant_stock = 0;
+
+          if (item.stock_type === 'Inventoried' && item.linked_inventory_item_id) {
+             const itemStock = stockData.filter((s: any) => s.item_id === item.linked_inventory_item_id && s.batch);
+             itemStock.forEach((s: any) => {
+               // Exclude expired batches
+               if (s.batch.expiry_date && s.batch.expiry_date < todayStr) return;
+               if (s.quantity <= 0) return;
+
+               available_batches.push({
+                 id: s.batch.id,
+                 batch_number: s.batch.batch_number,
+                 expiry_date: s.batch.expiry_date,
+                 quantity: s.quantity
+               });
+               restaurant_stock += s.quantity;
+             });
+             // Sort by expiry date ascending (FIFO)
+             available_batches.sort((a, b) => {
+               if (!a.expiry_date) return 1;
+               if (!b.expiry_date) return -1;
+               return a.expiry_date.localeCompare(b.expiry_date);
+             });
+          } else if (item.stock_type === 'Inventoried' && !item.linked_inventory_item_id) {
+             // Fallback for manually managed inventory items without a link
+             restaurant_stock = item.stock || 0;
+          }
+
+          return {
+            ...item,
+            available_batches,
+            restaurant_stock
+          };
+        });
+        setMenuItems(enhancedMenuItems);
       }
 
       if (categoriesRes.data) {
@@ -99,7 +144,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         .select('*')
         .eq('table_id', table.id)
         .eq('status', 'open')
-        .single(); // Assuming only one open order per table
+        .maybeSingle(); // Assuming only one open order per table
 
       if (orderData) {
         setOpenOrder(orderData as any);
@@ -152,7 +197,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     if (menuItems) {
       let currentLocalItems = menuItems;
       if (orderItems) {
-        currentLocalItems = currentLocalItems.map((menuItem) => {
+        currentLocalItems = currentLocalItems.map((menuItem: any) => {
           const orderedItemsForThisMenu = orderItems.filter((oi) => oi.menu_item_id === menuItem.id);
           const totalQuantity = orderedItemsForThisMenu.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -160,12 +205,14 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             if (menuItem.linked_inventory_item_id) {
               return {
                 ...menuItem,
-                hotel_inventory_items: {
-                  current_stock: ((menuItem as any).hotel_inventory_items?.current_stock || 0) - totalQuantity
-                }
+                restaurant_stock: (menuItem.restaurant_stock || 0) - totalQuantity,
+                available_batches: (menuItem.available_batches || []).map((b: any) => {
+                   const batchOrdered = orderedItemsForThisMenu.filter(oi => oi.batch_id === b.id).reduce((sum, item) => sum + item.quantity, 0);
+                   return { ...b, quantity: b.quantity - batchOrdered };
+                })
               } as any;
             }
-            return { ...menuItem, stock: (menuItem.stock || 0) - totalQuantity };
+            return { ...menuItem, restaurant_stock: (menuItem.restaurant_stock || 0) - totalQuantity };
           }
           return menuItem;
         });
@@ -206,35 +253,68 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       .filter((item) => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [localMenuItems, searchTerm, selectedCategory]);
 
-  const handleAddItem = (menuItem: MenuItem) => {
-    const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id);
-    const isLinked = !!itemInLocalMenu?.linked_inventory_item_id;
-    const effectiveStock = isLinked
-      ? ((itemInLocalMenu as any)?.hotel_inventory_items?.current_stock ?? 0)
-      : (itemInLocalMenu?.stock ?? 0);
+  const [batchSelectionItem, setBatchSelectionItem] = useState<any | null>(null);
 
-    const currentCountInCart = localOrder[menuItem.id] || 0;
+  const handleAddItemClick = (menuItem: any) => {
+    const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
+    
+    if (itemInLocalMenu && itemInLocalMenu.stock_type === 'Inventoried' && itemInLocalMenu.linked_inventory_item_id) {
+       if (itemInLocalMenu.available_batches && itemInLocalMenu.available_batches.length > 0) {
+          setBatchSelectionItem(itemInLocalMenu);
+          return;
+       } else {
+          toast({ variant: 'destructive', title: 'Out of Stock', description: `${menuItem.name} has no available batches.` });
+          return;
+       }
+    }
+    handleAddConfirmedItem(menuItem, null);
+  };
+
+  const handleAddConfirmedItem = (menuItem: any, batchId: string | null) => {
+    const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
+    const isLinked = !!itemInLocalMenu?.linked_inventory_item_id;
+    let effectiveStock = 0;
+    
+    if (isLinked) {
+       if (batchId) {
+          const batch = itemInLocalMenu.available_batches?.find((b: any) => b.id === batchId);
+          effectiveStock = batch ? batch.quantity : 0;
+       } else {
+          effectiveStock = itemInLocalMenu.restaurant_stock ?? 0;
+       }
+    } else {
+       effectiveStock = itemInLocalMenu?.restaurant_stock ?? 0;
+    }
+
+    const orderKey = batchId ? `${menuItem.id}::${batchId}` : menuItem.id;
+    const currentCountInCart = localOrder[orderKey] || 0;
+
     if (
       menuItem.stock_type === 'Inventoried' &&
       effectiveStock - currentCountInCart <= 0
     ) {
-      toast({ variant: 'destructive', title: 'Out of Stock', description: `${menuItem.name} is currently unavailable.` });
+      toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock available.` });
       return;
     }
+    
     setLocalOrder((prev) => ({
       ...prev,
-      [menuItem.id]: (prev[menuItem.id] || 0) + 1,
+      [orderKey]: (prev[orderKey] || 0) + 1,
     }));
+    
+    if (batchSelectionItem) {
+      setBatchSelectionItem(null);
+    }
   };
 
-  const handleRemoveItem = (menuItemId: string) => {
+  const handleRemoveItem = (orderKey: string) => {
     setLocalOrder((prev) => {
-      const newCount = (prev[menuItemId] || 0) - 1;
+      const newCount = (prev[orderKey] || 0) - 1;
       if (newCount <= 0) {
-        const { [menuItemId]: _, ...rest } = prev;
+        const { [orderKey]: _, ...rest } = prev;
         return rest;
       }
-      return { ...prev, [menuItemId]: newCount };
+      return { ...prev, [orderKey]: newCount };
     });
   };
 
@@ -262,17 +342,22 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
       let orderTotalPriceUpdate = 0;
 
-      for (const menuItemId in localOrder) {
-        const quantityToAdd = localOrder[menuItemId];
+      for (const orderKey in localOrder) {
+        const quantityToAdd = localOrder[orderKey];
+        const [menuItemId, batchId] = orderKey.split('::');
         const menuItem = menuItems?.find((m) => m.id === menuItemId);
+        
         if (menuItem) {
           orderTotalPriceUpdate += menuItem.price * quantityToAdd;
 
           // Check if item exists in order
-          const { data: existingItems } = await supabase.from('order_items')
-            .select('*')
-            .eq('order_id', currentOrderId)
-            .eq('menu_item_id', menuItemId);
+          let query = supabase.from('order_items').select('*').eq('order_id', currentOrderId).eq('menu_item_id', menuItemId);
+          if (batchId) {
+            query = query.eq('batch_id', batchId);
+          } else {
+            query = query.is('batch_id', null);
+          }
+          const { data: existingItems } = await query;
 
           if (existingItems && existingItems.length > 0) {
             const existingItem = existingItems[0];
@@ -283,6 +368,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             await supabase.from('order_items').insert([{
               order_id: currentOrderId,
               menu_item_id: menuItemId,
+              batch_id: batchId || null,
               name: menuItem.name,
               price: menuItem.price,
               quantity: quantityToAdd
@@ -291,28 +377,38 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
           if (menuItem.stock_type === 'Inventoried') {
             if (menuItem.linked_inventory_item_id) {
-              // Deduct from Hotel Inventory
-              const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
-              if (currentItem) {
-                const newStock = (currentItem.current_stock || 0) - quantityToAdd;
-                await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
+              // Deduct from new inventory system if batchId provided
+              if (batchId) {
+                const { data: currentWH } = await supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle();
+                if (currentWH) {
+                   const { data: currentStock } = await supabase.from('inventory_stock')
+                     .select('*')
+                     .eq('warehouse_id', currentWH.id)
+                     .eq('batch_id', batchId)
+                     .maybeSingle();
 
-                // Record transaction
-                await supabase.from('inventory_transactions').insert([{
-                  item_id: menuItem.linked_inventory_item_id,
-                  transaction_type: 'issue',
-                  quantity: quantityToAdd,
-                  previous_stock: currentItem.current_stock || 0,
-                  new_stock: newStock,
-                  reason: 'Sold via POS',
-                  created_by: currentUser.id,
-                }]);
+                   if (currentStock) {
+                     const newStock = (currentStock.quantity || 0) - quantityToAdd;
+                     await supabase.from('inventory_stock').update({ quantity: newStock }).eq('id', currentStock.id);
+
+                     await supabase.from('inventory_transactions').insert([{
+                       item_id: menuItem.linked_inventory_item_id,
+                       batch_id: batchId,
+                       transaction_type: 'issue',
+                       quantity: quantityToAdd,
+                       previous_stock: currentStock.quantity || 0,
+                       new_stock: newStock,
+                       reason: 'Sold via POS',
+                       reference_department: currentWH.id,
+                       created_by: currentUser.id,
+                     }]);
+                   }
+                }
               }
             } else {
               // Decrement manual stock
               const { error: rpcError } = await supabase.rpc('decrement_stock', { item_id: menuItem.id, quantity: quantityToAdd });
               if (rpcError) {
-                // Fallback if RPC doesn't exist: read-write
                 const { data: currentItem } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
                 if (currentItem) {
                   await supabase.from('menu_items').update({ stock: (currentItem.stock || 0) - quantityToAdd }).eq('id', menuItem.id);
@@ -324,15 +420,12 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       }
 
       // Update Order Total
-      // We need to fetch current total first? Or just increment? 
-      // Supabase doesn't have increment without RPC.
-      // So fetch fresh order to be safe or just add to known total.
       const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', currentOrderId).single();
       const currentTotal = freshOrder?.total_price || 0;
       await supabase.from('orders').update({
         total_price: currentTotal + orderTotalPriceUpdate,
         updated_at: new Date().toISOString(),
-        waiter_id: currentUser.id, // Update waiter info if changed?
+        waiter_id: currentUser.id,
         waiter_name: currentUser.name
       }).eq('id', currentOrderId);
 
@@ -380,20 +473,27 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       if (menuItem && menuItem.stock_type === 'Inventoried') {
         const adjustment = delta; // positive means we add to order (deduct from stock)
         if (menuItem.linked_inventory_item_id) {
-          const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
-          if (currentItem) {
-            const newStock = (currentItem.current_stock || 0) - adjustment;
-            await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
-            
-            await supabase.from('inventory_transactions').insert([{
-              item_id: menuItem.linked_inventory_item_id,
-              transaction_type: adjustment > 0 ? 'issue' : 'return',
-              quantity: Math.abs(adjustment),
-              previous_stock: currentItem.current_stock || 0,
-              new_stock: newStock,
-              reason: adjustment > 0 ? 'Updated quantity in POS' : 'Reduced quantity in POS',
-              created_by: currentUser?.id,
-            }]);
+          if (item.batch_id) {
+            const { data: currentWH } = await supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle();
+            if (currentWH) {
+              const { data: currentStock } = await supabase.from('inventory_stock').select('*').eq('warehouse_id', currentWH.id).eq('batch_id', item.batch_id).maybeSingle();
+              if (currentStock) {
+                const newStock = (currentStock.quantity || 0) - adjustment;
+                await supabase.from('inventory_stock').update({ quantity: newStock }).eq('id', currentStock.id);
+                
+                await supabase.from('inventory_transactions').insert([{
+                  item_id: menuItem.linked_inventory_item_id,
+                  batch_id: item.batch_id,
+                  transaction_type: adjustment > 0 ? 'issue' : 'return',
+                  quantity: Math.abs(adjustment),
+                  previous_stock: currentStock.quantity || 0,
+                  new_stock: newStock,
+                  reason: adjustment > 0 ? 'Updated quantity in POS' : 'Reduced quantity in POS',
+                  reference_department: currentWH.id,
+                  created_by: currentUser?.id,
+                }]);
+              }
+            }
           }
         } else {
           // Manual stock adjustment
@@ -429,20 +529,27 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       // Restore stock
       if (menuItem && menuItem.stock_type === 'Inventoried') {
         if (menuItem.linked_inventory_item_id) {
-          const { data: currentItem } = await supabase.from('hotel_inventory_items').select('current_stock').eq('id', menuItem.linked_inventory_item_id).single();
-          if (currentItem) {
-            const newStock = (currentItem.current_stock || 0) + item.quantity;
-            await supabase.from('hotel_inventory_items').update({ current_stock: newStock }).eq('id', menuItem.linked_inventory_item_id);
-            
-            await supabase.from('inventory_transactions').insert([{
-              item_id: menuItem.linked_inventory_item_id,
-              transaction_type: 'return',
-              quantity: item.quantity,
-              previous_stock: currentItem.current_stock || 0,
-              new_stock: newStock,
-              reason: 'Removed from POS bill',
-              created_by: currentUser?.id,
-            }]);
+          if (item.batch_id) {
+            const { data: currentWH } = await supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle();
+            if (currentWH) {
+              const { data: currentStock } = await supabase.from('inventory_stock').select('*').eq('warehouse_id', currentWH.id).eq('batch_id', item.batch_id).maybeSingle();
+              if (currentStock) {
+                const newStock = (currentStock.quantity || 0) + item.quantity;
+                await supabase.from('inventory_stock').update({ quantity: newStock }).eq('id', currentStock.id);
+                
+                await supabase.from('inventory_transactions').insert([{
+                  item_id: menuItem.linked_inventory_item_id,
+                  batch_id: item.batch_id,
+                  transaction_type: 'return',
+                  quantity: item.quantity,
+                  previous_stock: currentStock.quantity || 0,
+                  new_stock: newStock,
+                  reason: 'Removed from POS bill',
+                  reference_department: currentWH.id,
+                  created_by: currentUser?.id,
+                }]);
+              }
+            }
           }
         } else {
           const { data: currentM } = await supabase.from('menu_items').select('stock').eq('id', menuItem.id).single();
@@ -492,8 +599,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   // const isLoading ... already defined
 
-  const totalLocalprice = Object.entries(localOrder).reduce((acc, [id, quantity]) => {
-    const item = menuItems?.find((m) => m.id === id);
+  const totalLocalprice = Object.entries(localOrder).reduce((acc, [orderKey, quantity]) => {
+    const menuItemId = orderKey.split('::')[0];
+    const item = menuItems?.find((m) => m.id === menuItemId);
     return acc + (item ? item.price * quantity : 0);
   }, 0);
   const totalBill = (openOrder?.total_price || 0) + totalLocalprice;
@@ -548,10 +656,12 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     [...Array(10)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
                   ) : filteredMenuItems.length > 0 ? (
                     filteredMenuItems.map((item) => {
-                      const currentCountInCart = localOrder[item.id] || 0;
+                      const currentCountInCart = Object.entries(localOrder)
+                        .filter(([k]) => k.startsWith(item.id))
+                        .reduce((sum, [_, qty]) => sum + qty, 0);
                       const isLinked = !!item.linked_inventory_item_id;
                       const effectiveStock = isLinked
-                        ? ((item as any).hotel_inventory_items?.current_stock ?? 0)
+                        ? ((item as any).restaurant_stock ?? 0)
                         : (item.stock ?? 0);
                       const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
                       return (
@@ -576,7 +686,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             </div>
                           </div>
 
-                          <Button size="sm" onClick={() => handleAddItem(item)} disabled={isOutOfStock}>
+                          <Button size="sm" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add
                           </Button>
                         </div>
@@ -640,18 +750,26 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                   <h3 className="font-semibold">New Items</h3>
                   <div className="space-y-1">
                     {Object.keys(localOrder).length > 0 ? (
-                      Object.entries(localOrder).map(([id, quantity]) => {
-                        const item = menuItems?.find((m) => m.id === id);
+                      Object.entries(localOrder).map(([orderKey, quantity]) => {
+                        const [menuItemId, batchId] = orderKey.split('::');
+                        const item = menuItems?.find((m) => m.id === menuItemId);
                         if (!item) return null;
+                        
+                        let batchLabel = "";
+                        if (batchId && (item as any).available_batches) {
+                           const b = (item as any).available_batches.find((b: any) => b.id === batchId);
+                           if (b) batchLabel = ` (Batch: ${b.batch_number})`;
+                        }
+
                         return (
-                          <div key={id} className="flex justify-between items-center text-sm mb-1">
-                            <div><p>{item.name} x {quantity}</p></div>
+                          <div key={orderKey} className="flex justify-between items-center text-sm mb-1">
+                            <div><p>{item.name}{batchLabel} x {quantity}</p></div>
                             <div className="flex items-center gap-2">
                               <p>LKR {(item.price * quantity).toFixed(2)}</p>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleAddItem(item)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleAddConfirmedItem(item, batchId || null)}>
                                 <PlusCircle className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveItem(id)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveItem(orderKey)}>
                                 <MinusCircle className="h-4 w-4" />
                               </Button>
                             </div>
@@ -682,6 +800,38 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             </CardFooter>
           </Card>
         </div>
+        
+        {/* Batch Selection Dialog */}
+        <Dialog open={!!batchSelectionItem} onOpenChange={(open) => !open && setBatchSelectionItem(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Batch for {batchSelectionItem?.name}</DialogTitle>
+              <DialogDescription>
+                Choose which batch to use for this item.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+              {batchSelectionItem?.available_batches?.map((b: any) => {
+                const orderKey = `${batchSelectionItem.id}::${b.id}`;
+                const inCart = localOrder[orderKey] || 0;
+                const outOfStock = b.quantity - inCart <= 0;
+                return (
+                  <div key={b.id} className="flex justify-between items-center p-3 border rounded-lg">
+                    <div>
+                      <p className="font-semibold text-sm">Batch: {b.batch_number}</p>
+                      <p className="text-xs text-muted-foreground">Expires: {b.expiry_date}</p>
+                      <p className="text-xs font-medium mt-1">Avail Stock: {b.quantity - inCart}</p>
+                    </div>
+                    <Button size="sm" onClick={() => handleAddConfirmedItem(batchSelectionItem, b.id)} disabled={outOfStock}>
+                      Add to Order
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
+
       </DialogContent>
     </Dialog>
   );

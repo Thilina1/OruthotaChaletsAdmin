@@ -83,6 +83,7 @@ export type Order = {
   total_price: number;
   waiter_id: string;
   waiter_name: string;
+  customer_id?: string;
   created_at?: string;
   updated_at?: string;
   bill_number?: string;
@@ -92,6 +93,7 @@ export type OrderItem = {
   id: string;
   order_id: string;
   menu_item_id: string;
+  batch_id?: string;
   name: string;
   price: number;
   quantity: number;
@@ -148,16 +150,22 @@ export type Room = {
   created_at?: string;
 };
 
-export type ReservationStatus = 'booked' | 'confirmed' | 'checked-in' | 'checked-out' | 'cancelled';
+export type ReservationStatus = 'booked' | 'confirmed' | 'checked-in' | 'checked-out' | 'cancelled' | 'completed' | 'pending';
 
 export type Reservation = {
   id: string;
   guest_name: string;
   guest_email?: string;
+  customer_id?: string;
   room_id: string;
   room_title?: string;
+  room?: {
+    title: string;
+  };
   check_in_date: string;
   check_out_date: string;
+  check_in_time?: string;
+  check_out_time?: string;
   total_cost: number;
   status: ReservationStatus;
   created_at?: string;
@@ -243,6 +251,47 @@ export type OtherIncome = {
   amount: number;
   source: string;
   date: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ServiceIncomeItem = {
+  description: string;
+  amount: number;
+};
+
+export type ServiceIncome = {
+  id: string;
+  description: string;
+  amount: number;
+  service_type: string;
+  date: string;
+  customer_name?: string;
+  room_number?: string;
+  customer_id?: string;
+  payment_status?: 'paid' | 'add_to_bill';
+  payment_method?: 'cash' | 'card';
+  line_items?: ServiceIncomeItem[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ConsolidatedBill = {
+  customer: Customer;
+  reservations: Reservation[];
+  orders: Order[];
+  serviceIncomes: ServiceIncome[];
+  totalOutstanding: number;
+  totalPaid: number;
+};
+
+export type Customer = {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  id_number?: string;
+  address?: string;
   created_at?: string;
   updated_at?: string;
 };

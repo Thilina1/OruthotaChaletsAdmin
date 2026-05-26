@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Warehouse, ArrowRightLeft, Search, Filter } from 'lucide-react';
+import { Loader2, Warehouse, ArrowRightLeft, Search, Filter, ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,11 @@ function StockOverviewContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  const toggleRowExpand = (id: string) => {
+    setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -159,13 +164,12 @@ function StockOverviewContent() {
 
     const warehouseItems = filteredItems.map(item => {
       const ws = item.warehouse_stock?.find((ws: any) => ws.id === selectedWarehouseId);
-      if (!ws) return null;
       return {
         ...item,
-        local_stock: ws.total_stock,
-        batches: ws.batches || []
+        local_stock: ws ? ws.total_stock : 0,
+        batches: ws ? (ws.batches || []) : []
       };
-    }).filter(Boolean);
+    });
 
     return {
       warehouse,
@@ -352,8 +356,8 @@ function StockOverviewContent() {
                       <div className="h-10 w-10 rounded-lg bg-slate-50 flex items-center justify-center border border-slate-100 shrink-0 group-hover:bg-primary/5 transition-colors">
                         <span className="text-xs font-black text-slate-400 group-hover:text-primary">{item.name.substring(0, 2).toUpperCase()}</span>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-black text-slate-900 leading-tight group-hover:text-primary transition-colors truncate text-sm">
+                      <div className="flex flex-col">
+                        <span className="font-black text-slate-900 leading-tight group-hover:text-primary transition-colors text-sm">
                           {item.name}
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -400,7 +404,7 @@ function StockOverviewContent() {
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          className="h-9 w-9 p-0 rounded-lg hover:bg-primary/10 hover:text-primary transition-all shrink-0"
+                          className="hidden h-9 w-9 p-0 rounded-lg hover:bg-primary/10 hover:text-primary transition-all shrink-0"
                           onClick={() => handleOpenTransactionDialog(item)}
                           disabled={!activeWarehouseData?.warehouse.is_main}
                         >
@@ -472,10 +476,16 @@ function StockOverviewContent() {
                   ) : (
                     paginatedTableItems.map((group) => (
                       <React.Fragment key={group.item.id}>
-                        <TableRow className="bg-slate-50/80 border-t-2 border-slate-100">
+                        <TableRow 
+                          className="bg-slate-50/80 border-t-2 border-slate-100 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                          onClick={() => toggleRowExpand(group.item.id)}
+                        >
                           <TableCell colSpan={2} className="py-3">
                             <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                              <div className="text-muted-foreground shrink-0">
+                                {expandedRows[group.item.id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </div>
+                              <div className="h-8 w-8 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
                                 <span className="text-[10px] font-bold text-primary">{group.item.name.substring(0, 2).toUpperCase()}</span>
                               </div>
                               <div className="flex flex-col">
@@ -494,7 +504,7 @@ function StockOverviewContent() {
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              className="h-7 text-[10px] font-bold"
+                              className="hidden h-7 text-[10px] font-bold"
                               onClick={() => handleOpenTransactionDialog(group.item)}
                               disabled={!activeWarehouseData?.warehouse.is_main}
                             >
@@ -502,7 +512,7 @@ function StockOverviewContent() {
                             </Button>
                           </TableCell>
                         </TableRow>
-                        {group.locations.map((loc: any) => (
+                        {expandedRows[group.item.id] && group.locations.map((loc: any) => (
                           <TableRow key={loc.id} className="hover:bg-slate-50/30 transition-colors border-l-4 border-l-primary/10">
                             <TableCell className="pl-10">
                               <div className="flex items-center gap-2">
@@ -530,7 +540,7 @@ function StockOverviewContent() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-6 w-6 rounded-md"
+                                className="hidden h-6 w-6 rounded-md"
                                 onClick={() => handleOpenTransactionDialog(loc.fullItem)}
                                 disabled={!activeWarehouseData?.warehouse.is_main}
                               >
@@ -600,8 +610,8 @@ function StockOverviewContent() {
                               <div className="h-8 w-8 bg-slate-50 rounded-lg flex items-center justify-center shrink-0 border border-slate-100 group-hover:bg-primary/5">
                                 <span className="text-[10px] font-bold text-slate-400">{item.name.substring(0, 2).toUpperCase()}</span>
                               </div>
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-black text-slate-800 text-sm truncate uppercase tracking-tight">{item.name}</span>
+                              <div className="flex flex-col min-w-[150px]">
+                                <span className="font-black text-slate-800 text-sm uppercase tracking-tight">{item.name}</span>
                                 <span className="text-[10px] text-muted-foreground font-bold">{item.code}</span>
                               </div>
                             </div>

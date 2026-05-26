@@ -23,7 +23,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 const getPageTitle = (pathname: string) => {
   switch (pathname) {
     case '/dashboard':
-      return 'Dashboard';
+      return 'Waiter Dashboard';
     case '/dashboard/pos':
       return 'Point of Sale';
     case '/dashboard/profile':

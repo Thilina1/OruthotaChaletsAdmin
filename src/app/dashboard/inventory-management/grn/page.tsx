@@ -140,7 +140,7 @@ export default function GRNPage() {
         <TabsContent value="history">
           <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
             <TransactionHistoryTable 
-                type="receive,initial_stock" 
+                type="receive" 
                 title="Recent Stock Intake (All Additions)" 
                 refreshKey={refreshHistory}
             />

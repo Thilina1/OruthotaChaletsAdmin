@@ -24,7 +24,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type');
     const itemId = searchParams.get('itemId');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const limit = parseInt(searchParams.get('limit') || '500');
 
     try {
         let query = supabase
@@ -57,6 +59,18 @@ export async function GET(req: NextRequest) {
 
         if (itemId) {
             query = query.eq('item_id', itemId);
+        }
+
+        if (startDate) {
+            // Ensure full day coverage if it's just a date string
+            const startStr = startDate.includes('T') ? startDate : `${startDate}T00:00:00.000Z`;
+            query = query.gte('created_at', startStr);
+        }
+
+        if (endDate) {
+            // Ensure full day coverage
+            const endStr = endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`;
+            query = query.lte('created_at', endStr);
         }
 
         const { data, error } = await query;

@@ -48,7 +48,9 @@ const statusColors: Record<ReservationStatus, string> = {
   'confirmed': 'bg-green-500 text-white',
   'checked-in': 'bg-blue-500 text-white',
   'checked-out': 'bg-gray-500 text-white',
+  'completed': 'bg-emerald-600 text-white',
   'cancelled': 'bg-red-500 text-white',
+  'pending': 'bg-orange-500 text-white',
 };
 
 export default function ReservationsPage() {
@@ -247,8 +249,22 @@ export default function ReservationsPage() {
                     <div className="text-xs text-muted-foreground">{res.guest_email}</div>
                   </TableCell>
                   <TableCell>{res.room_title}</TableCell>
-                  <TableCell>{new Date(res.check_in_date).toLocaleDateString()}</TableCell>
-                  <TableCell>{new Date(res.check_out_date).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <div>{new Date(res.check_in_date).toLocaleDateString()}</div>
+                    {res.check_in_time && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Actual: {new Date(res.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div>{new Date(res.check_out_date).toLocaleDateString()}</div>
+                    {res.check_out_time && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Actual: {new Date(res.check_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={`capitalize ${statusColors[res.status] || 'bg-gray-500 text-white'}`}>
                       {res.status}
@@ -335,6 +351,7 @@ export default function ReservationsPage() {
                     <SelectItem value="confirmed">Confirmed</SelectItem>
                     <SelectItem value="checked-in">Checked-In</SelectItem>
                     <SelectItem value="checked-out">Checked-Out</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>

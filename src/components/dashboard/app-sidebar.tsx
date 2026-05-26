@@ -15,7 +15,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '../icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -33,6 +33,7 @@ import {
   otherMenue,
   hrmsMenuItems,
   otherMenuItems,
+  servicesMenuItems,
   allMenuItems,
   MenuItem
 } from '@/lib/route-config';
@@ -93,6 +94,7 @@ export default function AppSidebar() {
   const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user);
   const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user);
   const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user);
+  const servicesSection = renderMenuItems(servicesMenuItems, hasPathAccess, pathname, user);
   const hrmsSection = renderMenuItems(hrmsMenuItems, hasPathAccess, pathname, user);
   const otherItemsSection = renderMenuItems(otherMenuItems, hasPathAccess, pathname, user);
 
@@ -160,6 +162,21 @@ export default function AppSidebar() {
             </>
           )}
 
+          {servicesSection && (
+            <>
+              <SidebarSeparator className="my-2" />
+              <SidebarGroup>
+                <SidebarGroupLabel className="flex items-center gap-2">
+                  <Sparkles className="size-4" />
+                  Services
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  {servicesSection}
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
+
 
 
 
@@ -167,7 +184,7 @@ export default function AppSidebar() {
             <>
               <SidebarSeparator className="my-2" />
               <SidebarGroup>
-                <SidebarGroupLabel className="flex items-center gap-2"><Building className="size-4" />Room Booking</SidebarGroupLabel>
+                <SidebarGroupLabel className="flex items-center gap-2"><Building className="size-4" />Reservations</SidebarGroupLabel>
                 <SidebarGroupContent>{roomBookingSection}</SidebarGroupContent>
               </SidebarGroup>
             </>

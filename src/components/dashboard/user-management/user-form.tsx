@@ -33,7 +33,6 @@ const APP_SECTION_GROUPS = [
   {
     name: 'General',
     sections: [
-      { path: '/dashboard', label: 'Dashboard' },
       { path: '/dashboard/profile', label: 'Profile' },
       { path: '/dashboard/user-management', label: 'User Management' },
       { path: '/dashboard/settings/roles', label: 'Roles & Permissions' },
@@ -49,6 +48,7 @@ const APP_SECTION_GROUPS = [
   {
     name: 'Restaurant',
     sections: [
+      { path: '/dashboard', label: 'Dashboard' },
       { path: '/dashboard/billing', label: 'Restaurant Billing' },
       { path: '/dashboard/menu-management', label: 'Menu Management' },
       { path: '/dashboard/table-management', label: 'Table Management' },
@@ -60,8 +60,15 @@ const APP_SECTION_GROUPS = [
     name: 'Inventory',
     sections: [
       { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
+      { path: '/dashboard/inventory-management/add-item', label: 'Add New Item' },
       { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
+      { path: '/dashboard/inventory-requests/history', label: 'Inventory Approvals' },
       { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
+      { path: '/dashboard/purchase-orders/approvals', label: 'PO Approvals' },
+      { path: '/dashboard/inventory-stock-overview', label: 'Stock Overview' },
+      { path: '/dashboard/inventory-management/grn', label: 'GRN (Stock In)' },
+      { path: '/dashboard/inventory-management', label: 'Manage Items' },
+      { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
     ]
   },
   {

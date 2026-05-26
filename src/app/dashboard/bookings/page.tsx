@@ -44,6 +44,8 @@ const statusColors: Record<ReservationStatus, string> = {
   'checked-out': 'bg-green-500 text-white',
   cancelled: 'bg-red-500 text-white',
   booked: 'bg-gray-500 text-white',
+  completed: 'bg-emerald-600 text-white',
+  pending: 'bg-orange-500 text-white',
 };
 
 export default function BookingManagementPage() {
@@ -93,7 +95,10 @@ export default function BookingManagementPage() {
     if (!currentUser) return;
 
     try {
-      const { error: bookingError } = await supabase.from('reservations').update({ status: 'checked-in' }).eq('id', booking.id);
+      const { error: bookingError } = await supabase.from('reservations').update({ 
+        status: 'checked-in',
+        check_in_time: new Date().toISOString()
+      }).eq('id', booking.id);
       if (bookingError) throw bookingError;
 
       const { error: roomError } = await supabase.from('rooms').update({ status: 'occupied' }).eq('id', booking.room_id);
@@ -111,7 +116,10 @@ export default function BookingManagementPage() {
     if (!currentUser) return;
 
     try {
-      const { error: bookingError } = await supabase.from('reservations').update({ status: 'checked-out' }).eq('id', booking.id);
+      const { error: bookingError } = await supabase.from('reservations').update({ 
+        status: 'checked-out',
+        check_out_time: new Date().toISOString()
+      }).eq('id', booking.id);
       if (bookingError) throw bookingError;
 
       const { error: roomError } = await supabase.from('rooms').update({ status: 'available' }).eq('id', booking.room_id);
@@ -261,8 +269,22 @@ export default function BookingManagementPage() {
                 <TableRow key={booking.id}>
                   <TableCell className="font-medium">{booking.guest_name}</TableCell>
                   <TableCell>{booking.room_title}</TableCell>
-                  <TableCell>{getFormattedDate(booking.check_in_date)}</TableCell>
-                  <TableCell>{getFormattedDate(booking.check_out_date)}</TableCell>
+                  <TableCell>
+                    <div>{getFormattedDate(booking.check_in_date)}</div>
+                    {booking.check_in_time && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Actual: {new Date(booking.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div>{getFormattedDate(booking.check_out_date)}</div>
+                    {booking.check_out_time && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Actual: {new Date(booking.check_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>LKR {(booking.total_cost ?? 0).toFixed(2)}</TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={`capitalize ${statusColors[booking.status]}`}>

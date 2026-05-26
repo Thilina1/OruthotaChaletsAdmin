@@ -64,6 +64,48 @@ export default function ReceiveGRNPage() {
     const [expiryDates, setExpiryDates] = useState<Record<string, string>>({});
     const [receiveMetadata, setReceiveMetadata] = useState<Record<string, { brand: string, supplier: string, size: string }>>({});
     const [itemPrices, setItemPrices] = useState<Record<string, string>>({});
+    const [itemDiscounts, setItemDiscounts] = useState<Record<string, string>>({});
+    const [itemTotalPrices, setItemTotalPrices] = useState<Record<string, string>>({});
+
+    const handleUnitPriceChange = (id: string, val: string) => {
+        setItemPrices(prev => ({ ...prev, [id]: val }));
+        const qty = parseFloat(receivedQuantities[id] || '0');
+        const disc = parseFloat(itemDiscounts[id] || '0');
+        if (!isNaN(qty)) {
+            const total = (parseFloat(val || '0') * qty) - disc;
+            setItemTotalPrices(prev => ({ ...prev, [id]: total > 0 ? total.toFixed(2) : '0' }));
+        }
+    };
+
+    const handleDiscountChange = (id: string, val: string) => {
+        setItemDiscounts(prev => ({ ...prev, [id]: val }));
+        const qty = parseFloat(receivedQuantities[id] || '0');
+        const unit = parseFloat(itemPrices[id] || '0');
+        if (!isNaN(qty) && !isNaN(unit)) {
+            const total = (unit * qty) - parseFloat(val || '0');
+            setItemTotalPrices(prev => ({ ...prev, [id]: total > 0 ? total.toFixed(2) : '0' }));
+        }
+    };
+
+    const handleTotalPriceChange = (id: string, val: string) => {
+        setItemTotalPrices(prev => ({ ...prev, [id]: val }));
+        const qty = parseFloat(receivedQuantities[id] || '0');
+        const disc = parseFloat(itemDiscounts[id] || '0');
+        if (!isNaN(qty) && qty > 0) {
+            const unit = (parseFloat(val || '0') + disc) / qty;
+            setItemPrices(prev => ({ ...prev, [id]: unit > 0 ? unit.toFixed(2) : '0' }));
+        }
+    };
+
+    const handleQtyChange = (id: string, val: string) => {
+        setReceivedQuantities(prev => ({ ...prev, [id]: val }));
+        const unit = parseFloat(itemPrices[id] || '0');
+        const disc = parseFloat(itemDiscounts[id] || '0');
+        if (!isNaN(unit)) {
+            const total = (unit * parseFloat(val || '0')) - disc;
+            setItemTotalPrices(prev => ({ ...prev, [id]: total > 0 ? total.toFixed(2) : '0' }));
+        }
+    };
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -386,14 +428,14 @@ export default function ReceiveGRNPage() {
                                         </div>
 
                                         {/* Input Controls */}
-                                        <div className="flex-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 flex-grow">
+                                        <div className="flex-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 flex-grow">
                                             <div className="space-y-1.5">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Received Qty</label>
                                                 <Input 
                                                     className="h-11 rounded-xl font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all"
                                                     type="number"
                                                     value={receivedQuantities[item.id] ?? ''}
-                                                    onChange={e => setReceivedQuantities(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                    onChange={e => handleQtyChange(item.id, e.target.value)}
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
@@ -404,7 +446,29 @@ export default function ReceiveGRNPage() {
                                                     step="0.01"
                                                     placeholder="LKR 0.00"
                                                     value={itemPrices[item.id] ?? ''}
-                                                    onChange={e => setItemPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                    onChange={e => handleUnitPriceChange(item.id, e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Discount (LKR)</label>
+                                                <Input 
+                                                    className="h-11 rounded-xl font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all text-amber-600 placeholder:text-amber-200"
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="LKR 0.00"
+                                                    value={itemDiscounts[item.id] ?? ''}
+                                                    onChange={e => handleDiscountChange(item.id, e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Price (LKR)</label>
+                                                <Input 
+                                                    className="h-11 rounded-xl font-black bg-blue-50 border-blue-200 focus:bg-white transition-all text-blue-700"
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="LKR 0.00"
+                                                    value={itemTotalPrices[item.id] ?? ''}
+                                                    onChange={e => handleTotalPriceChange(item.id, e.target.value)}
                                                 />
                                             </div>
                                             <div className="space-y-1.5">

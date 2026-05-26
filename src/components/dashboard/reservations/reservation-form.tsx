@@ -50,7 +50,7 @@ const formSchema = z.object({
   }).refine(data => data.from, { message: "Check-in date is required.", path: ["from"] }),
   numberOfGuests: z.coerce.number().min(1, { message: 'At least one guest is required.' }),
   specialRequests: z.string().optional(),
-  status: z.enum(['booked', 'confirmed', 'checked-in', 'checked-out', 'cancelled']),
+  status: z.enum(['booked', 'confirmed', 'checked-in', 'checked-out', 'completed', 'cancelled', 'pending']),
   items: z.array(itemSchema),
   totalCost: z.coerce.number(),
 }).refine(data => data.dateRange.from && data.dateRange.to && data.dateRange.to >= data.dateRange.from, {
@@ -191,8 +191,12 @@ export function ReservationForm({ reservation, rooms, allReservations, onClose }
       status: values.status,
       total_cost: values.totalCost,
       items: values.items, // JSONB assumed or ignored
-      // Additional fields not in types but maybe in DB?
-      // id_card_number: values.idCardNumber, 
+      check_in_time: values.status === 'checked-in' 
+        ? (reservation?.check_in_time || new Date().toISOString()) 
+        : (values.status === 'checked-out' || values.status === 'completed' ? reservation?.check_in_time : null),
+      check_out_time: (values.status === 'checked-out' || values.status === 'completed')
+        ? (reservation?.check_out_time || new Date().toISOString())
+        : null
     };
 
     try {
@@ -380,6 +384,7 @@ export function ReservationForm({ reservation, rooms, allReservations, onClose }
                     <SelectItem value="confirmed">Confirmed</SelectItem>
                     <SelectItem value="checked-in">Checked-In</SelectItem>
                     <SelectItem value="checked-out">Checked-Out</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
