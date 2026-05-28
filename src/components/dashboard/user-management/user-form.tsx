@@ -100,11 +100,15 @@ const APP_SECTION_GROUPS = [
   },
   {
     name: 'Other Content',
+    sections: [],
+  },
+  {
+    name: 'Services',
     sections: [
-      { path: '/dashboard/activities', label: 'Activities' },
-      { path: '/dashboard/experiences', label: 'Experiences' },
-      { path: '/dashboard/blogs', label: 'Blog Management' },
-    ]
+      { path: '/dashboard/services/laundry', label: 'Laundry Service' },
+      { path: '/dashboard/services/spa', label: 'Spa Service' },
+      { path: '/dashboard/services/transport', label: 'Transport Service' },
+    ],
   },
 ];
 

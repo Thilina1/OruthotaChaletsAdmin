@@ -76,11 +76,7 @@ const moneyManagementMenuItems: MenuItem[] = [
     { href: '/dashboard/other-incomes', icon: Banknote, label: 'Other Incomes', roles: ['admin', 'payment'] },
 ];
 
-const otherMenuItems: MenuItem[] = [
-    { href: '/dashboard/activities', icon: Star, label: 'Activities', roles: ['admin'] },
-    { href: '/dashboard/experiences', icon: Zap, label: 'Experiences', roles: ['admin'] },
-    { href: '/dashboard/blogs', icon: Newspaper, label: 'Blog Management', roles: ['admin'] },
-];
+const otherMenuItems: MenuItem[] = [];
 
 
 const renderMenuItems = (items: MenuItem[], userRole: UserRole | undefined, pathname: string) => {

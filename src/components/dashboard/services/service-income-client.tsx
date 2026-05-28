@@ -316,172 +316,174 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[700px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[1200px] w-[95vw] h-[85vh] flex flex-col">
+          <DialogHeader className="pb-2 border-b">
             <DialogTitle>{editingIncome ? 'Edit Record' : 'Add New Record'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="date">Date</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div>
-                <Label className="mb-2 block">Line Items</Label>
-                <div className="space-y-3">
-                  {lineItems.map((item, index) => (
-                    <div key={index} className="flex gap-2 items-start">
-                      <div className="flex-1">
-                        <Input
-                          placeholder="Description (e.g. Laundry)"
-                          value={item.description}
-                          onChange={(e) => {
-                            const newItems = [...lineItems];
-                            newItems[index].description = e.target.value;
-                            setLineItems(newItems);
-                          }}
-                          required
-                        />
-                      </div>
-                      <div className="w-32">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="Amount"
-                          value={item.amount}
-                          onChange={(e) => {
-                            const newItems = [...lineItems];
-                            newItems[index].amount = e.target.value;
-                            setLineItems(newItems);
-                          }}
-                          required
-                        />
-                      </div>
-                      {lineItems.length > 1 && (
-                        <Button 
-                          type="button" 
-                          variant="ghost" 
-                          size="icon" 
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setLineItems(lineItems.filter((_, i) => i !== index))}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+          <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 mt-2">
+            <div className="flex-1 overflow-y-auto pr-4 space-y-4 pb-2">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="date">Date</Label>
+                  <Input
+                    id="date"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                  />
                 </div>
-                <div className="flex justify-between items-center mt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => setLineItems([...lineItems, { description: '', amount: '' }])}
-                  >
-                    <PlusCircle className="h-4 w-4" /> Add Item
-                  </Button>
-                  <div className="font-bold">
-                    Total: LKR {totalAmount.toFixed(2)}
+
+                <div>
+                  <Label className="mb-2 block">Line Items</Label>
+                  <div className="space-y-3">
+                    {lineItems.map((item, index) => (
+                      <div key={index} className="flex gap-2 items-start">
+                        <div className="flex-1">
+                          <Input
+                            placeholder="Description (e.g. Laundry)"
+                            value={item.description}
+                            onChange={(e) => {
+                              const newItems = [...lineItems];
+                              newItems[index].description = e.target.value;
+                              setLineItems(newItems);
+                            }}
+                            required
+                          />
+                        </div>
+                        <div className="w-32">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="Amount"
+                            value={item.amount}
+                            onChange={(e) => {
+                              const newItems = [...lineItems];
+                              newItems[index].amount = e.target.value;
+                              setLineItems(newItems);
+                            }}
+                            required
+                          />
+                        </div>
+                        {lineItems.length > 1 && (
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setLineItems(lineItems.filter((_, i) => i !== index))}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between items-center mt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setLineItems([...lineItems, { description: '', amount: '' }])}
+                    >
+                      <PlusCircle className="h-4 w-4" /> Add Item
+                    </Button>
+                    <div className="font-bold">
+                      Total: LKR {totalAmount.toFixed(2)}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            <div className="pt-2 border-t mt-4">
-              <h4 className="text-sm font-medium mb-3 text-muted-foreground">Customer Details (Optional for Invoice)</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2 relative">
-                  <Label htmlFor="customerName">Customer (Search by Name, Phone, ID)</Label>
-                  <Input
-                    id="customerName"
-                    placeholder="Search existing or enter new..."
-                    value={customerName}
-                    onChange={(e) => {
-                      setCustomerName(e.target.value);
-                      setCustomerSearchQuery(e.target.value);
-                    }}
-                    onFocus={() => {
-                        if (customerSearchResults.length > 0) setShowCustomerDropdown(true);
-                    }}
-                    onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-                  />
-                  {showCustomerDropdown && (
-                    <div className="absolute z-10 w-full bg-white border rounded-md shadow-lg top-[60px] max-h-48 overflow-y-auto">
-                      {isSearchingCustomers ? (
-                        <div className="p-2 text-sm text-center text-muted-foreground">Searching...</div>
-                      ) : customerSearchResults.length > 0 ? (
-                        customerSearchResults.map(c => (
-                          <div 
-                            key={c.id} 
-                            className="p-2 hover:bg-muted cursor-pointer text-sm border-b last:border-0"
-                            onClick={() => {
-                                setCustomerName(c.name);
-                                setCustomerSearchQuery('');
-                                setShowCustomerDropdown(false);
-                            }}
-                          >
-                            <div className="font-medium">{c.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {c.phone && <span>{c.phone}</span>}
-                              {c.id_number && <span className="ml-2">ID: {c.id_number}</span>}
+              
+              <div className="pt-2 border-t mt-4">
+                <h4 className="text-sm font-medium mb-3 text-muted-foreground">Customer Details (Optional for Invoice)</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 relative">
+                    <Label htmlFor="customerName">Customer (Search by Name, Phone, ID)</Label>
+                    <Input
+                      id="customerName"
+                      placeholder="Search existing or enter new..."
+                      value={customerName}
+                      onChange={(e) => {
+                        setCustomerName(e.target.value);
+                        setCustomerSearchQuery(e.target.value);
+                      }}
+                      onFocus={() => {
+                          if (customerSearchResults.length > 0) setShowCustomerDropdown(true);
+                      }}
+                      onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                    />
+                    {showCustomerDropdown && (
+                      <div className="absolute z-10 w-full bg-white border rounded-md shadow-lg top-[60px] max-h-48 overflow-y-auto">
+                        {isSearchingCustomers ? (
+                          <div className="p-2 text-sm text-center text-muted-foreground">Searching...</div>
+                        ) : customerSearchResults.length > 0 ? (
+                          customerSearchResults.map(c => (
+                            <div 
+                              key={c.id} 
+                              className="p-2 hover:bg-muted cursor-pointer text-sm border-b last:border-0"
+                              onClick={() => {
+                                  setCustomerName(c.name);
+                                  setCustomerSearchQuery('');
+                                  setShowCustomerDropdown(false);
+                              }}
+                            >
+                              <div className="font-medium">{c.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {c.phone && <span>{c.phone}</span>}
+                                {c.id_number && <span className="ml-2">ID: {c.id_number}</span>}
+                              </div>
                             </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-2 text-sm text-center text-muted-foreground">No matches. Will save as new.</div>
-                      )}
-                    </div>
-                  )}
+                          ))
+                        ) : (
+                          <div className="p-2 text-sm text-center text-muted-foreground">No matches. Will save as new.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="roomNumber">Room Number</Label>
+                    <Input
+                      id="roomNumber"
+                      placeholder="e.g. 101"
+                      value={roomNumber}
+                      onChange={(e) => setRoomNumber(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="roomNumber">Room Number</Label>
-                  <Input
-                    id="roomNumber"
-                    placeholder="e.g. 101"
-                    value={roomNumber}
-                    onChange={(e) => setRoomNumber(e.target.value)}
-                  />
+              </div>
+
+              <div className="pt-4 border-t">
+                <Label className="mb-2 block">Payment Method (If Paying Now)</Label>
+                <div className="flex items-center space-x-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="cash"
+                      checked={paymentMethod === 'cash'}
+                      onChange={() => setPaymentMethod('cash')}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <span>Cash</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="card"
+                      checked={paymentMethod === 'card'}
+                      onChange={() => setPaymentMethod('card')}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <span>Credit/Debit Card</span>
+                  </label>
                 </div>
               </div>
             </div>
 
-            <div className="pt-4 border-t">
-              <Label className="mb-2 block">Payment Method (If Paying Now)</Label>
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="cash"
-                    checked={paymentMethod === 'cash'}
-                    onChange={() => setPaymentMethod('cash')}
-                    className="w-4 h-4 text-primary"
-                  />
-                  <span>Cash</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="card"
-                    checked={paymentMethod === 'card'}
-                    onChange={() => setPaymentMethod('card')}
-                    className="w-4 h-4 text-primary"
-                  />
-                  <span>Credit/Debit Card</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-4 gap-2">
+            <div className="flex justify-end pt-4 gap-2 border-t mt-auto">
               <Button 
                 type="submit" 
                 name="action" 
