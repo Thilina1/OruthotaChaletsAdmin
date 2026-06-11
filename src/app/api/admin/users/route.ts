@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender } = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id } = await request.json();
 
         if (!email || !password || !name || !role) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -62,6 +62,8 @@ export async function POST(request: Request) {
                 permissions: permissions || [],
                 restrict_admin_permissions: restrict_admin_permissions || false,
                 gender,
+                leave_scheme_id: leave_scheme_id || null,
+                reporting_manager_id: reporting_manager_id || null,
             })
             .select()
             .single();
@@ -87,7 +89,7 @@ export async function PUT(request: Request) {
         }
 
         const data = await request.json();
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender } = data;
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id } = data;
 
         const updatePayload: any = {
             name,
@@ -101,6 +103,8 @@ export async function PUT(request: Request) {
             permissions: permissions || [],
             restrict_admin_permissions: restrict_admin_permissions !== undefined ? restrict_admin_permissions : false,
             gender,
+            leave_scheme_id: leave_scheme_id || null,
+            reporting_manager_id: reporting_manager_id || null,
         };
 
         if (password) {

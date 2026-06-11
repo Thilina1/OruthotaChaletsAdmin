@@ -1,13 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Plus } from "lucide-react";
+import { Plus, Clock, CheckCircle2, XCircle, CalendarDays } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -15,59 +13,121 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
-import { LeaveRequestForm } from '@/components/dashboard/hrms/leave-request-form';
-import type { Leave } from '@/lib/types';
+import { LeaveRequestForm, type LeaveRequestPayload } from '@/components/dashboard/hrms/leave-request-form';
 import { Badge } from "@/components/ui/badge";
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import type { LeaveSchemeType } from '@/lib/types';
+
+type LeaveEntry = {
+    id: string;
+    user_id: string;
+    leave_type_id: string;
+    start_date: string;
+    end_date: string;
+    days_count: number;
+    reason?: string;
+    status: 'pending' | 'approved' | 'rejected';
+    approved_by?: string;
+    half_day_type?: string;
+    created_at?: string;
+    leave_type?: { id: string; name: string; days_count: number };
+    employee?: { id: string; name: string; email: string };
+    approver?: { id: string; name: string };
+};
+
+type BalanceItem = LeaveSchemeType & {
+    used_days: number;
+    pending_days: number;
+    available_days: number;
+};
+
+function StatusBadge({ status }: { status: string }) {
+    if (status === 'approved') return <Badge className="bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400">Approved</Badge>;
+    if (status === 'rejected') return <Badge variant="destructive">Rejected</Badge>;
+    return <Badge variant="secondary">Pending</Badge>;
+}
+
+function BalanceCard({ item }: { item: BalanceItem }) {
+    const pct = item.days_count > 0 ? Math.round((item.used_days / item.days_count) * 100) : 0;
+    return (
+        <Card>
+            <CardContent className="pt-5 pb-4">
+                <div className="flex justify-between items-start mb-3">
+                    <div>
+                        <p className="text-sm font-semibold">{item.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{item.reset_period}</p>
+                    </div>
+                    <span className="text-2xl font-bold text-primary">{item.available_days}</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-1.5 mb-2">
+                    <div
+                        className="bg-primary h-1.5 rounded-full transition-all"
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                    />
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Used: <strong className="text-foreground">{item.used_days}</strong></span>
+                    {item.pending_days > 0 && <span>Pending: <strong className="text-yellow-600">{item.pending_days}</strong></span>}
+                    <span>Total: <strong className="text-foreground">{item.days_count}</strong></span>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
 
 export default function LeaveManagementPage() {
-    const [leaves, setLeaves] = useState<Leave[]>([]);
+    const [myLeaves, setMyLeaves] = useState<LeaveEntry[]>([]);
+    const [balance, setBalance] = useState<BalanceItem[]>([]);
+    const [schemeTypes, setSchemeTypes] = useState<LeaveSchemeType[]>([]);
+    const [hasScheme, setHasScheme] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isRequestOpen, setIsRequestOpen] = useState(false);
     const { toast } = useToast();
-    const supabase = createClient();
-    const [userRole, setUserRole] = useState<string | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
 
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        const getUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                setUserId(user.id);
-                // Fetch user role from public users table if needed, or use metadata
-                const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single();
-                setUserRole(userData?.role || null);
-            }
-        };
-        getUser();
-    }, [supabase]);
-
-    const fetchLeaves = async () => {
+    const fetchLeaves = useCallback(async (uid: string) => {
         setLoading(true);
-        setError(null);
         try {
             const res = await fetch('/api/hrms/leaves');
             const data = await res.json();
             if (data.error) throw new Error(data.error);
-            setLeaves(data.leaves || []);
+            const all: LeaveEntry[] = data.leaves ?? [];
+            setMyLeaves(all.filter(l => l.user_id === uid));
         } catch (error) {
-            console.error("Error fetching leaves:", error);
-            const msg = (error as Error).message;
-            setError(msg);
-            toast({ variant: 'destructive', title: "Error", description: msg });
+            toast({ variant: 'destructive', title: 'Error', description: (error as Error).message });
         } finally {
             setLoading(false);
         }
-    };
+    }, [toast]);
 
-    useEffect(() => {
-        fetchLeaves();
+    const fetchBalance = useCallback(async (uid: string) => {
+        try {
+            const res = await fetch(`/api/hrms/leave-balance?userId=${uid}`);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            setHasScheme(data.hasScheme ?? false);
+            setBalance(data.balance ?? []);
+            setSchemeTypes(data.balance ?? []);
+        } catch {
+            // supplementary — fail silently
+        }
     }, []);
 
-    const handleCreateLeave = async (values: any) => {
+    useEffect(() => {
+        const init = async () => {
+            const res = await fetch('/api/auth/me');
+            const data = await res.json();
+            if (data.user) {
+                setUserId(data.user.id);
+                fetchLeaves(data.user.id);
+                fetchBalance(data.user.id);
+            }
+        };
+        init();
+    }, [fetchLeaves, fetchBalance]);
+
+    const handleCreateLeave = async (values: LeaveRequestPayload) => {
         try {
             const res = await fetch('/api/hrms/leaves', {
                 method: 'POST',
@@ -76,222 +136,131 @@ export default function LeaveManagementPage() {
             });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
-
             toast({ title: "Request Sent", description: "Your leave request has been submitted." });
             setIsRequestOpen(false);
-            fetchLeaves();
+            if (userId) {
+                fetchLeaves(userId);
+                fetchBalance(userId);
+            }
         } catch (error) {
-            console.error("Error creating leave:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Failed to submit leave request." });
+            toast({ variant: 'destructive', title: 'Error', description: (error as Error).message });
         }
     };
 
-    const handleUpdateStatus = async (id: string, status: 'approved' | 'rejected') => {
-        try {
-            const res = await fetch('/api/hrms/leaves', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, status, approved_by: userId }),
-            });
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-
-            toast({ title: "Status Updated", description: `Leave request ${status}.` });
-            fetchLeaves();
-        } catch (error) {
-            console.error("Error updating status:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Failed to update status." });
-        }
-    };
-
-    const myLeaves = leaves.filter(l => l.user_id === userId);
-    // const pendingLeaves = leaves.filter(l => l.status === 'pending'); // Unused
+    const pendingCount = myLeaves.filter(l => l.status === 'pending').length;
+    const approvedCount = myLeaves.filter(l => l.status === 'approved').length;
+    const rejectedCount = myLeaves.filter(l => l.status === 'rejected').length;
 
     const {
-        currentPage: myCurrentPage,
-        totalPages: myTotalPages,
-        totalItems: myTotalItems,
-        paginatedItems: myPaginatedItems,
-        itemsPerPage: myItemsPerPage,
-        setCurrentPage: setMyCurrentPage,
+        currentPage, totalPages, totalItems, paginatedItems, itemsPerPage, setCurrentPage,
     } = usePagination(myLeaves, 20);
-
-    const {
-        currentPage: adminCurrentPage,
-        totalPages: adminTotalPages,
-        totalItems: adminTotalItems,
-        paginatedItems: adminPaginatedItems,
-        itemsPerPage: adminItemsPerPage,
-        setCurrentPage: setAdminCurrentPage,
-    } = usePagination(leaves, 20);
-
-    if (error && error.includes('relation "leaves" does not exist')) {
-        return (
-            <div className="p-10 text-center space-y-4">
-                <h2 className="text-2xl font-bold text-red-600">Setup Required</h2>
-                <p className="text-gray-600">The <strong>leaves</strong> table does not exist in your database.</p>
-                <div className="p-4 bg-gray-100 rounded-md text-left mx-auto max-w-2xl overflow-auto">
-                    <p className="mb-2 font-semibold">Please run the following SQL in your Supabase Dashboard:</p>
-                    <pre className="text-xs">
-                        {`-- Create leaves table
-CREATE TABLE IF NOT EXISTS leaves (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('annual', 'sick', 'casual', 'nopay')),
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
-  reason TEXT,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-  approved_by UUID REFERENCES users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE leaves ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can view own leaves" ON leaves FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can create leaves" ON leaves FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Admins can manage all leaves" ON leaves FOR ALL USING (EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin'));
-`}
-                    </pre>
-                </div>
-                <Button onClick={fetchLeaves}>I've ran the SQL, Try Again</Button>
-            </div>
-        );
-    }
 
     return (
         <div className="space-y-6">
+            {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-headline font-bold">Leave Management</h1>
-                    <p className="text-muted-foreground">Request and manage employee leaves.</p>
+                    <h1 className="text-3xl font-headline font-bold">My Leaves</h1>
+                    <p className="text-muted-foreground">View your leave balance and submit new requests.</p>
                 </div>
                 <Dialog open={isRequestOpen} onOpenChange={setIsRequestOpen}>
                     <DialogTrigger asChild>
-                        <Button>
-                            <Plus className="mr-2 h-4 w-4" /> Request Leave
-                        </Button>
+                        <Button><Plus className="mr-2 h-4 w-4" /> Request Leave</Button>
                     </DialogTrigger>
                     <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Request Leave</DialogTitle>
-                        </DialogHeader>
-                        <LeaveRequestForm onSubmit={handleCreateLeave} />
+                        <DialogHeader><DialogTitle>Request Leave</DialogTitle></DialogHeader>
+                        <LeaveRequestForm schemeTypes={schemeTypes} onSubmit={handleCreateLeave} />
                     </DialogContent>
                 </Dialog>
             </div>
 
-            <Tabs defaultValue="my-leaves">
-                <TabsList>
-                    <TabsTrigger value="my-leaves">My Leaves</TabsTrigger>
-                    {userRole === 'admin' && <TabsTrigger value="all-requests">All Requests</TabsTrigger>}
-                </TabsList>
+            {/* Leave Balance Cards */}
+            {hasScheme && balance.length > 0 && (
+                <div>
+                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Leave Balance — {new Date().getFullYear()}</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {balance.map(item => <BalanceCard key={item.id} item={item} />)}
+                    </div>
+                </div>
+            )}
 
-                <TabsContent value="my-leaves" className="space-y-4">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>My Leave History</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Dates</TableHead>
-                                        <TableHead>Reason</TableHead>
-                                        <TableHead>Status</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {(!myPaginatedItems || myPaginatedItems.length === 0) ? (
-                                        <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No leave records found.</TableCell></TableRow>
-                                    ) : (
-                                        myPaginatedItems.map(leave => (
-                                            <TableRow key={leave.id}>
-                                                <TableCell className="capitalize">{leave.type}</TableCell>
-                                                <TableCell>{leave.start_date} to {leave.end_date}</TableCell>
-                                                <TableCell>{leave.reason}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={leave.status === 'approved' ? 'default' : leave.status === 'rejected' ? 'destructive' : 'secondary'}>
-                                                        {leave.status}
-                                                    </Badge>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                            <DataTablePagination
-                                currentPage={myCurrentPage}
-                                totalPages={myTotalPages}
-                                totalItems={myTotalItems}
-                                itemsPerPage={myItemsPerPage}
-                                onPageChange={setMyCurrentPage}
-                            />
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+            {!hasScheme && !loading && (
+                <Card className="border-dashed">
+                    <CardContent className="flex items-center gap-3 py-4 text-sm text-muted-foreground">
+                        <CalendarDays className="h-5 w-5 flex-shrink-0" />
+                        No leave scheme assigned to your account. Contact HR to set one up.
+                    </CardContent>
+                </Card>
+            )}
 
-                {userRole === 'admin' && (
-                    <TabsContent value="all-requests" className="space-y-4">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Leave Requests</CardTitle>
-                                <CardDescription>Manage incoming leave requests.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Employee</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Dates</TableHead>
-                                            <TableHead>Reason</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead className="text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {(!adminPaginatedItems || adminPaginatedItems.length === 0) ? (
-                                            <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No records found.</TableCell></TableRow>
-                                        ) : (
-                                            adminPaginatedItems.map(leave => (
-                                                <TableRow key={leave.id}>
-                                                    <TableCell>
-                                                        {/* @ts-ignore: users data joined optionally */}
-                                                        {leave.users?.name || 'Unknown'}
-                                                    </TableCell>
-                                                    <TableCell className="capitalize">{leave.type}</TableCell>
-                                                    <TableCell>{leave.start_date} to {leave.end_date}</TableCell>
-                                                    <TableCell>{leave.reason}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={leave.status === 'approved' ? 'default' : leave.status === 'rejected' ? 'destructive' : 'secondary'}>
-                                                            {leave.status}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell className="text-right space-x-2">
-                                                        {leave.status === 'pending' && (
-                                                            <>
-                                                                <Button size="sm" onClick={() => handleUpdateStatus(leave.id, 'approved')}>Approve</Button>
-                                                                <Button size="sm" variant="destructive" onClick={() => handleUpdateStatus(leave.id, 'rejected')}>Reject</Button>
-                                                            </>
-                                                        )}
-                                                    </TableCell>
-                                                </TableRow>
-                                            )))}
-                                    </TableBody>
-                                </Table>
-                                <DataTablePagination
-                                    currentPage={adminCurrentPage}
-                                    totalPages={adminTotalPages}
-                                    totalItems={adminTotalItems}
-                                    itemsPerPage={adminItemsPerPage}
-                                    onPageChange={setAdminCurrentPage}
-                                />
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                )}
-            </Tabs>
+            {/* My Summary Stats */}
+            <div className="grid grid-cols-3 gap-4">
+                <Card>
+                    <CardContent className="pt-5 pb-4 flex items-center gap-3">
+                        <Clock className="h-8 w-8 text-yellow-500 flex-shrink-0" />
+                        <div>
+                            <p className="text-2xl font-bold">{pendingCount}</p>
+                            <p className="text-xs text-muted-foreground">Pending</p>
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-5 pb-4 flex items-center gap-3">
+                        <CheckCircle2 className="h-8 w-8 text-green-500 flex-shrink-0" />
+                        <div>
+                            <p className="text-2xl font-bold">{approvedCount}</p>
+                            <p className="text-xs text-muted-foreground">Approved</p>
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-5 pb-4 flex items-center gap-3">
+                        <XCircle className="h-8 w-8 text-red-500 flex-shrink-0" />
+                        <div>
+                            <p className="text-2xl font-bold">{rejectedCount}</p>
+                            <p className="text-xs text-muted-foreground">Rejected</p>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Leave History */}
+            <Card>
+                <CardHeader><CardTitle>My Leave History</CardTitle></CardHeader>
+                <CardContent>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Dates</TableHead>
+                                <TableHead>Days</TableHead>
+                                <TableHead>Reason</TableHead>
+                                <TableHead>Status</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {loading ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">Loading...</TableCell></TableRow>
+                            ) : paginatedItems.length === 0 ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No leave records found.</TableCell></TableRow>
+                            ) : paginatedItems.map(leave => (
+                                <TableRow key={leave.id}>
+                                    <TableCell className="font-medium">{leave.leave_type?.name ?? '—'}</TableCell>
+                                    <TableCell className="text-sm">
+                                        {leave.start_date}
+                                        {leave.end_date !== leave.start_date && ` → ${leave.end_date}`}
+                                        {leave.half_day_type && <span className="ml-1 text-xs text-muted-foreground">({leave.half_day_type})</span>}
+                                    </TableCell>
+                                    <TableCell>{leave.days_count}</TableCell>
+                                    <TableCell className="max-w-[200px] truncate">{leave.reason}</TableCell>
+                                    <TableCell><StatusBadge status={leave.status} /></TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                    <DataTablePagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} />
+                </CardContent>
+            </Card>
         </div>
     );
 }

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { User } from '@/lib/types';
+import type { User, LeaveScheme } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { KeyRound } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -128,6 +128,8 @@ const formSchema = z.object({
   permissions: z.array(z.string()).default([]),
   restrict_admin_permissions: z.boolean().default(false),
   gender: z.string().optional().or(z.literal('')),
+  leave_scheme_id: z.string().optional().or(z.literal('')),
+  reporting_manager_id: z.string().optional().or(z.literal('')),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
     return false;
@@ -153,6 +155,19 @@ interface UserFormProps {
 
 export function UserForm({ user, onSubmit }: UserFormProps) {
   const [showPassword, setShowPassword] = useState(!user);
+  const [leaveSchemes, setLeaveSchemes] = useState<LeaveScheme[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    fetch('/api/hrms/leave-schemes')
+      .then(r => r.json())
+      .then(d => setLeaveSchemes((d.schemes ?? []).filter((s: LeaveScheme) => s.is_active)))
+      .catch(() => {});
+    fetch('/api/admin/users')
+      .then(r => r.json())
+      .then(d => setAllUsers(d.users ?? []))
+      .catch(() => {});
+  }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -172,6 +187,8 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
       gender: user?.gender || '',
+      leave_scheme_id: user?.leave_scheme_id || 'none',
+      reporting_manager_id: user?.reporting_manager_id || 'none',
     },
   });
 
@@ -193,16 +210,22 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
       gender: user?.gender || '',
+      leave_scheme_id: user?.leave_scheme_id || 'none',
+      reporting_manager_id: user?.reporting_manager_id || 'none',
     });
     setShowPassword(!user);
   }, [user, form]);
 
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
-    const { confirmPassword, updatePassword, ...submissionData } = values;
+    const { confirmPassword, updatePassword, leave_scheme_id, reporting_manager_id, ...submissionData } = values;
     if (!updatePassword) {
       delete submissionData.password;
     }
-    onSubmit(submissionData);
+    onSubmit({
+      ...submissionData,
+      leave_scheme_id: leave_scheme_id && leave_scheme_id !== 'none' ? leave_scheme_id : null,
+      reporting_manager_id: reporting_manager_id && reporting_manager_id !== 'none' ? reporting_manager_id : null,
+    });
   };
 
   return (
@@ -392,6 +415,63 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
                   <SelectItem value="waiter">Waiter</SelectItem>
                   <SelectItem value="payment">Payment</SelectItem>
                   <SelectItem value="kitchen">Kitchen</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="leave_scheme_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Leave Scheme</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                value={field.value}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a leave scheme" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="none">— No scheme —</SelectItem>
+                  {leaveSchemes.map(scheme => (
+                    <SelectItem key={scheme.id} value={scheme.id}>
+                      {scheme.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="reporting_manager_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Reporting Manager</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a reporting manager" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="none">— No manager —</SelectItem>
+                  {allUsers
+                    .filter(u => u.id !== user?.id)
+                    .map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name} ({u.job_title || u.role})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <FormMessage />

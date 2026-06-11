@@ -19,6 +19,8 @@ export type User = {
   department?: string;
   restrict_admin_permissions?: boolean;
   gender?: string;
+  leave_scheme_id?: string;
+  reporting_manager_id?: string;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';
@@ -308,6 +310,43 @@ export type Leave = {
   reason?: string;
   status: LeaveStatus;
   approved_by?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type LeaveSchemeType = {
+  id: string;
+  scheme_id: string;
+  name: string;
+  days_count: number;
+  reset_period: 'weekly' | 'monthly' | 'yearly';
+  carry_forward: boolean;
+  carry_forward_max?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type LeaveScheme = {
+  id: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  leave_scheme_types?: LeaveSchemeType[];
+};
+
+export type LeaveRequest = {
+  id: string;
+  user_id: string;
+  leave_type_id: string;
+  start_date: string;
+  end_date: string;
+  days_count: number;
+  reason?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_by?: string;
+  half_day_type?: 'morning' | 'evening';
   created_at?: string;
   updated_at?: string;
 };

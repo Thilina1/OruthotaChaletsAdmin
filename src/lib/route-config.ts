@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -57,6 +57,9 @@ export const otherMenue: MenuItem[] = [
 export const hrmsMenuItems: MenuItem[] = [
     { href: '/dashboard/hrms/employees', icon: Briefcase, label: 'Employees', roles: ['admin'] },
     { href: '/dashboard/hrms/leaves', icon: Calendar, label: 'Leaves', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/leave-schemes', icon: Layers, label: 'Leave Schemes', roles: ['admin'] },
+    { href: '/dashboard/hrms/leave-approvals', icon: ShieldCheck, label: 'Leave Approvals', roles: ['admin'] },
+    { href: '/dashboard/hrms/working-calendar', icon: CalendarDays, label: 'Working Calendar', roles: ['admin'] },
     { href: '/dashboard/hrms/reports', icon: ClipboardList, label: 'Daily Reports', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/payroll', icon: Banknote, label: 'Payroll', roles: ['admin'] },
     { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment'] },

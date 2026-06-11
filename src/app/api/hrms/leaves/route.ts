@@ -1,81 +1,61 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
-export async function GET(request: Request) {
+export async function GET() {
     const supabase = await createClient();
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
-
     try {
-        let query = supabase
-            .from('leaves')
+        const { data: requests, error } = await supabase
+            .from('leave_requests')
             .select(`
-        *,
-        users!user_id (
-          name,
-          email
-        )
-      `)
+                *,
+                leave_type:leave_scheme_types!leave_type_id(id, name, days_count),
+                employee:users!user_id(id, name, email),
+                approver:users!approved_by(id, name)
+            `)
             .order('created_at', { ascending: false });
 
-        if (userId) {
-            query = query.eq('user_id', userId);
-        }
-
-        const { data: leaves, error } = await query;
-
         if (error) throw error;
-
-        return NextResponse.json({ leaves });
+        return NextResponse.json({ leaves: requests });
     } catch (error) {
-        console.error('Error fetching leaves:', error);
-        return NextResponse.json({ error: (error as Error).message || 'Error fetching leaves' }, { status: 500 });
+        return NextResponse.json({ error: (error as Error).message }, { status: 500 });
     }
 }
 
 export async function POST(request: Request) {
     const supabase = await createClient();
-
     try {
         const body = await request.json();
-        const { user_id, type, start_date, end_date, reason } = body;
+        const { user_id, leave_type_id, start_date, end_date, days_count, half_day_type, reason } = body;
 
         const { data: leave, error } = await supabase
-            .from('leaves')
-            .insert([
-                { user_id, type, start_date, end_date, reason, status: 'pending' }
-            ])
+            .from('leave_requests')
+            .insert([{ user_id, leave_type_id, start_date, end_date, days_count, half_day_type: half_day_type || null, reason, status: 'pending' }])
             .select()
             .single();
 
         if (error) throw error;
-
         return NextResponse.json({ leave });
     } catch (error) {
-        console.error('Error creating leave request:', error);
-        return NextResponse.json({ error: (error as Error).message || 'Error creating leave request' }, { status: 500 });
+        return NextResponse.json({ error: (error as Error).message }, { status: 500 });
     }
 }
 
 export async function PUT(request: Request) {
     const supabase = await createClient();
-
     try {
         const body = await request.json();
         const { id, status, approved_by } = body;
 
         const { data: leave, error } = await supabase
-            .from('leaves')
+            .from('leave_requests')
             .update({ status, approved_by, updated_at: new Date().toISOString() })
             .eq('id', id)
             .select()
             .single();
 
         if (error) throw error;
-
         return NextResponse.json({ leave });
     } catch (error) {
-        console.error('Error updating leave request:', error);
-        return NextResponse.json({ error: (error as Error).message || 'Error updating leave request' }, { status: 500 });
+        return NextResponse.json({ error: (error as Error).message }, { status: 500 });
     }
 }
