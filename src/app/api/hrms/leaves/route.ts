@@ -25,11 +25,11 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     try {
         const body = await request.json();
-        const { user_id, leave_type_id, start_date, end_date, days_count, half_day_type, reason } = body;
+        const { user_id, leave_type_id, start_date, end_date, days_count, half_day_type, reason, status, approved_by } = body;
 
         const { data: leave, error } = await supabase
             .from('leave_requests')
-            .insert([{ user_id, leave_type_id, start_date, end_date, days_count, half_day_type: half_day_type || null, reason, status: 'pending' }])
+            .insert([{ user_id, leave_type_id, start_date, end_date, days_count, half_day_type: half_day_type || null, reason, status: status ?? 'pending', approved_by: approved_by ?? null }])
             .select()
             .single();
 

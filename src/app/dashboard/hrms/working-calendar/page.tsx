@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, ChevronRight, X, Plus, CalendarDays, Pencil, Trash2, ArrowLeft, Download } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EmployeeCalendarOverrides } from '@/components/dashboard/hrms/employee-calendar-overrides';
 import {
     Dialog,
     DialogContent,
@@ -604,6 +606,18 @@ function CalendarDetailView({
                 <span className="text-foreground font-medium">{calendar.name}</span>
             </div>
 
+            <Tabs defaultValue="calendar">
+            <TabsList>
+                <TabsTrigger value="calendar">Calendar</TabsTrigger>
+                <TabsTrigger value="employee-overrides">Employee Overrides</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="employee-overrides" className="mt-4">
+                <EmployeeCalendarOverrides calendar={calendar} />
+            </TabsContent>
+
+            <TabsContent value="calendar" className="mt-4 space-y-6">
+
             {/* Header */}
             <div className="flex justify-between items-start">
                 <div>
@@ -713,6 +727,9 @@ function CalendarDetailView({
                     </CardContent>
                 </Card>
             )}
+
+            </TabsContent>{/* end calendar TabsContent */}
+            </Tabs>
 
             {/* Add Holiday Manually */}
             <Dialog open={addHolidayOpen} onOpenChange={setAddHolidayOpen}>

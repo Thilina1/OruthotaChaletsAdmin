@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id } = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances } = await request.json();
 
         if (!email || !password || !name || !role) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -64,12 +64,30 @@ export async function POST(request: Request) {
                 gender,
                 leave_scheme_id: leave_scheme_id || null,
                 reporting_manager_id: reporting_manager_id || null,
+                working_calendar_id: working_calendar_id || null,
             })
             .select()
             .single();
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        // Save salary details if provided
+        if (data && basic_salary !== null && basic_salary !== undefined) {
+            const allowanceList = Array.isArray(allowances) ? allowances : [];
+            const totalAllowances = allowanceList.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+            const { error: salaryError } = await supabase.from('salary_details').upsert([{
+                user_id: data.id,
+                basic_salary: Number(basic_salary),
+                fixed_allowances: totalAllowances,
+                allowances_json: allowanceList,
+                updated_at: new Date().toISOString(),
+            }], { onConflict: 'user_id' });
+            if (salaryError) {
+                console.error('Salary save error:', salaryError.message);
+                return NextResponse.json({ user: data, salaryError: salaryError.message }, { status: 201 });
+            }
         }
 
         return NextResponse.json({ user: data }, { status: 201 });
@@ -89,7 +107,7 @@ export async function PUT(request: Request) {
         }
 
         const data = await request.json();
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id } = data;
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances } = data;
 
         const updatePayload: any = {
             name,
@@ -105,6 +123,7 @@ export async function PUT(request: Request) {
             gender,
             leave_scheme_id: leave_scheme_id || null,
             reporting_manager_id: reporting_manager_id || null,
+            working_calendar_id: working_calendar_id || null,
         };
 
         if (password) {
@@ -120,6 +139,23 @@ export async function PUT(request: Request) {
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        // Save salary details if provided
+        if (basic_salary !== null && basic_salary !== undefined) {
+            const allowanceList = Array.isArray(allowances) ? allowances : [];
+            const totalAllowances = allowanceList.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+            const { error: salaryError } = await supabase.from('salary_details').upsert([{
+                user_id: id,
+                basic_salary: Number(basic_salary),
+                fixed_allowances: totalAllowances,
+                allowances_json: allowanceList,
+                updated_at: new Date().toISOString(),
+            }], { onConflict: 'user_id' });
+            if (salaryError) {
+                console.error('Salary save error:', salaryError.message);
+                return NextResponse.json({ user: updatedUser, salaryError: salaryError.message }, { status: 200 });
+            }
         }
 
         return NextResponse.json({ user: updatedUser }, { status: 200 });

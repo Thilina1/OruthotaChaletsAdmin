@@ -18,10 +18,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { MoreHorizontal, PlusCircle, Trash2, Edit } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Trash2, Edit, Layers } from 'lucide-react';
 import type { MenuItem as MenuItemType, MenuCategory, MenuSection, HotelInventoryItem, InventoryDepartment } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MenuItemForm } from '@/components/dashboard/menu-management/menu-item-form';
+import { MenuItemForm, type MenuItemFormValues } from '@/components/dashboard/menu-management/menu-item-form';
+import { BatchPricingDialog } from '@/components/dashboard/menu-management/batch-pricing-dialog';
 import {
     Dialog,
     DialogContent,
@@ -49,6 +50,7 @@ export default function MenuManagementPage() {
     const [categories, setCategories] = useState<MenuSection[]>([]);
     const [inventoryItems, setInventoryItems] = useState<HotelInventoryItem[]>([]);
     const [departments, setDepartments] = useState<InventoryDepartment[]>([]);
+    const [restaurantWarehouseIds, setRestaurantWarehouseIds] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -57,13 +59,12 @@ export default function MenuManagementPage() {
         setIsLoading(true);
         setFetchError(null);
         try {
-            const [itemsRes, categoriesRes, inventoryRes, deptsRes, invCatsRes, invUnitsRes] = await Promise.all([
+            const [itemsRes, categoriesRes, inventoryRes, deptsRes, warehouseSettingRes] = await Promise.all([
                 supabase.from('menu_items').select('*').order('name'),
                 fetch('/api/admin/menu-sections').then(res => res.json()),
                 fetch('/api/admin/inventory/items').then(res => res.json()),
                 supabase.from('inventory_departments').select('*').order('name'),
-                fetch('/api/admin/inventory-categories').then(res => res.json()),
-                fetch('/api/admin/inventory-units').then(res => res.json())
+                fetch('/api/admin/app-settings?key=restaurant_warehouse_ids').then(r => r.json()).catch(() => ({ value: [] })),
             ]);
 
             if (itemsRes.error) throw itemsRes.error;
@@ -77,6 +78,8 @@ export default function MenuManagementPage() {
 
             if (deptsRes.error) throw deptsRes.error;
             setDepartments((deptsRes.data as InventoryDepartment[]) || []);
+
+            setRestaurantWarehouseIds(warehouseSettingRes.value || []);
 
         } catch (error: any) {
             console.error("Error fetching data:", error);
@@ -113,11 +116,12 @@ export default function MenuManagementPage() {
         });
     };
 
-    const handleFormSubmit = async (values: any) => {
+    const handleFormSubmit = async (values: MenuItemFormValues) => {
         if (!currentUser) return;
 
         try {
-            let finalLinkedId = values.linked_inventory_item_id && values.linked_inventory_item_id !== 'none' ? values.linked_inventory_item_id : null;
+            let finalLinkedId = values.linked_inventory_item_id && values.linked_inventory_item_id !== 'none'
+                ? values.linked_inventory_item_id : null;
 
             if (values.stockType === 'Inventoried' && values.linked_inventory_item_id === 'none') {
                 const newInventoryData = {
@@ -141,9 +145,8 @@ export default function MenuManagementPage() {
                 });
                 const newInvItem = await res.json();
                 if (newInvItem.error) throw new Error(newInvItem.error);
-                
-                finalLinkedId = newInvItem.item.id;
 
+                finalLinkedId = newInvItem.item.id;
                 setInventoryItems(prev => [...prev, newInvItem.item as HotelInventoryItem].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
 
                 if (values.stock && values.stock > 0) {
@@ -159,7 +162,6 @@ export default function MenuManagementPage() {
                 }
             }
 
-            // Map form values (camelCase) to DB values (snake_case)
             const dataToSave = {
                 name: values.name,
                 description: values.description,
@@ -172,36 +174,44 @@ export default function MenuManagementPage() {
                 linked_inventory_item_id: finalLinkedId,
                 sell_type: 'Direct',
             };
+
+            let savedMenuItemId: string;
+
             if (editingItem) {
-                // Update existing item
                 const { data, error } = await supabase.from('menu_items').update({
                     ...dataToSave,
                     updated_at: new Date().toISOString(),
                 }).eq('id', editingItem.id).select().single();
-
                 if (error) throw error;
-
-                setMenuItems(prev => prev.map(item => item.id === (data as MenuItemType).id ? (data as MenuItemType) : item));
-
+                setMenuItems(prev => prev.map(i => i.id === (data as MenuItemType).id ? (data as MenuItemType) : i));
+                savedMenuItemId = editingItem.id;
                 toast({ title: "Menu Item Updated", description: "The item details have been updated." });
-
             } else {
-                // Create new item
                 const { data, error } = await supabase.from('menu_items').insert([{
                     ...dataToSave,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 }]).select().single();
-
                 if (error) throw error;
-
                 setMenuItems(prev => [...prev, (data as MenuItemType)].sort((a, b) => a.name.localeCompare(b.name)));
-
+                savedMenuItemId = (data as MenuItemType).id;
                 toast({ title: "Menu Item Created", description: "A new item has been successfully added to the menu." });
             }
-            // fetchData(); // No longer needed for optimistic update, but can keep if we want to be sure. 
-            // Commenting out to strictly test "without reload" feel, 
-            // but relying on the mapped data is safer if select() returns everything.
+
+            // Save batch selling prices
+            if (values.batchPrices && values.batchPrices.length > 0) {
+                await Promise.all(values.batchPrices.map(bp =>
+                    fetch('/api/admin/inventory/batches', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            menu_item_id: savedMenuItemId,
+                            batch_id: bp.batch_id,
+                            selling_price: bp.selling_price,
+                        }),
+                    })
+                ));
+            }
 
         } catch (error: any) {
             console.error("Error saving menu item: ", JSON.stringify(error, null, 2));
@@ -266,6 +276,7 @@ export default function MenuManagementPage() {
         );
     }
 
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-start">
@@ -287,10 +298,10 @@ export default function MenuManagementPage() {
                         <MenuItemForm
                             item={editingItem}
                             onSubmit={handleFormSubmit}
-
                             categories={categories}
                             inventoryItems={inventoryItems}
                             departments={departments}
+                            restaurantWarehouseIds={restaurantWarehouseIds}
                         />
                     </DialogContent>
                 </Dialog>
@@ -354,8 +365,27 @@ function PaginatedMenuCategory({
         setCurrentPage,
     } = usePagination(items, 20);
 
+    const [batchDialog, setBatchDialog] = useState<{ open: boolean; itemId: string; itemName: string; menuItemId: string }>({
+        open: false,
+        itemId: '',
+        itemName: '',
+        menuItemId: '',
+    });
+
+    const openBatchDialog = (item: MenuItemType) => {
+        if (!item.linked_inventory_item_id) return;
+        setBatchDialog({ open: true, itemId: item.linked_inventory_item_id, itemName: item.name, menuItemId: item.id });
+    };
+
     return (
         <div className="flex flex-col">
+            <BatchPricingDialog
+                open={batchDialog.open}
+                onOpenChange={(open) => setBatchDialog(prev => ({ ...prev, open }))}
+                inventoryItemId={batchDialog.itemId}
+                inventoryItemName={batchDialog.itemName}
+                menuItemId={batchDialog.menuItemId}
+            />
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -382,13 +412,13 @@ function PaginatedMenuCategory({
                                             if (linkedItem) {
                                                 const restDept = departments.find(d => d.name.toLowerCase().includes('restaurant') || d.name.toLowerCase().includes('kitchen'));
                                                 const storeDept = departments.find(d => d.name.toLowerCase().includes('store') || d.name.toLowerCase().includes('main'));
-                                                
+
                                                 const restItem = restDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === restDept.id) : null;
                                                 const storeItem = storeDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === storeDept.id) : null;
-                                                
+
                                                 const restQty = restItem ? (restItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? 0 : (linkedItem.current_stock ?? 0));
                                                 const storeQty = storeItem ? (storeItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? (linkedItem.current_stock ?? 0) : 0);
-                                                
+
                                                 return (
                                                     <div className="flex flex-col">
                                                         <span className="font-semibold">{restQty} / {storeQty} {typeof linkedItem.unit === 'string' ? linkedItem.unit : (linkedItem.unit?.name ?? '')}</span>
@@ -421,6 +451,12 @@ function PaginatedMenuCategory({
                                             <Edit className="mr-2 h-4 w-4" />
                                             Edit
                                         </DropdownMenuItem>
+                                        {item.stock_type === 'Inventoried' && item.linked_inventory_item_id && (
+                                            <DropdownMenuItem onClick={() => openBatchDialog(item)}>
+                                                <Layers className="mr-2 h-4 w-4" />
+                                                View Batches & Pricing
+                                            </DropdownMenuItem>
+                                        )}
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </TableCell>

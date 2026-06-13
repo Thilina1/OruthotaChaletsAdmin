@@ -1,6 +1,6 @@
 'use client';
 
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
@@ -20,14 +20,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { User, LeaveScheme } from '@/lib/types';
+import type { User, LeaveScheme, WorkingCalendar } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, CalendarIcon, Plus, X, Banknote } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
 import { STAFF_HIERARCHY, DEPARTMENTS } from '@/lib/staff-hierarchy';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { format, parse, isValid } from 'date-fns';
 
 const APP_SECTION_GROUPS = [
   {
@@ -130,6 +133,12 @@ const formSchema = z.object({
   gender: z.string().optional().or(z.literal('')),
   leave_scheme_id: z.string().optional().or(z.literal('')),
   reporting_manager_id: z.string().optional().or(z.literal('')),
+  working_calendar_id: z.string().optional().or(z.literal('')),
+  basic_salary: z.coerce.number().min(0, 'Must be 0 or greater').optional().or(z.literal('')),
+  allowances: z.array(z.object({
+    name: z.string().min(1, 'Name is required'),
+    amount: z.coerce.number().min(0, 'Must be 0 or greater'),
+  })).default([]),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
     return false;
@@ -157,6 +166,8 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
   const [showPassword, setShowPassword] = useState(!user);
   const [leaveSchemes, setLeaveSchemes] = useState<LeaveScheme[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [workingCalendars, setWorkingCalendars] = useState<WorkingCalendar[]>([]);
+  const [salaryLoading, setSalaryLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/hrms/leave-schemes')
@@ -166,6 +177,10 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
     fetch('/api/admin/users')
       .then(r => r.json())
       .then(d => setAllUsers(d.users ?? []))
+      .catch(() => {});
+    fetch('/api/hrms/working-calendars')
+      .then(r => r.json())
+      .then(d => setWorkingCalendars((d.calendars ?? []).filter((c: WorkingCalendar) => c.is_active)))
       .catch(() => {});
   }, []);
 
@@ -189,7 +204,15 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       gender: user?.gender || '',
       leave_scheme_id: user?.leave_scheme_id || 'none',
       reporting_manager_id: user?.reporting_manager_id || 'none',
+      working_calendar_id: user?.working_calendar_id || 'none',
+      basic_salary: undefined,
+      allowances: [],
     },
+  });
+
+  const { fields: allowanceFields, append: appendAllowance, remove: removeAllowance } = useFieldArray({
+    control: form.control,
+    name: 'allowances',
   });
 
 
@@ -212,12 +235,30 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       gender: user?.gender || '',
       leave_scheme_id: user?.leave_scheme_id || 'none',
       reporting_manager_id: user?.reporting_manager_id || 'none',
+      working_calendar_id: user?.working_calendar_id || 'none',
+      basic_salary: undefined,
+      allowances: [],
     });
     setShowPassword(!user);
+
+    if (user?.id) {
+      setSalaryLoading(true);
+      fetch(`/api/hrms/payroll/settings?userId=${user.id}`)
+        .then(r => r.json())
+        .then(d => {
+          const sd = d.salaryDetails?.[0];
+          if (sd) {
+            form.setValue('basic_salary', sd.basic_salary ?? undefined);
+            form.setValue('allowances', Array.isArray(sd.allowances_json) ? sd.allowances_json : []);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setSalaryLoading(false));
+    }
   }, [user, form]);
 
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
-    const { confirmPassword, updatePassword, leave_scheme_id, reporting_manager_id, ...submissionData } = values;
+    const { confirmPassword, updatePassword, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, ...submissionData } = values;
     if (!updatePassword) {
       delete submissionData.password;
     }
@@ -225,6 +266,9 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       ...submissionData,
       leave_scheme_id: leave_scheme_id && leave_scheme_id !== 'none' ? leave_scheme_id : null,
       reporting_manager_id: reporting_manager_id && reporting_manager_id !== 'none' ? reporting_manager_id : null,
+      working_calendar_id: working_calendar_id && working_calendar_id !== 'none' ? working_calendar_id : null,
+      basic_salary: basic_salary != null && basic_salary !== '' ? Number(basic_salary) : null,
+      allowances: allowances || [],
     });
   };
 
@@ -313,15 +357,42 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           <FormField
             control={form.control}
             name="join_date"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Join Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              const dateValue = field.value
+                ? parse(field.value, 'yyyy-MM-dd', new Date())
+                : undefined;
+              const validDate = dateValue && isValid(dateValue) ? dateValue : undefined;
+              return (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Join Date</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            'w-full pl-3 text-left font-normal',
+                            !field.value && 'text-muted-foreground'
+                          )}
+                        >
+                          {validDate ? format(validDate, 'PPP') : <span>Pick a date</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={validDate}
+                        onSelect={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
         </div>
 
@@ -478,6 +549,140 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="working_calendar_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Working Calendar</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a working calendar" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="none">— No calendar —</SelectItem>
+                  {workingCalendars.map(cal => (
+                    <SelectItem key={cal.id} value={cal.id}>
+                      {cal.name} ({cal.year})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Salary & Allowances */}
+        <div className="space-y-3 pt-4 border-t">
+          <div className="flex items-center gap-2">
+            <Banknote className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Salary & Allowances</h3>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="basic_salary"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Monthly Basic Salary (LKR)</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    value={field.value == null || (typeof field.value === 'number' && isNaN(field.value)) ? '' : field.value}
+                    onChange={e => field.onChange(e.target.value === '' ? null : parseFloat(e.target.value))}
+                    disabled={salaryLoading}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Allowances</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => appendAllowance({ name: '', amount: 0 })}
+              >
+                <Plus className="h-3 w-3 mr-1" /> Add Allowance
+              </Button>
+            </div>
+
+            {allowanceFields.length === 0 && (
+              <p className="text-xs text-muted-foreground">No allowances added. Click "Add Allowance" to add P/s Budgetary Relief, transport, etc.</p>
+            )}
+
+            {allowanceFields.map((af, index) => (
+              <div key={af.id} className="flex gap-2 items-start">
+                <FormField
+                  control={form.control}
+                  name={`allowances.${index}.name`}
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      <FormControl>
+                        <Input placeholder="e.g. P/s Budgetary Relief" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`allowances.${index}.amount`}
+                  render={({ field }) => (
+                    <FormItem className="w-32">
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          min="0"
+                          step="0.01"
+                          name={field.name}
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          value={field.value == null || (typeof field.value === 'number' && isNaN(field.value)) ? '' : field.value}
+                          onChange={e => field.onChange(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => removeAllowance(index)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+
+            {allowanceFields.length > 0 && (
+              <div className="flex justify-end text-xs text-muted-foreground pt-1">
+                Total allowances: LKR {allowanceFields.reduce((sum, _, i) => {
+                  const val = form.watch(`allowances.${i}.amount`);
+                  return sum + (Number(val) || 0);
+                }, 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+              </div>
+            )}
+          </div>
+        </div>
 
         {user && (
           <FormField

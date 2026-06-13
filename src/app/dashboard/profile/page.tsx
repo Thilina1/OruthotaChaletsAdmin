@@ -6,17 +6,20 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  User, 
-  Mail, 
-  Calendar, 
-  Shield, 
-  Briefcase, 
-  Phone, 
-  MapPin, 
+import {
+  User,
+  Mail,
+  Calendar,
+  Shield,
+  Briefcase,
+  Phone,
+  MapPin,
   IdCard,
   Clock,
-  Terminal
+  Terminal,
+  CalendarDays,
+  BookOpen,
+  CheckCircle2,
 } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -116,16 +119,62 @@ export default function ProfilePage() {
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
                 <InfoRow icon={Briefcase} label="Designation / Job Title" value={user.job_title || user.role} />
-                <InfoRow 
-                  icon={Calendar} 
-                  label="Joining Date" 
-                  value={user.join_date ? new Date(user.join_date).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'N/A'} 
+                <InfoRow
+                  icon={Calendar}
+                  label="Joining Date"
+                  value={user.join_date ? new Date(user.join_date).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'N/A'}
                 />
-                <InfoRow 
-                  icon={Clock} 
-                  label="Member Since" 
-                  value={user.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'N/A'} 
+                <InfoRow
+                  icon={Clock}
+                  label="Member Since"
+                  value={user.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'N/A'}
                 />
+
+                {/* Working Calendar */}
+                <div className="group">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Working Calendar</p>
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-muted/50 rounded-md group-hover:bg-primary/10 transition-colors mt-0.5">
+                      <CalendarDays className="w-4 h-4 text-primary/70 group-hover:text-primary" />
+                    </div>
+                    {user.working_calendar ? (
+                      <div>
+                        <p className="font-medium text-foreground">{user.working_calendar.name}</p>
+                        <p className="text-xs text-muted-foreground">Year: {user.working_calendar.year}{user.working_calendar.description ? ` · ${user.working_calendar.description}` : ''}</p>
+                      </div>
+                    ) : (
+                      <span className="font-medium text-muted-foreground">Not assigned</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Leave Scheme */}
+                <div className="group">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Leave Scheme</p>
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-muted/50 rounded-md group-hover:bg-primary/10 transition-colors mt-0.5">
+                      <BookOpen className="w-4 h-4 text-primary/70 group-hover:text-primary" />
+                    </div>
+                    {user.leave_scheme ? (
+                      <div className="space-y-2 flex-1">
+                        <p className="font-medium text-foreground">{user.leave_scheme.name}</p>
+                        {user.leave_scheme.leave_scheme_types && user.leave_scheme.leave_scheme_types.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {user.leave_scheme.leave_scheme_types.map(lt => (
+                              <div key={lt.id} className="flex items-center gap-1 bg-primary/5 border border-primary/10 rounded-md px-2 py-1">
+                                <CheckCircle2 className="w-3 h-3 text-primary/60" />
+                                <span className="text-xs font-medium">{lt.name}</span>
+                                <span className="text-xs text-muted-foreground">({lt.days_count}d / {lt.reset_period})</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="font-medium text-muted-foreground">Not assigned</span>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

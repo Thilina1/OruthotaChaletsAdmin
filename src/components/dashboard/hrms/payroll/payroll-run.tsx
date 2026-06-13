@@ -40,7 +40,6 @@ export function PayrollRun() {
             const { data: usersData, error: usersError } = await supabase
                 .from('users')
                 .select('*')
-                .neq('role', 'admin') // Optional filter
                 .order('name');
             if (usersError) throw usersError;
 
@@ -121,13 +120,13 @@ export function PayrollRun() {
                 }),
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error);
+            if (!res.ok || data.error) throw new Error(data.error || data.details || 'Unknown error');
 
             toast({ title: "Processed", description: `Payroll processed for ${employee.name}.` });
-            fetchData(); // Refresh to show "Processed" state
-        } catch (error) {
+            fetchData();
+        } catch (error: any) {
             console.error("Error processing payroll:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Failed to process payroll." });
+            toast({ variant: 'destructive', title: "Payroll Error", description: error.message || "Failed to process payroll." });
         } finally {
             setProcessing(null);
         }
@@ -172,19 +171,24 @@ export function PayrollRun() {
                                 <TableRow key={emp.id}>
                                     <TableCell>
                                         <div className="font-medium">{emp.name}</div>
-                                        <div className="text-xs text-muted-foreground">{emp.role}</div>
+                                        <div className="text-xs text-muted-foreground">{emp.job_title || emp.role} {emp.department ? `· ${emp.department}` : ''}</div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="text-xs">B: {emp.calculated?.basic.toFixed(2)}</div>
-                                        <div className="text-xs text-muted-foreground">A: {emp.calculated?.allowances.toFixed(2)}</div>
+                                        <div className="text-xs font-medium">LKR {emp.calculated?.basic.toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">+LKR {emp.calculated?.allowances.toLocaleString()} allowances</div>
                                     </TableCell>
-                                    <TableCell>{emp.calculated?.gross.toFixed(2)}</TableCell>
                                     <TableCell>
-                                        <div className="text-xs">Ded: {emp.calculated?.epf_employee.toFixed(2)}</div>
-                                        <div className="text-xs text-muted-foreground">Comp: {(emp.calculated!.epf_employer + emp.calculated!.etf_employer).toFixed(2)}</div>
+                                        {emp.salary ? `LKR ${emp.calculated?.gross.toLocaleString()}` : <span className="text-xs text-muted-foreground">—</span>}
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="text-xs">Employee: LKR {emp.calculated?.epf_employee.toFixed(2)}</div>
+                                        <div className="text-xs text-muted-foreground">Employer: LKR {(emp.calculated!.epf_employer + emp.calculated!.etf_employer).toFixed(2)}</div>
                                     </TableCell>
                                     <TableCell className="font-bold">
-                                        {isProcessed ? emp.payroll?.net_salary.toFixed(2) : emp.calculated?.net.toFixed(2)}
+                                        {emp.salary
+                                            ? `LKR ${isProcessed ? emp.payroll?.net_salary.toLocaleString() : emp.calculated?.net.toLocaleString()}`
+                                            : <span className="text-xs text-muted-foreground italic">No salary set</span>
+                                        }
                                     </TableCell>
                                     <TableCell>
                                         {isProcessed ? (
@@ -197,8 +201,9 @@ export function PayrollRun() {
                                         <Button
                                             size="sm"
                                             onClick={() => handleProcess(emp)}
-                                            disabled={isProcessed || processing === emp.id}
+                                            disabled={isProcessed || processing === emp.id || !emp.salary}
                                             variant={isProcessed ? "outline" : "default"}
+                                            title={!emp.salary ? 'Set salary first in Employee Management' : undefined}
                                         >
                                             {processing === emp.id ? <Loader2 className="h-4 w-4 animate-spin" /> : isProcessed ? "Done" : <><Play className="h-4 w-4 mr-1" /> Process</>}
                                         </Button>

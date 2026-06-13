@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Trash2, Edit2, Save, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, Warehouse } from 'lucide-react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -17,7 +19,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { RestaurantSection } from '@/lib/types';
+import type { RestaurantSection, InventoryWarehouse } from '@/lib/types';
 
 export default function RestaurantSettingsPage() {
     const { toast } = useToast();
@@ -34,6 +36,12 @@ export default function RestaurantSettingsPage() {
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
+    // Restaurant warehouse setting
+    const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([]);
+    const [selectedWarehouseIds, setSelectedWarehouseIds] = useState<string[]>([]);
+    const [isSavingWarehouse, setIsSavingWarehouse] = useState(false);
+    const [isWarehouseLoading, setIsWarehouseLoading] = useState(true);
+
     const fetchSections = async () => {
         try {
             const res = await fetch('/api/admin/restaurant-sections');
@@ -48,9 +56,50 @@ export default function RestaurantSettingsPage() {
         }
     };
 
+    const fetchWarehouseSettings = async () => {
+        try {
+            const [warehousesRes, settingRes] = await Promise.all([
+                fetch('/api/admin/inventory/warehouses'),
+                fetch('/api/admin/app-settings?key=restaurant_warehouse_ids'),
+            ]);
+            const warehousesData = await warehousesRes.json();
+            const settingData = await settingRes.json();
+            setWarehouses(warehousesData.warehouses || []);
+            setSelectedWarehouseIds(settingData.value || []);
+        } catch (error: any) {
+            console.error('Error fetching warehouse settings:', error);
+        } finally {
+            setIsWarehouseLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchSections();
+        fetchWarehouseSettings();
     }, []);
+
+    const handleWarehouseToggle = (id: string) => {
+        setSelectedWarehouseIds(prev =>
+            prev.includes(id) ? prev.filter(w => w !== id) : [...prev, id]
+        );
+    };
+
+    const handleSaveWarehouseSettings = async () => {
+        setIsSavingWarehouse(true);
+        try {
+            const res = await fetch('/api/admin/app-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'restaurant_warehouse_ids', value: selectedWarehouseIds }),
+            });
+            if (!res.ok) throw new Error('Failed to save');
+            toast({ title: 'Success', description: 'Restaurant warehouse settings saved.' });
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to save settings.' });
+        } finally {
+            setIsSavingWarehouse(false);
+        }
+    };
 
     const handleAddSection = async () => {
         if (!newSectionName.trim()) return;
@@ -124,6 +173,60 @@ export default function RestaurantSettingsPage() {
                 <h1 className="text-3xl font-headline font-bold">Restaurant Settings</h1>
                 <p className="text-muted-foreground">Manage dynamic configurations for your restaurant.</p>
             </div>
+
+            {/* Restaurant Warehouse Selection */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Warehouse className="h-5 w-5 text-primary" />
+                        Restaurant Warehouses
+                    </CardTitle>
+                    <CardDescription>
+                        Select which inventory warehouses supply the restaurant. Items from these warehouses will be available to link to menu items.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {isWarehouseLoading ? (
+                        <div className="flex justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                    ) : warehouses.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No active warehouses found. Create warehouses in Inventory &gt; Manage Store.</p>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {warehouses.map(wh => (
+                                <label
+                                    key={wh.id}
+                                    className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                                >
+                                    <Checkbox
+                                        id={`wh-${wh.id}`}
+                                        checked={selectedWarehouseIds.includes(wh.id)}
+                                        onCheckedChange={() => handleWarehouseToggle(wh.id)}
+                                        className="mt-0.5"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-sm">{wh.name}</p>
+                                        {wh.department && (
+                                            <p className="text-xs text-muted-foreground">{wh.department.name}</p>
+                                        )}
+                                    </div>
+                                    {selectedWarehouseIds.includes(wh.id) && (
+                                        <Badge variant="secondary" className="text-xs shrink-0">Selected</Badge>
+                                    )}
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                    <div className="flex items-center justify-between pt-2">
+                        <p className="text-xs text-muted-foreground">
+                            {selectedWarehouseIds.length} warehouse{selectedWarehouseIds.length !== 1 ? 's' : ''} selected
+                        </p>
+                        <Button onClick={handleSaveWarehouseSettings} disabled={isSavingWarehouse}>
+                            {isSavingWarehouse ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                            Save Settings
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
 
             <Card>
                 <CardHeader>

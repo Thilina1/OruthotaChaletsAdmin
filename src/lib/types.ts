@@ -15,12 +15,35 @@ export type User = {
   nic?: string;
   job_title?: string;
   join_date?: string;
-  permissions?: string[]; // Array of application section paths they can access
+  permissions?: string[];
   department?: string;
   restrict_admin_permissions?: boolean;
   gender?: string;
-  leave_scheme_id?: string;
-  reporting_manager_id?: string;
+  leave_scheme_id?: string | null;
+  reporting_manager_id?: string | null;
+  working_calendar_id?: string | null;
+  // Joined objects populated by /api/auth/me
+  leave_scheme?: {
+    id: string;
+    name: string;
+    leave_scheme_types?: { id: string; name: string; days_count: number; reset_period: string }[];
+  } | null;
+  working_calendar?: {
+    id: string;
+    name: string;
+    year: number;
+    description?: string;
+  } | null;
+};
+
+export type WorkingCalendar = {
+  id: string;
+  name: string;
+  description?: string;
+  year: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved';
@@ -480,6 +503,21 @@ export type InventoryBatch = {
   expiry_date?: string;
   supplier?: string;
   status: 'active' | 'expired' | 'depleted';
+  created_at?: string;
+  updated_at?: string;
+  // Computed fields populated by the batches API
+  total_stock?: number;
+  warehouse_stock?: { name: string; quantity: number }[];
+  pricing_id?: string | null;
+  selling_price?: number | null;
+};
+
+export type MenuItemBatchPricing = {
+  id: string;
+  menu_item_id: string;
+  batch_id: string;
+  batch?: InventoryBatch;
+  selling_price: number;
   created_at?: string;
   updated_at?: string;
 };
