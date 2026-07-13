@@ -50,7 +50,7 @@ export default function NewInventoryRequestPage() {
     const router = useRouter();
     const { toast } = useToast();
     const { user, hasRole } = useUserContext();
-    const isAdmin = hasRole('admin');
+    const isAdmin = hasRole('admin') || user?.inventory_admin === true;
     const supabase = createClient();
 
     const [isLoading, setIsLoading] = useState(true);
@@ -71,7 +71,7 @@ export default function NewInventoryRequestPage() {
         setIsLoading(true);
         try {
             const [deptRes, invRes] = await Promise.all([
-                fetch('/api/admin/inventory-departments'),
+                fetch('/api/admin/inventory-departments?all=true'),
                 fetch('/api/admin/inventory/items?includeStock=true')
             ]);
 
@@ -85,19 +85,26 @@ export default function NewInventoryRequestPage() {
             setDepartments(depts);
             setInventoryItems(invData.items || []);
 
-            // Set default department
-            if (isAdmin) {
-                const store = depts.find((d: any) => d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse'));
-                if (store) {
-                    setSelectedDeptId(store.id);
-                    setSourceDeptId(store.id);
-                }
-            } else {
-                const userDept = depts.find((d: any) => d.name === user?.department);
-                if (userDept) setSelectedDeptId(userDept.id);
+            // Select default department using the freshly fetched list.
+            // user is always loaded before this page renders (UserContext shows loading skeleton).
+            const isStore = (d: any) =>
+                d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse');
+            const store = depts.find(isStore);
+            if (store) setSourceDeptId(store.id);
 
-                const store = depts.find((d: any) => d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse'));
-                if (store) setSourceDeptId(store.id);
+            const adminUser = (user?.role === 'admin' && !user?.restrict_admin_permissions) || user?.inventory_admin === true;
+            if (adminUser) {
+                // prefer a store/warehouse dept, fall back to first dept
+                const adminDefault = store ?? depts[0];
+                if (adminDefault) setSelectedDeptId(adminDefault.id);
+            } else {
+                const userDeptName = (user?.department ?? '').toLowerCase().trim();
+                const match =
+                    (userDeptName && depts.find((d: any) => d.name?.toLowerCase().trim() === userDeptName)) ||
+                    (userDeptName && depts.find((d: any) => d.name?.toLowerCase().includes(userDeptName) || userDeptName.includes(d.name?.toLowerCase().trim()))) ||
+                    depts.find((d: any) => !isStore(d)) ||
+                    depts[0];
+                if (match) setSelectedDeptId(match.id);
             }
 
         } catch (error: any) {
@@ -109,8 +116,18 @@ export default function NewInventoryRequestPage() {
     };
 
     useEffect(() => {
-        fetchData();
-    }, []);
+        if (user) fetchData();
+    }, [user?.id]);
+
+    // Fallback: if departments loaded but nothing was matched, pick first non-store dept
+    useEffect(() => {
+        if (!departments.length || selectedDeptId) return;
+        const isStore = (d: any) =>
+            d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse');
+        const fallback = departments.find((d: any) => !isStore(d)) ?? departments[0];
+        if (fallback) setSelectedDeptId(fallback.id);
+    }, [departments.length, selectedDeptId]);
+
 
     const selectedDeptName = useMemo(() => {
         return departments.find(d => d.id === selectedDeptId)?.name || 'Department';
@@ -123,10 +140,13 @@ export default function NewInventoryRequestPage() {
         );
 
         return searched.map(item => {
+            const selectedDeptNameLower = selectedDeptName.toLowerCase();
             const deptStock = item.warehouse_stock?.find((ws: any) =>
-                ws.department_id === selectedDeptId ||
-                ws.department?.id === selectedDeptId ||
-                ws.id === selectedDeptId
+                ws.department_id === selectedDeptId ||       // FK match (ideal)
+                ws.department?.id === selectedDeptId ||      // nested object match
+                ws.id === selectedDeptId ||                  // warehouse id match
+                ws.name?.toLowerCase() === selectedDeptNameLower ||  // name match fallback
+                ws.department?.name?.toLowerCase() === selectedDeptNameLower
             );
             
             if (!deptStock) return null;
@@ -240,21 +260,30 @@ export default function NewInventoryRequestPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1 space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Active Department</label>
-                    <Select value={selectedDeptId} onValueChange={setSelectedDeptId} disabled={!isAdmin}>
-                        <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white shadow-sm font-bold text-base px-4">
-                            <div className="flex items-center gap-3">
-                                <Warehouse className="h-5 w-5 text-primary" />
-                                <SelectValue placeholder="Select Department" />
-                            </div>
-                        </SelectTrigger>
-                        <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                            {departments.map((dept) => (
-                                <SelectItem key={dept.id} value={dept.id} className="h-12 font-bold rounded-xl m-1">
-                                    {dept.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    {isAdmin ? (
+                        <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
+                            <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white shadow-sm font-bold text-base px-4">
+                                <div className="flex items-center gap-3">
+                                    <Warehouse className="h-5 w-5 text-primary" />
+                                    <SelectValue placeholder="Select Department" />
+                                </div>
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                                {departments.map((dept) => (
+                                    <SelectItem key={dept.id} value={dept.id} className="h-12 font-bold rounded-xl m-1">
+                                        {dept.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    ) : (
+                        <div className="h-12 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm font-bold text-base px-4 flex items-center gap-3 cursor-not-allowed select-none">
+                            <Warehouse className="h-5 w-5 text-primary shrink-0" />
+                            <span className="text-slate-700 truncate">
+                                {user?.department || 'No Department Assigned'}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <div className="lg:col-span-2 space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Find Items</label>

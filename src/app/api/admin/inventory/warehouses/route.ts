@@ -81,6 +81,32 @@ export async function POST(req: Request) {
     }
 }
 
+export async function DELETE(request: Request) {
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth_token')?.value;
+
+        if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+
+        const { searchParams } = new URL(request.url);
+        const id = searchParams.get('id');
+
+        if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        const { error } = await supabase
+            .from('inventory_warehouses')
+            .update({ status: 'inactive', is_active: false })
+            .eq('id', id);
+
+        if (error) throw error;
+
+        return NextResponse.json({ success: true }, { status: 200 });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
 export async function PATCH(req: Request) {
     try {
         const cookieStore = await cookies();

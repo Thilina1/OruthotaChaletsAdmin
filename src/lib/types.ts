@@ -18,6 +18,7 @@ export type User = {
   permissions?: string[];
   department?: string;
   restrict_admin_permissions?: boolean;
+  inventory_admin?: boolean;
   gender?: string;
   leave_scheme_id?: string | null;
   reporting_manager_id?: string | null;

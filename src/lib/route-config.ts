@@ -69,6 +69,7 @@ export const hrmsMenuItems: MenuItem[] = [
     { href: '/dashboard/hrms/apit-settings', icon: SlidersHorizontal, label: 'APIT Tax Settings', roles: ['admin'] },
     { href: '/dashboard/hrms/payslip', icon: Banknote, label: 'My Payslips', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/allowance-types', icon: Coins, label: 'Allowance Types', roles: ['admin'] },
+    { href: '/dashboard/hrms/job-titles', icon: Briefcase, label: 'Job Titles', roles: ['admin'] },
     { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/daily-workers', icon: HardHat, label: 'Daily Workers', roles: ['admin'] },
     { href: '/dashboard/hrms/ot', icon: AlarmClock, label: 'My OT Requests', roles: ['admin', 'waiter', 'kitchen', 'payment'] },

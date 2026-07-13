@@ -56,7 +56,7 @@ function StockOverviewContent() {
   const searchParams = useSearchParams();
   const selectedWarehouseId = searchParams.get('warehouse');
   const { user, hasRole } = useUserContext();
-  const isAdmin = hasRole('admin');
+  const isAdmin = hasRole('admin') || user?.inventory_admin === true;
   
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([]);
@@ -94,22 +94,6 @@ function StockOverviewContent() {
       const whList = dataWarehouses.warehouses || [];
       setWarehouses(whList);
 
-      // Visibility Logic: Filter warehouses for departmental users
-      const accessibleWarehouses = isAdmin 
-        ? whList 
-        : whList.filter((wh: any) => wh.department?.name === user?.department);
-
-      // Security/Defaulting Check
-      if (accessibleWarehouses.length > 0) {
-        // If no warehouse selected, or selected warehouse is not accessible
-        const isCurrentWhAccessible = selectedWarehouseId && accessibleWarehouses.some((w: any) => w.id === selectedWarehouseId);
-        
-        if (!selectedWarehouseId || !isCurrentWhAccessible) {
-          const defaultWh = accessibleWarehouses.find((w: any) => w.is_main) || accessibleWarehouses[0];
-          router.push(`?warehouse=${defaultWh.id}`);
-        }
-      }
-
       setInventoryCategories(dataInvCats.categories || []);
 
     } catch (error) {
@@ -120,9 +104,28 @@ function StockOverviewContent() {
     }
   };
 
+  // Computed before effects so the auto-redirect sees the correct isAdmin value
+  // (user context may resolve after the initial fetchData call).
+  const accessibleWarehouses = useMemo(() => {
+    if (!warehouses.length) return [];
+    return isAdmin
+      ? warehouses
+      : warehouses.filter(wh => wh.department?.name === user?.department);
+  }, [warehouses, isAdmin, user?.department]);
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Auto-select default warehouse after both warehouses and user are resolved.
+  useEffect(() => {
+    if (!accessibleWarehouses.length) return;
+    const isCurrentAccessible = selectedWarehouseId && accessibleWarehouses.some(w => w.id === selectedWarehouseId);
+    if (!selectedWarehouseId || !isCurrentAccessible) {
+      const defaultWh = accessibleWarehouses.find(w => w.is_main) || accessibleWarehouses[0];
+      router.push(`?warehouse=${defaultWh.id}`);
+    }
+  }, [accessibleWarehouses]);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -138,8 +141,8 @@ function StockOverviewContent() {
     return items.filter(item => {
       const itemName = item.name || '';
       const itemCode = item.code || '';
-      
-      const matchesSearch = 
+
+      const matchesSearch =
         itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         itemCode.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -148,13 +151,6 @@ function StockOverviewContent() {
       return matchesSearch && matchesCategory;
     });
   }, [items, searchQuery, selectedCategory]);
-
-  const accessibleWarehouses = useMemo(() => {
-    if (!warehouses.length) return [];
-    return isAdmin 
-      ? warehouses 
-      : warehouses.filter(wh => wh.department?.name === user?.department);
-  }, [warehouses, isAdmin, user?.department]);
 
   const activeWarehouseData = useMemo(() => {
     if (!selectedWarehouseId || accessibleWarehouses.length === 0) return null;

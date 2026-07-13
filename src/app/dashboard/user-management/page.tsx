@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSupabaseCollection } from '@/hooks/use-supabase-collection';
 import { createClient } from '@/lib/supabase/client';
 import type { User, UserRole } from '@/lib/types';
@@ -33,12 +33,21 @@ import {
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
-const ROLES: UserRole[] = ['admin', 'waiter', 'kitchen', 'payment'];
-
 export default function UserManagementPage() {
     const { toast } = useToast();
     const supabase = createClient();
     const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+    const [availableRoles, setAvailableRoles] = useState<string[]>(['admin', 'waiter', 'kitchen', 'payment']);
+
+    useEffect(() => {
+        fetch('/api/admin/role-permissions')
+            .then(r => r.json())
+            .then(d => {
+                const roles = Object.keys(d.permissions ?? {});
+                if (roles.length > 0) setAvailableRoles(roles);
+            })
+            .catch(() => {});
+    }, []);
 
     const { data: users, loading: areUsersLoading, refetch } = useSupabaseCollection<User>('users');
 
@@ -47,8 +56,8 @@ export default function UserManagementPage() {
     const [userToDelete, setUserToDelete] = useState<{ id: string; name: string } | null>(null);
     const [editingUser, setEditingUser] = useState<User | null>(null);
 
-    const handleRoleChange = (userId: string, role: UserRole) => {
-        setUserRoles(prev => ({ ...prev, [userId]: role }));
+    const handleRoleChange = (userId: string, role: string) => {
+        setUserRoles(prev => ({ ...prev, [userId]: role as UserRole }));
     };
 
     const handleSaveChanges = async (userId: string) => {
@@ -235,12 +244,16 @@ export default function UserManagementPage() {
                                         }
                                     </TableCell>
                                     <TableCell>
-                                        <Select onValueChange={(value: UserRole) => handleRoleChange(user.id, value)} defaultValue={user.role}>
+                                        <Select
+                                            onValueChange={(value: UserRole) => handleRoleChange(user.id, value)}
+                                            value={userRoles[user.id] ?? user.role}
+                                        >
                                             <SelectTrigger className="w-[180px]">
                                                 <SelectValue placeholder="Select a role" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {ROLES.map(role => (
+                                                {/* Always include user's current role even if not in the list yet */}
+                                                {[...new Set([...availableRoles, user.role])].map(role => (
                                                     <SelectItem key={role} value={role} className="capitalize">{role}</SelectItem>
                                                 ))}
                                             </SelectContent>

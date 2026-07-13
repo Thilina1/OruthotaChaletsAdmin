@@ -90,6 +90,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/hrms/apit-settings', label: 'APIT Tax Settings' },
       { path: '/dashboard/hrms/payslip', label: 'My Payslips' },
       { path: '/dashboard/hrms/allowance-types', label: 'Allowance Types' },
+      { path: '/dashboard/hrms/job-titles', label: 'Job Titles' },
       { path: '/dashboard/hrms/attendance', label: 'Attendance' },
       { path: '/dashboard/hrms/daily-workers', label: 'Daily Workers' },
       { path: '/dashboard/hrms/ot', label: 'My OT Requests' },

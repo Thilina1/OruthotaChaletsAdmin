@@ -25,7 +25,6 @@ import { cn } from '@/lib/utils';
 import { KeyRound, CalendarIcon, Plus, X, Banknote } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
-import { STAFF_HIERARCHY, DEPARTMENTS } from '@/lib/staff-hierarchy';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
@@ -48,6 +47,7 @@ const formSchema = z.object({
   confirmPassword: z.string().optional(),
   permissions: z.array(z.string()).default([]),
   restrict_admin_permissions: z.boolean().default(false),
+  inventory_admin: z.boolean().default(false),
   gender: z.string().optional().or(z.literal('')),
   leave_scheme_id: z.string().optional().or(z.literal('')),
   reporting_manager_id: z.string().optional().or(z.literal('')),
@@ -91,6 +91,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
   const [allowanceTypes, setAllowanceTypes] = useState<{ id: string; name: string; default_amount: number }[]>([]);
   const [salaryLoading, setSalaryLoading] = useState(false);
   const [rolePermissionsMap, setRolePermissionsMap] = useState<Record<string, string[]>>({});
+  const [jobTitlesByDept, setJobTitlesByDept] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     fetch('/api/hrms/leave-schemes')
@@ -108,6 +109,10 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
     fetch('/api/hrms/allowance-types')
       .then(r => r.json())
       .then(d => setAllowanceTypes(d.allowanceTypes ?? []))
+      .catch(() => {});
+    fetch('/api/admin/job-titles')
+      .then(r => r.json())
+      .then(d => setJobTitlesByDept(d.titles ?? {}))
       .catch(() => {});
     fetch('/api/admin/role-permissions')
       .then(r => r.json())
@@ -133,6 +138,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
+      inventory_admin: user?.inventory_admin || false,
       gender: user?.gender || '',
       leave_scheme_id: user?.leave_scheme_id || 'none',
       reporting_manager_id: user?.reporting_manager_id || 'none',
@@ -166,6 +172,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       confirmPassword: '',
       permissions: user?.permissions || ['/dashboard/profile'],
       restrict_admin_permissions: user?.restrict_admin_permissions || false,
+      inventory_admin: user?.inventory_admin || false,
       gender: user?.gender || '',
       leave_scheme_id: user?.leave_scheme_id || 'none',
       reporting_manager_id: user?.reporting_manager_id || 'none',
@@ -370,7 +377,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {DEPARTMENTS.map(dept => (
+                    {Object.keys(jobTitlesByDept).sort().map(dept => (
                       <SelectItem key={dept} value={dept}>{dept}</SelectItem>
                     ))}
                   </SelectContent>
@@ -382,30 +389,32 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           <FormField
             control={form.control}
             name="job_title"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Job Title</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  value={field.value}
-                  disabled={!form.watch('department')}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Job Title" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {form.watch('department') &&
-                      STAFF_HIERARCHY[form.watch('department') as string]?.map(role => (
-                        <SelectItem key={role} value={role}>{role}</SelectItem>
-                      ))
-                    }
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              const dept = form.watch('department') as string | undefined;
+              const titles = dept ? (jobTitlesByDept[dept] ?? []) : [];
+              return (
+                <FormItem>
+                  <FormLabel>Job Title</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={!dept || titles.length === 0}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={dept ? 'Select job title' : 'Select a department first'} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {titles.map(title => (
+                        <SelectItem key={title} value={title}>{title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
         </div>
 
@@ -822,6 +831,23 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
                       />
                     </FormControl>
                     <Label className="text-xs font-medium cursor-pointer">Restrict Admin Access to Selected Only</Label>
+                  </FormItem>
+                )}
+              />
+            )}
+            {form.watch('role') !== 'admin' && (
+              <FormField
+                control={form.control}
+                name="inventory_admin"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel>Inventory Admin</FormLabel>
+                      <p className="text-xs text-muted-foreground">Grants admin-level access in Inventory Stock Overview and Stock Request Portal pages.</p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
                   </FormItem>
                 )}
               />

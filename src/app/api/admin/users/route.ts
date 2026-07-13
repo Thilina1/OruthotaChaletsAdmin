@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, service_charge_applicable, service_charge_rate } = await request.json();
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, inventory_admin, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, service_charge_applicable, service_charge_rate } = await request.json();
 
         if (!email || !password || !name || !role) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
                 join_date,
                 permissions: permissions || [],
                 restrict_admin_permissions: restrict_admin_permissions || false,
+                inventory_admin: inventory_admin === true,
                 gender,
                 leave_scheme_id: leave_scheme_id || null,
                 reporting_manager_id: reporting_manager_id || null,
@@ -109,7 +110,7 @@ export async function PUT(request: Request) {
         }
 
         const data = await request.json();
-        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, service_charge_applicable, service_charge_rate } = data;
+        const { name, email, password, role, phone_number, address, nic, job_title, department, join_date, permissions, restrict_admin_permissions, inventory_admin, gender, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, service_charge_applicable, service_charge_rate } = data;
 
         const updatePayload: any = {
             name,
@@ -122,6 +123,7 @@ export async function PUT(request: Request) {
             join_date,
             permissions: permissions || [],
             restrict_admin_permissions: restrict_admin_permissions !== undefined ? restrict_admin_permissions : false,
+            inventory_admin: inventory_admin === true,
             gender,
             leave_scheme_id: leave_scheme_id || null,
             reporting_manager_id: reporting_manager_id || null,

@@ -43,7 +43,7 @@ export default function InventoryRequestHistoryPage() {
     const deptIdParam = searchParams.get('deptId');
     const { toast } = useToast();
     const { user, hasRole } = useUserContext();
-    const isAdmin = hasRole('admin');
+    const isAdmin = hasRole('admin') || user?.inventory_admin === true;
     const supabase = createClient();
 
     const [isLoading, setIsLoading] = useState(true);

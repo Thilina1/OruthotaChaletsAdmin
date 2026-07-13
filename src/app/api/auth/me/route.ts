@@ -59,6 +59,7 @@ export async function GET() {
         address: dbUser.address,
         created_at: dbUser.created_at,
         restrict_admin_permissions: dbUser.restrict_admin_permissions || false,
+        inventory_admin: dbUser.inventory_admin || false,
         leave_scheme_id: dbUser.leave_scheme_id || null,
         working_calendar_id: dbUser.working_calendar_id || null,
         reporting_manager_id: dbUser.reporting_manager_id || null,
