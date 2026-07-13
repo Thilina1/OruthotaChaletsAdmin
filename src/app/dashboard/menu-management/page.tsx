@@ -51,6 +51,7 @@ export default function MenuManagementPage() {
     const [inventoryItems, setInventoryItems] = useState<HotelInventoryItem[]>([]);
     const [departments, setDepartments] = useState<InventoryDepartment[]>([]);
     const [restaurantWarehouseIds, setRestaurantWarehouseIds] = useState<string[]>([]);
+    const [batchPricingMap, setBatchPricingMap] = useState<Record<string, number[]>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -60,15 +61,33 @@ export default function MenuManagementPage() {
         setFetchError(null);
         try {
             const [itemsRes, categoriesRes, inventoryRes, deptsRes, warehouseSettingRes] = await Promise.all([
-                supabase.from('menu_items').select('*').order('name'),
+                fetch('/api/admin/menu-items').then(r => r.json()),
                 fetch('/api/admin/menu-sections').then(res => res.json()),
                 fetch('/api/admin/inventory/items').then(res => res.json()),
                 supabase.from('inventory_departments').select('*').order('name'),
                 fetch('/api/admin/app-settings?key=restaurant_warehouse_ids').then(r => r.json()).catch(() => ({ value: [] })),
             ]);
 
-            if (itemsRes.error) throw itemsRes.error;
-            setMenuItems(itemsRes.data as MenuItemType[]);
+            if (itemsRes.error) throw new Error(itemsRes.error);
+            const fetchedMenuItems = itemsRes.menuItems as MenuItemType[];
+            setMenuItems(fetchedMenuItems);
+
+            // Fetch batch selling prices for all menu items
+            const menuItemIds = fetchedMenuItems.map(i => i.id);
+            if (menuItemIds.length > 0) {
+                const { data: pricingData } = await supabase
+                    .from('menu_item_batch_pricing')
+                    .select('menu_item_id, selling_price')
+                    .in('menu_item_id', menuItemIds);
+                const priceMap: Record<string, number[]> = {};
+                (pricingData ?? []).forEach((p: any) => {
+                    if (p.selling_price > 0) {
+                        if (!priceMap[p.menu_item_id]) priceMap[p.menu_item_id] = [];
+                        priceMap[p.menu_item_id].push(p.selling_price);
+                    }
+                });
+                setBatchPricingMap(priceMap);
+            }
 
             if (categoriesRes.error) throw new Error(categoriesRes.error);
             setCategories(categoriesRes.sections || []);
@@ -105,7 +124,7 @@ export default function MenuManagementPage() {
 
     const handleEditItemClick = (item: MenuItemType) => {
         setEditingItem(item);
-        setIsDialogOpen(true);
+        setTimeout(() => setIsDialogOpen(true), 0);
     };
 
     const handleDeleteItem = async (id: string) => {
@@ -178,23 +197,26 @@ export default function MenuManagementPage() {
             let savedMenuItemId: string;
 
             if (editingItem) {
-                const { data, error } = await supabase.from('menu_items').update({
-                    ...dataToSave,
-                    updated_at: new Date().toISOString(),
-                }).eq('id', editingItem.id).select().single();
-                if (error) throw error;
-                setMenuItems(prev => prev.map(i => i.id === (data as MenuItemType).id ? (data as MenuItemType) : i));
+                const res = await fetch('/api/admin/menu-items', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: editingItem.id, ...dataToSave }),
+                });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                setMenuItems(prev => prev.map(i => i.id === result.item.id ? (result.item as MenuItemType) : i));
                 savedMenuItemId = editingItem.id;
                 toast({ title: "Menu Item Updated", description: "The item details have been updated." });
             } else {
-                const { data, error } = await supabase.from('menu_items').insert([{
-                    ...dataToSave,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                }]).select().single();
-                if (error) throw error;
-                setMenuItems(prev => [...prev, (data as MenuItemType)].sort((a, b) => a.name.localeCompare(b.name)));
-                savedMenuItemId = (data as MenuItemType).id;
+                const res = await fetch('/api/admin/menu-items', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dataToSave),
+                });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                setMenuItems(prev => [...prev, (result.item as MenuItemType)].sort((a, b) => a.name.localeCompare(b.name)));
+                savedMenuItemId = (result.item as MenuItemType).id;
                 toast({ title: "Menu Item Created", description: "A new item has been successfully added to the menu." });
             }
 
@@ -220,20 +242,26 @@ export default function MenuManagementPage() {
 
         setIsDialogOpen(false);
         setEditingItem(null);
+        fetchData();
     };
 
     const handleAvailabilityChange = async (item: MenuItemType, checked: boolean) => {
+        setMenuItems(prev => prev.map(i => i.id === item.id ? { ...i, availability: checked } : i));
         try {
-            const { error } = await supabase.from('menu_items').update({ availability: checked }).eq('id', item.id);
-            if (error) throw error;
+            const res = await fetch('/api/admin/menu-items', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: item.id, availability: checked }),
+            });
+            const result = await res.json();
+            if (result.error) throw new Error(result.error);
             toast({
                 title: "Availability Updated",
                 description: `${item.name} is now ${checked ? 'available' : 'unavailable'}.`,
             });
-            // Optimistic update
-            setMenuItems(prev => prev.map(i => i.id === item.id ? { ...i, availability: checked } : i));
         } catch (error) {
             console.error("Error updating availability: ", error);
+            setMenuItems(prev => prev.map(i => i.id === item.id ? { ...i, availability: !checked } : i));
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -269,9 +297,14 @@ export default function MenuManagementPage() {
                 items={filteredItems}
                 inventoryItems={inventoryItems}
                 departments={departments}
+                restaurantWarehouseIds={restaurantWarehouseIds}
                 onAvailabilityChange={handleAvailabilityChange}
                 onEditClick={handleEditItemClick}
                 fetchError={fetchError}
+                batchPricingMap={batchPricingMap}
+                onBatchPriceUpdated={(menuItemId, prices) =>
+                    setBatchPricingMap(prev => ({ ...prev, [menuItemId]: prices }))
+                }
             />
         );
     }
@@ -291,7 +324,7 @@ export default function MenuManagementPage() {
                     <Button onClick={handleAddItemClick}>
                         <PlusCircle className="mr-2 h-4 w-4" /> Add Menu Item
                     </Button>
-                    <DialogContent className="max-w-3xl">
+                    <DialogContent className="max-w-3xl" aria-describedby={undefined}>
                         <DialogHeader>
                             <DialogTitle>{editingItem ? 'Edit Menu Item' : 'Add New Menu Item'}</DialogTitle>
                         </DialogHeader>
@@ -345,17 +378,24 @@ function PaginatedMenuCategory({
     items,
     inventoryItems,
     departments,
+    restaurantWarehouseIds,
     onAvailabilityChange,
     onEditClick,
-    fetchError
+    fetchError,
+    batchPricingMap,
+    onBatchPriceUpdated,
 }: {
     items: MenuItemType[],
     inventoryItems: HotelInventoryItem[],
     departments: InventoryDepartment[],
+    restaurantWarehouseIds: string[],
     onAvailabilityChange: (item: MenuItemType, checked: boolean) => void,
     onEditClick: (item: MenuItemType) => void,
-    fetchError: string | null
+    fetchError: string | null,
+    batchPricingMap: Record<string, number[]>,
+    onBatchPriceUpdated: (menuItemId: string, prices: number[]) => void,
 }) {
+    const supabase = createClient();
     const {
         currentPage,
         totalPages,
@@ -381,7 +421,19 @@ function PaginatedMenuCategory({
         <div className="flex flex-col">
             <BatchPricingDialog
                 open={batchDialog.open}
-                onOpenChange={(open) => setBatchDialog(prev => ({ ...prev, open }))}
+                onOpenChange={async (open) => {
+                    setBatchDialog(prev => ({ ...prev, open }));
+                    if (!open && batchDialog.menuItemId) {
+                        const { data: pricingData } = await supabase
+                            .from('menu_item_batch_pricing')
+                            .select('menu_item_id, selling_price')
+                            .eq('menu_item_id', batchDialog.menuItemId);
+                        const prices = (pricingData ?? [])
+                            .filter((p: any) => p.selling_price > 0)
+                            .map((p: any) => p.selling_price as number);
+                        onBatchPriceUpdated(batchDialog.menuItemId, prices);
+                    }
+                }}
                 inventoryItemId={batchDialog.itemId}
                 inventoryItemName={batchDialog.itemName}
                 menuItemId={batchDialog.menuItemId}
@@ -402,34 +454,61 @@ function PaginatedMenuCategory({
                     {paginatedItems.map((item) => (
                         <TableRow key={item.id}>
                             <TableCell className="font-medium">{item.name}</TableCell>
-                            <TableCell>LKR {item.price.toFixed(2)}</TableCell>
+                            <TableCell>
+                                {item.stock_type === 'Inventoried' && item.linked_inventory_item_id
+                                    ? (() => {
+                                        const prices = batchPricingMap[item.id] ?? [];
+                                        if (prices.length === 0) return <span className="text-muted-foreground text-xs">By batch</span>;
+                                        const min = Math.min(...prices);
+                                        const max = Math.max(...prices);
+                                        return <span>LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</span>;
+                                    })()
+                                    : `LKR ${item.price.toFixed(2)}`}
+                            </TableCell>
                             <TableCell>LKR {item.buying_price ? item.buying_price.toFixed(2) : 'N/A'}</TableCell>
                             <TableCell>
                                 {item.stock_type === 'Inventoried'
                                     ? (item.linked_inventory_item_id
                                         ? (() => {
-                                            const linkedItem = inventoryItems.find(inv => inv.id === item.linked_inventory_item_id);
-                                            if (linkedItem) {
-                                                const restDept = departments.find(d => d.name.toLowerCase().includes('restaurant') || d.name.toLowerCase().includes('kitchen'));
-                                                const storeDept = departments.find(d => d.name.toLowerCase().includes('store') || d.name.toLowerCase().includes('main'));
+                                            const linkedItem = (inventoryItems as any[]).find(inv => inv.id === item.linked_inventory_item_id);
+                                            if (!linkedItem) return <span className="text-muted-foreground text-xs">Linked</span>;
 
-                                                const restItem = restDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === restDept.id) : null;
-                                                const storeItem = storeDept ? inventoryItems.find(inv => inv.name === linkedItem.name && inv.department_id === storeDept.id) : null;
+                                            const warehouseStock: any[] = linkedItem.warehouse_stock ?? [];
+                                            const unit = typeof linkedItem.unit === 'string' ? linkedItem.unit : (linkedItem.unit?.name ?? '');
 
-                                                const restQty = restItem ? (restItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? 0 : (linkedItem.current_stock ?? 0));
-                                                const storeQty = storeItem ? (storeItem.current_stock ?? 0) : (linkedItem.department_id === storeDept?.id ? (linkedItem.current_stock ?? 0) : 0);
+                                            // Restaurant warehouse(s) stock
+                                            const restStock = warehouseStock
+                                                .filter((wh: any) => restaurantWarehouseIds.includes(wh.id))
+                                                .reduce((s: number, wh: any) => s + (wh.total_stock ?? 0), 0);
 
-                                                return (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-semibold">{restQty} / {storeQty} {typeof linkedItem.unit === 'string' ? linkedItem.unit : (linkedItem.unit?.name ?? '')}</span>
-                                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">(Rest. / Store)</span>
-                                                    </div>
-                                                );
-                                            }
-                                            return 'Linked to Hotel Inv.';
+                                            // All other warehouses (store / main)
+                                            const otherStock = warehouseStock
+                                                .filter((wh: any) => !restaurantWarehouseIds.includes(wh.id))
+                                                .reduce((s: number, wh: any) => s + (wh.total_stock ?? 0), 0);
+
+                                            const hasRestaurantWH = restaurantWarehouseIds.length > 0;
+
+                                            return (
+                                                <div className="flex flex-col gap-0.5">
+                                                    {hasRestaurantWH ? (
+                                                        <>
+                                                            <span className="font-semibold text-sm">
+                                                                {restStock} <span className="text-muted-foreground font-normal text-xs">{unit}</span>
+                                                            </span>
+                                                            <span className="text-[10px] text-muted-foreground">
+                                                                Restaurant · Store: {otherStock}
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="font-semibold text-sm">
+                                                            {linkedItem.total_stock ?? 0} <span className="text-muted-foreground font-normal text-xs">{unit}</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
                                         })()
-                                        : item.stock)
-                                    : 'N/A'}
+                                        : <span>{item.stock ?? 0}</span>)
+                                    : <span className="text-muted-foreground text-xs">N/A</span>}
                             </TableCell>
                             <TableCell>
                                 <Switch

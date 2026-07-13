@@ -29,6 +29,10 @@ export async function GET(request: Request) {
         if (date) {
             query = query.eq('date', date);
         }
+        const from = searchParams.get('from');
+        const to = searchParams.get('to');
+        if (from) query = query.gte('date', from);
+        if (to) query = query.lte('date', to);
 
         const { data: attendance, error } = await query;
 

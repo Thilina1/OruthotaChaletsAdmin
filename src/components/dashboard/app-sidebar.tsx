@@ -15,7 +15,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles, Hotel } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '../icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -30,6 +30,7 @@ import {
   restaurantMenuItems,
   inventoryMenuItems,
   roomBookingMenuItems,
+  chaletMenuItems,
   otherMenue,
   hrmsMenuItems,
   otherMenuItems,
@@ -92,6 +93,7 @@ export default function AppSidebar() {
   const restaurantSection = renderMenuItems(restaurantMenuItems, hasPathAccess, pathname, user);
   const inventorySection = renderMenuItems(inventoryMenuItems, hasPathAccess, pathname, user);
   const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user);
+  const chaletSection = renderMenuItems(chaletMenuItems, hasPathAccess, pathname, user);
   const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user);
   const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user);
   const servicesSection = renderMenuItems(servicesMenuItems, hasPathAccess, pathname, user);
@@ -180,12 +182,22 @@ export default function AppSidebar() {
 
 
 
-          {roomBookingSection && (
+          {/* {roomBookingSection && (
             <>
               <SidebarSeparator className="my-2" />
               <SidebarGroup>
                 <SidebarGroupLabel className="flex items-center gap-2"><Building className="size-4" />Reservations</SidebarGroupLabel>
                 <SidebarGroupContent>{roomBookingSection}</SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )} */}
+
+          {chaletSection && (
+            <>
+              <SidebarSeparator className="my-2" />
+              <SidebarGroup>
+                <SidebarGroupLabel className="flex items-center gap-2"><Hotel className="size-4" />Chalet Booking</SidebarGroupLabel>
+                <SidebarGroupContent>{chaletSection}</SidebarGroupContent>
               </SidebarGroup>
             </>
           )}

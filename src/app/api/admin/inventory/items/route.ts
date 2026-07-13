@@ -38,7 +38,7 @@ export async function GET(request: Request) {
             .select(`
                 item_id, 
                 quantity,
-                warehouse:inventory_warehouses(id, name, department_id),
+                warehouse:inventory_warehouses(id, name, department_id, is_main),
                 batch:inventory_batches(id, batch_number, expiry_date)
             `);
 
@@ -59,6 +59,7 @@ export async function GET(request: Request) {
                     id: s.warehouse.id,
                     name: s.warehouse.name,
                     department_id: s.warehouse.department_id,
+                    is_main: s.warehouse.is_main ?? false,
                     total_stock: 0,
                     batches: []
                 };

@@ -36,18 +36,20 @@ type LeaveEntry = {
     end_date: string;
     days_count: number;
     reason?: string;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending_manager' | 'pending' | 'approved' | 'rejected';
     half_day_type?: string;
     created_at?: string;
     leave_type?: { id: string; name: string };
-    employee?: { id: string; name: string; email: string };
+    employee?: { id: string; name: string; email: string; reporting_manager_id?: string };
     approver?: { id: string; name: string };
+    manager_approver?: { id: string; name: string };
 };
 
 function StatusBadge({ status }: { status: string }) {
     if (status === 'approved') return <Badge className="bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400">Approved</Badge>;
     if (status === 'rejected') return <Badge variant="destructive">Rejected</Badge>;
-    return <Badge variant="secondary" className="text-yellow-700 dark:text-yellow-400">Pending</Badge>;
+    if (status === 'pending_manager') return <Badge className="bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-400">Awaiting Manager</Badge>;
+    return <Badge variant="secondary" className="text-yellow-700 dark:text-yellow-400">Awaiting HR</Badge>;
 }
 
 export default function LeaveApprovalsPage() {
@@ -58,6 +60,7 @@ export default function LeaveApprovalsPage() {
     const [search, setSearch] = useState('');
     const [confirming, setConfirming] = useState<{ id: string; action: 'approved' | 'rejected' } | null>(null);
     const { toast } = useToast();
+
     useEffect(() => {
         const getUser = async () => {
             const res = await fetch('/api/auth/me');
@@ -79,7 +82,7 @@ export default function LeaveApprovalsPage() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [toast]);
 
     useEffect(() => { fetchLeaves(); }, [fetchLeaves]);
 
@@ -89,11 +92,17 @@ export default function LeaveApprovalsPage() {
             const res = await fetch('/api/hrms/leaves', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: confirming.id, status: confirming.action, approved_by: userId }),
+                body: JSON.stringify({
+                    id: confirming.id,
+                    status: confirming.action,
+                    approved_by: userId,
+                    action_type: 'final',
+                }),
             });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
-            toast({ title: 'Done', description: `Leave request ${confirming.action}.` });
+            const msg = `Leave request ${confirming.action}.`;
+            toast({ title: 'Done', description: msg });
             setConfirming(null);
             fetchLeaves();
         } catch (error) {
@@ -111,6 +120,7 @@ export default function LeaveApprovalsPage() {
         return matchesStatus && matchesSearch;
     });
 
+    const pendingManagerCount = leaves.filter(l => l.status === 'pending_manager').length;
     const pendingCount = leaves.filter(l => l.status === 'pending').length;
     const approvedCount = leaves.filter(l => l.status === 'approved').length;
     const rejectedCount = leaves.filter(l => l.status === 'rejected').length;
@@ -125,13 +135,22 @@ export default function LeaveApprovalsPage() {
             </div>
 
             {/* Summary */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
+                <Card className="cursor-pointer" onClick={() => setFilterStatus('pending_manager')}>
+                    <CardContent className="pt-5 pb-4 flex items-center gap-3">
+                        <Clock className={`h-8 w-8 flex-shrink-0 ${filterStatus === 'pending_manager' ? 'text-orange-500' : 'text-muted-foreground'}`} />
+                        <div>
+                            <p className="text-2xl font-bold">{pendingManagerCount}</p>
+                            <p className="text-xs text-muted-foreground">Awaiting Manager</p>
+                        </div>
+                    </CardContent>
+                </Card>
                 <Card className="cursor-pointer" onClick={() => setFilterStatus('pending')}>
                     <CardContent className="pt-5 pb-4 flex items-center gap-3">
                         <Clock className={`h-8 w-8 flex-shrink-0 ${filterStatus === 'pending' ? 'text-yellow-500' : 'text-muted-foreground'}`} />
                         <div>
                             <p className="text-2xl font-bold">{pendingCount}</p>
-                            <p className="text-xs text-muted-foreground">Pending</p>
+                            <p className="text-xs text-muted-foreground">Awaiting HR</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -155,11 +174,12 @@ export default function LeaveApprovalsPage() {
                 </Card>
             </div>
 
+            {/* All Requests Table */}
             <Card>
                 <CardHeader>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                            <CardTitle>Leave Requests</CardTitle>
+                            <CardTitle>All Leave Requests</CardTitle>
                             <CardDescription>Click the cards above to filter by status.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
@@ -173,12 +193,13 @@ export default function LeaveApprovalsPage() {
                                 />
                             </div>
                             <Select value={filterStatus} onValueChange={setFilterStatus}>
-                                <SelectTrigger className="h-8 text-sm w-32">
+                                <SelectTrigger className="h-8 text-sm w-40">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All</SelectItem>
-                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="pending_manager">Awaiting Manager</SelectItem>
+                                    <SelectItem value="pending">Awaiting HR</SelectItem>
                                     <SelectItem value="approved">Approved</SelectItem>
                                     <SelectItem value="rejected">Rejected</SelectItem>
                                 </SelectContent>
@@ -227,26 +248,25 @@ export default function LeaveApprovalsPage() {
                                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                         {leave.created_at ? new Date(leave.created_at).toLocaleDateString() : '—'}
                                     </TableCell>
-                                    <TableCell><StatusBadge status={leave.status} /></TableCell>
+                                    <TableCell>
+                                        <StatusBadge status={leave.status} />
+                                        {leave.manager_approver && (
+                                            <p className="text-xs text-muted-foreground mt-1">Mgr: {leave.manager_approver.name}</p>
+                                        )}
+                                    </TableCell>
                                     <TableCell className="text-right">
                                         {leave.status === 'pending' && (
                                             <div className="flex justify-end gap-1.5">
-                                                <Button
-                                                    size="sm"
-                                                    className="h-7 text-xs"
-                                                    onClick={() => setConfirming({ id: leave.id, action: 'approved' })}
-                                                >
+                                                <Button size="sm" className="h-7 text-xs" onClick={() => setConfirming({ id: leave.id, action: 'approved' })}>
                                                     <CheckCircle2 className="h-3 w-3 mr-1" /> Approve
                                                 </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="h-7 text-xs"
-                                                    onClick={() => setConfirming({ id: leave.id, action: 'rejected' })}
-                                                >
+                                                <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setConfirming({ id: leave.id, action: 'rejected' })}>
                                                     <XCircle className="h-3 w-3 mr-1" /> Reject
                                                 </Button>
                                             </div>
+                                        )}
+                                        {leave.status === 'pending_manager' && (
+                                            <span className="text-xs text-muted-foreground">Waiting for manager</span>
                                         )}
                                     </TableCell>
                                 </TableRow>
@@ -264,7 +284,9 @@ export default function LeaveApprovalsPage() {
                             {confirming?.action === 'approved' ? 'Approve' : 'Reject'} Leave Request?
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will update the leave request status to <strong>{confirming?.action}</strong>. The employee will be notified.
+                            {confirming?.action === 'approved'
+                                ? 'This will fully approve the leave request.'
+                                : 'This will reject the leave request.'}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

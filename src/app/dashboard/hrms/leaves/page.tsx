@@ -27,13 +27,16 @@ type LeaveEntry = {
     end_date: string;
     days_count: number;
     reason?: string;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending_manager' | 'pending' | 'approved' | 'rejected';
     approved_by?: string;
+    manager_approved_by?: string;
+    manager_approved_at?: string;
     half_day_type?: string;
     created_at?: string;
     leave_type?: { id: string; name: string; days_count: number };
-    employee?: { id: string; name: string; email: string };
+    employee?: { id: string; name: string; email: string; reporting_manager_id?: string };
     approver?: { id: string; name: string };
+    manager_approver?: { id: string; name: string };
 };
 
 type BalanceItem = LeaveSchemeType & {
@@ -45,7 +48,8 @@ type BalanceItem = LeaveSchemeType & {
 function StatusBadge({ status }: { status: string }) {
     if (status === 'approved') return <Badge className="bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400">Approved</Badge>;
     if (status === 'rejected') return <Badge variant="destructive">Rejected</Badge>;
-    return <Badge variant="secondary">Pending</Badge>;
+    if (status === 'pending_manager') return <Badge className="bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-400">Awaiting Manager</Badge>;
+    return <Badge variant="secondary">Awaiting HR</Badge>;
 }
 
 function BalanceCard({ item }: { item: BalanceItem }) {
@@ -147,7 +151,7 @@ export default function LeaveManagementPage() {
         }
     };
 
-    const pendingCount = myLeaves.filter(l => l.status === 'pending').length;
+    const pendingCount = myLeaves.filter(l => l.status === 'pending' || l.status === 'pending_manager').length;
     const approvedCount = myLeaves.filter(l => l.status === 'approved').length;
     const rejectedCount = myLeaves.filter(l => l.status === 'rejected').length;
 
@@ -224,7 +228,7 @@ export default function LeaveManagementPage() {
                 </Card>
             </div>
 
-            {/* Leave History */}
+            {/* My Leave History */}
             <Card>
                 <CardHeader><CardTitle>My Leave History</CardTitle></CardHeader>
                 <CardContent>
@@ -261,6 +265,7 @@ export default function LeaveManagementPage() {
                     <DataTablePagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} />
                 </CardContent>
             </Card>
+
         </div>
     );
 }

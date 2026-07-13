@@ -31,94 +31,12 @@ import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parse, isValid } from 'date-fns';
-
-const APP_SECTION_GROUPS = [
-  {
-    name: 'General',
-    sections: [
-      { path: '/dashboard/profile', label: 'Profile' },
-      { path: '/dashboard/user-management', label: 'User Management' },
-      { path: '/dashboard/settings/roles', label: 'Roles & Permissions' },
-    ]
-  },
-  {
-    name: 'Customers',
-    sections: [
-      { path: '/dashboard/customers', label: 'Customers' },
-      { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
-    ]
-  },
-  {
-    name: 'Restaurant',
-    sections: [
-      { path: '/dashboard', label: 'Dashboard' },
-      { path: '/dashboard/billing', label: 'Restaurant Billing' },
-      { path: '/dashboard/menu-management', label: 'Menu Management' },
-      { path: '/dashboard/table-management', label: 'Table Management' },
-      { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
-      { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
-    ]
-  },
-  {
-    name: 'Inventory',
-    sections: [
-      { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
-      { path: '/dashboard/inventory-management/add-item', label: 'Add New Item' },
-      { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
-      { path: '/dashboard/inventory-requests/history', label: 'Inventory Approvals' },
-      { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
-      { path: '/dashboard/purchase-orders/approvals', label: 'PO Approvals' },
-      { path: '/dashboard/inventory-stock-overview', label: 'Stock Overview' },
-      { path: '/dashboard/inventory-management/grn', label: 'GRN (Stock In)' },
-      { path: '/dashboard/inventory-management', label: 'Manage Items' },
-      { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
-    ]
-  },
-  {
-    name: 'Rooms & Bookings',
-    sections: [
-      { path: '/dashboard/room-management', label: 'Room Management' },
-      { path: '/dashboard/reservations', label: 'Reservation Management' },
-      { path: '/dashboard/inquiries', label: 'Inquiries' },
-      { path: '/dashboard/buffet-bookings', label: 'Buffet Bookings' },
-    ]
-  },
-  {
-    name: 'Financial',
-    sections: [
-      { path: '/dashboard/expenses', label: 'Expenses' },
-      { path: '/dashboard/other-incomes', label: 'Other Incomes' },
-      { path: '/dashboard/reports', label: 'Financial Reports' },
-    ]
-  },
-  {
-    name: 'HRMS',
-    sections: [
-      { path: '/dashboard/hrms/employees', label: 'HRMS: Employees' },
-      { path: '/dashboard/hrms/leaves', label: 'HRMS: Leaves' },
-      { path: '/dashboard/hrms/reports', label: 'HRMS: Daily Reports' },
-      { path: '/dashboard/hrms/payroll', label: 'HRMS: Payroll' },
-      { path: '/dashboard/hrms/attendance', label: 'HRMS: Attendance' },
-    ]
-  },
-  {
-    name: 'Other Content',
-    sections: [],
-  },
-  {
-    name: 'Services',
-    sections: [
-      { path: '/dashboard/services/laundry', label: 'Laundry Service' },
-      { path: '/dashboard/services/spa', label: 'Spa Service' },
-      { path: '/dashboard/services/transport', label: 'Transport Service' },
-    ],
-  },
-];
+import { APP_SECTION_GROUPS } from '@/lib/section-groups';
 
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
   email: z.string().email({ message: 'Please enter a valid email.' }),
-  role: z.enum(['admin', 'waiter', 'payment', 'kitchen']),
+  role: z.string().min(1, 'Please select a role'),
   phone_number: z.string().optional(),
   address: z.string().optional(),
   nic: z.string().optional(),
@@ -135,9 +53,12 @@ const formSchema = z.object({
   reporting_manager_id: z.string().optional().or(z.literal('')),
   working_calendar_id: z.string().optional().or(z.literal('')),
   basic_salary: z.coerce.number().min(0, 'Must be 0 or greater').optional().or(z.literal('')),
+  service_charge_applicable: z.boolean().default(false),
+  service_charge_rate: z.coerce.number().min(0).optional().or(z.literal('')),
   allowances: z.array(z.object({
     name: z.string().min(1, 'Name is required'),
     amount: z.coerce.number().min(0, 'Must be 0 or greater'),
+    allowance_type_id: z.string().optional(),
   })).default([]),
 }).refine((data) => {
   if (data.updatePassword && (!data.password || data.password.length < 6)) {
@@ -167,7 +88,9 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
   const [leaveSchemes, setLeaveSchemes] = useState<LeaveScheme[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [workingCalendars, setWorkingCalendars] = useState<WorkingCalendar[]>([]);
+  const [allowanceTypes, setAllowanceTypes] = useState<{ id: string; name: string; default_amount: number }[]>([]);
   const [salaryLoading, setSalaryLoading] = useState(false);
+  const [rolePermissionsMap, setRolePermissionsMap] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     fetch('/api/hrms/leave-schemes')
@@ -182,6 +105,15 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       .then(r => r.json())
       .then(d => setWorkingCalendars((d.calendars ?? []).filter((c: WorkingCalendar) => c.is_active)))
       .catch(() => {});
+    fetch('/api/hrms/allowance-types')
+      .then(r => r.json())
+      .then(d => setAllowanceTypes(d.allowanceTypes ?? []))
+      .catch(() => {});
+    fetch('/api/admin/role-permissions')
+      .then(r => r.json())
+      .then(d => { if (d.permissions) setRolePermissionsMap(d.permissions); })
+      .catch(() => {});
+    // availableRoles is derived from rolePermissionsMap keys below
   }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -206,6 +138,8 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       reporting_manager_id: user?.reporting_manager_id || 'none',
       working_calendar_id: user?.working_calendar_id || 'none',
       basic_salary: undefined,
+      service_charge_applicable: user?.service_charge_applicable === true,
+      service_charge_rate: user?.service_charge_rate ?? undefined,
       allowances: [],
     },
   });
@@ -237,6 +171,8 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       reporting_manager_id: user?.reporting_manager_id || 'none',
       working_calendar_id: user?.working_calendar_id || 'none',
       basic_salary: undefined,
+      service_charge_applicable: user?.service_charge_applicable === true,
+      service_charge_rate: user?.service_charge_rate ?? undefined,
       allowances: [],
     });
     setShowPassword(!user);
@@ -258,7 +194,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
   }, [user, form]);
 
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
-    const { confirmPassword, updatePassword, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, ...submissionData } = values;
+    const { confirmPassword, updatePassword, leave_scheme_id, reporting_manager_id, working_calendar_id, basic_salary, allowances, service_charge_applicable, service_charge_rate, ...submissionData } = values;
     if (!updatePassword) {
       delete submissionData.password;
     }
@@ -268,6 +204,10 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
       reporting_manager_id: reporting_manager_id && reporting_manager_id !== 'none' ? reporting_manager_id : null,
       working_calendar_id: working_calendar_id && working_calendar_id !== 'none' ? working_calendar_id : null,
       basic_salary: basic_salary != null && basic_salary !== '' ? Number(basic_salary) : null,
+      service_charge_applicable: service_charge_applicable === true,
+      service_charge_rate: service_charge_applicable === true && service_charge_rate != null && service_charge_rate !== ''
+        ? Number(service_charge_rate)
+        : null,
       allowances: allowances || [],
     });
   };
@@ -475,17 +415,35 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Role</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select
+                onValueChange={(val) => {
+                  field.onChange(val);
+                  // Only auto-load role permissions for NEW employees
+                  if (!user && rolePermissionsMap[val]) {
+                    form.setValue('permissions', rolePermissionsMap[val]);
+                  }
+                }}
+                defaultValue={field.value}
+              >
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="waiter">Waiter</SelectItem>
-                  <SelectItem value="payment">Payment</SelectItem>
-                  <SelectItem value="kitchen">Kitchen</SelectItem>
+                  {Object.keys(rolePermissionsMap).length > 0
+                    ? Object.keys(rolePermissionsMap).map(r => (
+                        <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                      ))
+                    : (
+                      <>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="waiter">Waiter</SelectItem>
+                        <SelectItem value="payment">Payment</SelectItem>
+                        <SelectItem value="kitchen">Kitchen</SelectItem>
+                      </>
+                    )
+                  }
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -608,70 +566,156 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
             )}
           />
 
+          <FormField
+            control={form.control}
+            name="service_charge_applicable"
+            render={({ field }) => (
+              <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5">
+                  <FormLabel className="text-sm font-medium">Service Charge Applicable</FormLabel>
+                  <p className="text-xs text-muted-foreground">Enable if service charge applies to this staff member.</p>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={(val) => {
+                    field.onChange(val);
+                    if (!val) form.setValue('service_charge_rate', undefined);
+                  }} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          {form.watch('service_charge_applicable') && (
+            <FormField
+              control={form.control}
+              name="service_charge_rate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Service Charge Rate (%)</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        placeholder="e.g. 10"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        name={field.name}
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                        value={field.value == null || (typeof field.value === 'number' && isNaN(field.value)) ? '' : field.value}
+                        onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                        className="pr-8"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-medium">Allowances</Label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => appendAllowance({ name: '', amount: 0 })}
-              >
-                <Plus className="h-3 w-3 mr-1" /> Add Allowance
-              </Button>
+              <div className="flex gap-2">
+                {allowanceTypes.length > 0 && (
+                  <Select
+                    onValueChange={(id) => {
+                      const at = allowanceTypes.find(a => a.id === id);
+                      if (at) appendAllowance({ name: at.name, amount: at.default_amount, allowance_type_id: at.id });
+                    }}
+                    value=""
+                  >
+                    <SelectTrigger className="h-8 text-xs w-44">
+                      <SelectValue placeholder="Add from preset..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allowanceTypes.map(at => (
+                        <SelectItem key={at.id} value={at.id}>
+                          {at.name} — LKR {at.default_amount.toLocaleString('en-LK')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => appendAllowance({ name: '', amount: 0 })}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Custom
+                </Button>
+              </div>
             </div>
 
             {allowanceFields.length === 0 && (
-              <p className="text-xs text-muted-foreground">No allowances added. Click "Add Allowance" to add P/s Budgetary Relief, transport, etc.</p>
+              <p className="text-xs text-muted-foreground">No allowances added. Select a preset or click "Custom" to add one manually.</p>
             )}
 
-            {allowanceFields.map((af, index) => (
-              <div key={af.id} className="flex gap-2 items-start">
-                <FormField
-                  control={form.control}
-                  name={`allowances.${index}.name`}
-                  render={({ field }) => (
-                    <FormItem className="flex-1">
-                      <FormControl>
-                        <Input placeholder="e.g. P/s Budgetary Relief" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name={`allowances.${index}.amount`}
-                  render={({ field }) => (
-                    <FormItem className="w-32">
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="0.00"
-                          min="0"
-                          step="0.01"
-                          name={field.name}
-                          ref={field.ref}
-                          onBlur={field.onBlur}
-                          value={field.value == null || (typeof field.value === 'number' && isNaN(field.value)) ? '' : field.value}
-                          onChange={e => field.onChange(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => removeAllowance(index)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
+            {allowanceFields.map((af, index) => {
+              const isLinked = !!form.watch(`allowances.${index}.allowance_type_id`);
+              return (
+                <div key={af.id} className="flex gap-2 items-start">
+                  <FormField
+                    control={form.control}
+                    name={`allowances.${index}.name`}
+                    render={({ field }) => (
+                      <FormItem className="flex-1">
+                        <FormControl>
+                          <div className="relative">
+                            <Input
+                              placeholder="e.g. P/s Budgetary Relief"
+                              {...field}
+                              className={isLinked ? 'pr-16' : ''}
+                            />
+                            {isLinked && (
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                preset
+                              </span>
+                            )}
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name={`allowances.${index}.amount`}
+                    render={({ field }) => (
+                      <FormItem className="w-32">
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            min="0"
+                            step="0.01"
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value == null || (typeof field.value === 'number' && isNaN(field.value)) ? '' : field.value}
+                            onChange={e => field.onChange(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => removeAllowance(index)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
 
             {allowanceFields.length > 0 && (
               <div className="flex justify-end text-xs text-muted-foreground pt-1">
@@ -745,10 +789,25 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
         )}
 
         <div className="space-y-3 pt-4 border-t">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="space-y-0.5">
-              <h3 className="text-sm font-semibold">Custom Section Permissions</h3>
-              <p className="text-xs text-muted-foreground">Select which sections this staff member can access. (Admins have access to all by default unless restricted above).</p>
+              <h3 className="text-sm font-semibold">Section Permissions</h3>
+              <p className="text-xs text-muted-foreground">Sections this staff member can access. Pre-filled from their role defaults — you can add or remove individually.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const role = form.getValues('role');
+                  if (rolePermissionsMap[role]) {
+                    form.setValue('permissions', rolePermissionsMap[role]);
+                  }
+                }}
+              >
+                Reset to Role Defaults
+              </Button>
             </div>
             {form.watch('role') === 'admin' && (
               <FormField

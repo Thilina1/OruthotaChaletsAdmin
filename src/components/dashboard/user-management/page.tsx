@@ -24,12 +24,13 @@ import type { User, UserRole } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 
-const roleColors: Record<UserRole, string> = {
+const roleColors: Record<string, string> = {
   admin: 'bg-primary text-primary-foreground',
   waiter: 'bg-accent text-accent-foreground',
   payment: 'bg-emerald-500 text-white',
   kitchen: 'bg-orange-500 text-white',
 };
+const getRoleColor = (role: string) => roleColors[role] ?? 'bg-slate-500 text-white';
 
 export default function UserManagementPage() {
   const supabase = createClient();
@@ -119,7 +120,7 @@ export default function UserManagementPage() {
                 <TableRow key={user.id} className="border-white/10">
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className={`capitalize ${roleColors[user.role] || 'bg-gray-500'}`}>
+                    <Badge variant="secondary" className={`capitalize ${getRoleColor(user.role)}`}>
                       {user.role}
                     </Badge>
                   </TableCell>

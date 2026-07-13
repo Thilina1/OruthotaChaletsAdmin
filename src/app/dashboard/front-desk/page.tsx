@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Printer, CheckCircle2 } from 'lucide-react';
-import type { Reservation, ConsolidatedBill } from '@/lib/types';
+import { Badge } from '@/components/ui/badge';
+import type { Reservation, ConsolidatedBill, ChaletBooking } from '@/lib/types';
 
 export default function FrontDeskPage() {
   const { toast } = useToast();
@@ -31,8 +32,11 @@ export default function FrontDeskPage() {
   // Check-In State
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [checkedInReservations, setCheckedInReservations] = useState<Reservation[]>([]);
+  const [chaletArrivals, setChaletArrivals] = useState<ChaletBooking[]>([]);
+  const [chaletInHouse, setChaletInHouse] = useState<ChaletBooking[]>([]);
   const [isLoadingReservations, setIsLoadingReservations] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
+  const [selectedChaletBooking, setSelectedChaletBooking] = useState<ChaletBooking | null>(null);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   
   const [customerName, setCustomerName] = useState('');
@@ -70,12 +74,18 @@ export default function FrontDeskPage() {
   const fetchReservations = async () => {
     setIsLoadingReservations(true);
     try {
-      const res = await fetch('/api/admin/reservations?status=confirmed,pending,checked-in');
-      const data = await res.json();
-      
-      const allRes: Reservation[] = data.reservations || [];
+      const [resData, chaletData] = await Promise.all([
+        fetch('/api/admin/reservations?status=confirmed,pending,checked-in').then(r => r.json()),
+        fetch('/api/chalet/bookings').then(r => r.json()),
+      ]);
+
+      const allRes: Reservation[] = resData.reservations || [];
       setReservations(allRes.filter(r => r.status === 'confirmed' || r.status === 'pending' || r.status === 'booked'));
       setCheckedInReservations(allRes.filter(r => r.status === 'checked-in'));
+
+      const allChalet: ChaletBooking[] = chaletData.bookings || [];
+      setChaletArrivals(allChalet.filter(b => b.status === 'pending' || b.status === 'confirmed'));
+      setChaletInHouse(allChalet.filter(b => b.status === 'checked_in'));
     } catch (error) {
       console.error(error);
     } finally {
@@ -95,6 +105,7 @@ export default function FrontDeskPage() {
 
   const handleOpenCheckIn = (res: Reservation) => {
     setSelectedReservation(res);
+    setSelectedChaletBooking(null);
     setCustomerName(res.guest_name || '');
     setEmail(res.guest_email || '');
     setPhone('');
@@ -104,33 +115,53 @@ export default function FrontDeskPage() {
     setIsCheckInModalOpen(true);
   };
 
+  const handleOpenChaletCheckIn = (booking: ChaletBooking) => {
+    setSelectedChaletBooking(booking);
+    setSelectedReservation(null);
+    setCustomerName(booking.customer_name || '');
+    setEmail(booking.customer_email || '');
+    setPhone(booking.customer_phone || '');
+    setIdNumber('');
+    setAddress('');
+    setIsLoyalty(false);
+    setIsCheckInModalOpen(true);
+  };
+
   const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedReservation) return;
-
     setIsCheckingIn(true);
     try {
-      const res = await fetch('/api/admin/front-desk/check-in', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reservation_id: selectedReservation.id,
-          customer_name: customerName,
-          phone,
-          email,
-          id_number: idNumber,
-          address,
-          is_loyalty: isLoyalty
-        })
-      });
-
-      if (!res.ok) throw new Error('Check-in failed');
-      
-      toast({ title: "Checked In", description: "Guest has been successfully checked in and registered." });
+      if (selectedChaletBooking) {
+        // Chalet booking check-in — update status to checked_in
+        const res = await fetch('/api/chalet/bookings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: selectedChaletBooking.id, status: 'checked_in' }),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        toast({ title: 'Checked In', description: `${customerName} has been checked in to Chalet ${selectedChaletBooking.chalet_rooms?.room_number ?? ''}.` });
+      } else if (selectedReservation) {
+        const res = await fetch('/api/admin/front-desk/check-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reservation_id: selectedReservation.id,
+            customer_name: customerName,
+            phone,
+            email,
+            id_number: idNumber,
+            address,
+            is_loyalty: isLoyalty,
+          }),
+        });
+        if (!res.ok) throw new Error('Check-in failed');
+        toast({ title: 'Checked In', description: 'Guest has been successfully checked in and registered.' });
+      }
       setIsCheckInModalOpen(false);
       fetchReservations();
     } catch (error: any) {
-      toast({ variant: 'destructive', title: "Error", description: error.message });
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
     } finally {
       setIsCheckingIn(false);
     }
@@ -198,17 +229,24 @@ export default function FrontDeskPage() {
 
           <TabsContent value="check-in">
             <div className="bg-white rounded-lg shadow border p-4">
-              <h2 className="text-lg font-semibold mb-4">Pending Arrivals</h2>
+              <h2 className="text-lg font-semibold mb-4">
+                Pending Arrivals
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  ({reservations.length + chaletArrivals.length} total)
+                </span>
+              </h2>
               {isLoadingReservations ? (
                 <p className="text-muted-foreground py-8 text-center">Loading reservations...</p>
-              ) : reservations.length === 0 ? (
+              ) : reservations.length === 0 && chaletArrivals.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">No pending arrivals.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Type</TableHead>
                       <TableHead>Guest Name</TableHead>
-                      <TableHead>Room</TableHead>
+                      <TableHead>Room / Chalet</TableHead>
+                      <TableHead>Package</TableHead>
                       <TableHead>Check-in</TableHead>
                       <TableHead>Check-out</TableHead>
                       <TableHead className="text-right">Action</TableHead>
@@ -216,15 +254,40 @@ export default function FrontDeskPage() {
                   </TableHeader>
                   <TableBody>
                     {reservations.map((res) => (
-                      <TableRow key={res.id}>
+                      <TableRow key={`res-${res.id}`}>
+                        <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
                         <TableCell className="font-medium">{res.guest_name}</TableCell>
                         <TableCell>{res.room?.title || 'Unassigned'}</TableCell>
+                        <TableCell className="text-muted-foreground">—</TableCell>
                         <TableCell>{new Date(res.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(res.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" onClick={() => handleOpenCheckIn(res)}>
-                            Check In
-                          </Button>
+                          <Button size="sm" onClick={() => handleOpenCheckIn(res)}>Check In</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {chaletArrivals.map((booking) => (
+                      <TableRow key={`chalet-${booking.id}`}>
+                        <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
+                        <TableCell className="font-medium">
+                          {booking.customer_name}
+                          <div className="text-xs text-muted-foreground">{booking.booking_ref}</div>
+                        </TableCell>
+                        <TableCell>
+                          {booking.chalet_rooms
+                            ? `Chalet ${booking.chalet_rooms.room_number} — ${booking.chalet_rooms.name}`
+                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {booking.chalet_packages?.name || '—'}
+                          {booking.chalet_occupancy_types && (
+                            <div className="text-xs text-muted-foreground">{booking.chalet_occupancy_types.name}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>{new Date(booking.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(booking.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" onClick={() => handleOpenChaletCheckIn(booking)}>Check In</Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -236,17 +299,23 @@ export default function FrontDeskPage() {
 
           <TabsContent value="in-house">
             <div className="bg-white rounded-lg shadow border p-4">
-              <h2 className="text-lg font-semibold mb-4">Checked-In Guests</h2>
+              <h2 className="text-lg font-semibold mb-4">
+                Checked-In Guests
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  ({checkedInReservations.length + chaletInHouse.length} total)
+                </span>
+              </h2>
               {isLoadingReservations ? (
                 <p className="text-muted-foreground py-8 text-center">Loading guests...</p>
-              ) : checkedInReservations.length === 0 ? (
+              ) : checkedInReservations.length === 0 && chaletInHouse.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">No guests are currently checked in.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Type</TableHead>
                       <TableHead>Guest Name</TableHead>
-                      <TableHead>Room</TableHead>
+                      <TableHead>Room / Chalet</TableHead>
                       <TableHead>Check-in</TableHead>
                       <TableHead>Check-out</TableHead>
                       <TableHead className="text-right">Action</TableHead>
@@ -254,25 +323,42 @@ export default function FrontDeskPage() {
                   </TableHeader>
                   <TableBody>
                     {checkedInReservations.map((res) => (
-                      <TableRow key={res.id}>
+                      <TableRow key={`res-${res.id}`}>
+                        <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
                         <TableCell className="font-medium">{res.guest_name}</TableCell>
                         <TableCell>{res.room?.title || 'Unassigned'}</TableCell>
                         <TableCell>
                           <div>{new Date(res.check_in_date).toLocaleDateString()}</div>
                           {res.check_in_time && (
                             <div className="text-xs text-muted-foreground mt-0.5">
-                              Time: {new Date(res.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(res.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           )}
                         </TableCell>
                         <TableCell>{new Date(res.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" variant="outline" onClick={() => {
-                            setCustomerSearch(res.guest_name);
-                            setActiveTab('check-out');
-                          }}>
+                          <Button size="sm" variant="outline" onClick={() => { setCustomerSearch(res.guest_name); setActiveTab('check-out'); }}>
                             View Bill
                           </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {chaletInHouse.map((booking) => (
+                      <TableRow key={`chalet-${booking.id}`}>
+                        <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
+                        <TableCell className="font-medium">
+                          {booking.customer_name}
+                          <div className="text-xs text-muted-foreground">{booking.booking_ref}</div>
+                        </TableCell>
+                        <TableCell>
+                          {booking.chalet_rooms
+                            ? `Chalet ${booking.chalet_rooms.room_number}`
+                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                        </TableCell>
+                        <TableCell>{new Date(booking.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(booking.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge className="bg-green-100 text-green-800 border-green-200">In House</Badge>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -1,0 +1,148 @@
+export const APP_SECTION_GROUPS = [
+  {
+    name: 'General',
+    sections: [
+      { path: '/dashboard/profile', label: 'Profile' },
+      { path: '/dashboard/user-management', label: 'User Management' },
+    ],
+  },
+  {
+    name: 'Customers',
+    sections: [
+      { path: '/dashboard/front-desk', label: 'Front Desk (Check In/Out)' },
+      { path: '/dashboard/customers', label: 'All Customers' },
+      { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
+    ],
+  },
+  {
+    name: 'Restaurant',
+    sections: [
+      { path: '/dashboard', label: 'Dashboard' },
+      { path: '/dashboard/restaurant-analytics', label: 'Restaurant Analytics' },
+      { path: '/dashboard/billing', label: 'Restaurant Billing' },
+      { path: '/dashboard/menu-management', label: 'Menu Management' },
+      { path: '/dashboard/table-management', label: 'Table Management' },
+      { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
+      { path: '/dashboard/restaurant-settings', label: 'Restaurant Settings' },
+    ],
+  },
+  {
+    name: 'Inventory',
+    sections: [
+      { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
+      { path: '/dashboard/inventory-management/add-item', label: 'Add New Item' },
+      { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
+      { path: '/dashboard/inventory-requests/history', label: 'Inventory Approvals' },
+      { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
+      { path: '/dashboard/purchase-orders/approvals', label: 'PO Approvals' },
+      { path: '/dashboard/inventory-stock-overview', label: 'Stock Overview' },
+      { path: '/dashboard/inventory-management/grn', label: 'GRN (Stock In)' },
+      { path: '/dashboard/inventory-management', label: 'Manage Items' },
+      { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
+    ],
+  },
+  {
+    name: 'Rooms & Bookings',
+    sections: [
+      { path: '/dashboard/room-management', label: 'Room Management' },
+      { path: '/dashboard/reservations', label: 'Reservation Management' },
+      { path: '/dashboard/inquiries', label: 'Inquiries' },
+      { path: '/dashboard/buffet-bookings', label: 'Buffet Bookings' },
+    ],
+  },
+  {
+    name: 'Chalet Booking',
+    sections: [
+      { path: '/dashboard/chalet/bookings', label: 'Chalet Bookings' },
+      { path: '/dashboard/chalet/rooms', label: 'Chalet Rooms' },
+      { path: '/dashboard/chalet/rates', label: 'Room Rates & Packages' },
+    ],
+  },
+  {
+    name: 'Financial',
+    sections: [
+      { path: '/dashboard/accounting', label: 'Accounting' },
+      { path: '/dashboard/expenses', label: 'Expenses' },
+      { path: '/dashboard/other-incomes', label: 'Other Incomes' },
+      { path: '/dashboard/reports', label: 'Financial Reports' },
+    ],
+  },
+  {
+    name: 'Services',
+    sections: [
+      { path: '/dashboard/services/laundry', label: 'Laundry Income' },
+      { path: '/dashboard/services/transport', label: 'Transport & Excursion' },
+      { path: '/dashboard/services/spa', label: 'Spa/Pool Income' },
+    ],
+  },
+  {
+    name: 'HRMS',
+    sections: [
+      { path: '/dashboard/hrms/employees', label: 'Employees' },
+      { path: '/dashboard/hrms/leaves', label: 'Leaves' },
+      { path: '/dashboard/hrms/leave-schemes', label: 'Leave Schemes' },
+      { path: '/dashboard/hrms/leave-approvals', label: 'Leave Approvals' },
+      { path: '/dashboard/hrms/manager-leave-approvals', label: 'Manager Leave Approvals' },
+      { path: '/dashboard/hrms/working-calendar', label: 'Working Calendar' },
+      { path: '/dashboard/hrms/reports', label: 'Daily Reports' },
+      { path: '/dashboard/hrms/payroll', label: 'Payroll' },
+      { path: '/dashboard/hrms/payroll-summary', label: 'Payroll Summary' },
+      { path: '/dashboard/hrms/apit-settings', label: 'APIT Tax Settings' },
+      { path: '/dashboard/hrms/payslip', label: 'My Payslips' },
+      { path: '/dashboard/hrms/allowance-types', label: 'Allowance Types' },
+      { path: '/dashboard/hrms/attendance', label: 'Attendance' },
+      { path: '/dashboard/hrms/daily-workers', label: 'Daily Workers' },
+      { path: '/dashboard/hrms/ot', label: 'My OT Requests' },
+      { path: '/dashboard/hrms/manager-ot-approvals', label: 'Manager OT Approvals' },
+      { path: '/dashboard/hrms/ot-approvals', label: 'OT Approvals' },
+      { path: '/dashboard/hrms/ot-settings', label: 'OT Settings' },
+      { path: '/dashboard/settings/roles', label: 'Role Permissions' },
+      { path: '/dashboard/hrms/petty-cash', label: 'My Petty Cash' },
+      { path: '/dashboard/hrms/petty-cash-approvals', label: 'Petty Cash Approvals' },
+      { path: '/dashboard/hrms/petty-cash-accounts', label: 'Petty Cash (Accounts)' },
+    ],
+  },
+  {
+    name: 'Other',
+    sections: [
+      { path: '/dashboard/activities', label: 'Activities' },
+      { path: '/dashboard/experiences', label: 'Experiences' },
+      { path: '/dashboard/blogs', label: 'Blog Management' },
+    ],
+  },
+];
+
+// Default permissions for each role — used when creating a new employee
+export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
+  admin: APP_SECTION_GROUPS.flatMap(g => g.sections.map(s => s.path)),
+  waiter: [
+    '/dashboard/profile',
+    '/dashboard',
+    '/dashboard/billing',
+    '/dashboard/hrms/leaves',
+    '/dashboard/hrms/reports',
+    '/dashboard/hrms/attendance',
+    '/dashboard/hrms/ot',
+    '/dashboard/hrms/manager-ot-approvals',
+  ],
+  kitchen: [
+    '/dashboard/profile',
+    '/dashboard',
+    '/dashboard/hrms/leaves',
+    '/dashboard/hrms/reports',
+    '/dashboard/hrms/attendance',
+    '/dashboard/hrms/ot',
+    '/dashboard/hrms/manager-ot-approvals',
+  ],
+  payment: [
+    '/dashboard/profile',
+    '/dashboard',
+    '/dashboard/billing',
+    '/dashboard/reports',
+    '/dashboard/hrms/leaves',
+    '/dashboard/hrms/reports',
+    '/dashboard/hrms/attendance',
+    '/dashboard/hrms/ot',
+    '/dashboard/hrms/manager-ot-approvals',
+  ],
+};

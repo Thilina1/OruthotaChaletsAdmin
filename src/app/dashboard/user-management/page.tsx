@@ -161,10 +161,12 @@ export default function UserManagementPage() {
                     <CardContent>
                         <div className="space-y-4">
                             {[...Array(5)].map((_, i) => (
-                                <div key={i} className="flex items-center justify-between">
-                                    <div className="w-1/4"><Skeleton className="h-6 w-full" /></div>
-                                    <div className="w-1/4"><Skeleton className="h-6 w-full" /></div>
-                                    <div className="w-1/4"><Skeleton className="h-10 w-full" /></div>
+                                <div key={i} className="flex items-center justify-between gap-2">
+                                    <div className="w-1/5"><Skeleton className="h-6 w-full" /></div>
+                                    <div className="w-1/5"><Skeleton className="h-6 w-full" /></div>
+                                    <div className="w-1/8"><Skeleton className="h-6 w-full" /></div>
+                                    <div className="w-1/8"><Skeleton className="h-6 w-full" /></div>
+                                    <div className="w-1/5"><Skeleton className="h-10 w-full" /></div>
                                     <div className="w-1/6 flex gap-2"><Skeleton className="h-10 w-1/2" /><Skeleton className="h-10 w-1/2" /></div>
                                 </div>
                             ))}
@@ -215,6 +217,7 @@ export default function UserManagementPage() {
                                 <TableHead>Name</TableHead>
                                 <TableHead>Email</TableHead>
                                 <TableHead>Current Role</TableHead>
+                                <TableHead>Svc Charge</TableHead>
                                 <TableHead>Change Role</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -225,6 +228,12 @@ export default function UserManagementPage() {
                                     <TableCell className="font-medium">{user.name}</TableCell>
                                     <TableCell>{user.email}</TableCell>
                                     <TableCell className="capitalize">{user.role}</TableCell>
+                                    <TableCell>
+                                        {user.service_charge_applicable === true
+                                            ? <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">Applicable</span>
+                                            : <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500">Not Applicable</span>
+                                        }
+                                    </TableCell>
                                     <TableCell>
                                         <Select onValueChange={(value: UserRole) => handleRoleChange(user.id, value)} defaultValue={user.role}>
                                             <SelectTrigger className="w-[180px]">

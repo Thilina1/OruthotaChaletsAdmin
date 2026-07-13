@@ -38,7 +38,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { MenuItem, MenuSection, HotelInventoryItem, InventoryDepartment } from '@/lib/types';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const stockTypes = ['Inventoried', 'Non-Inventoried'] as const;
 
@@ -90,6 +91,8 @@ interface BatchRow {
   total_stock: number;
   warehouse_stock: { name: string; quantity: number }[];
   _price: string;
+  _saving: boolean;
+  _saved: boolean;
 }
 
 interface MenuItemFormProps {
@@ -113,6 +116,7 @@ function fmtDate(d?: string) {
 }
 
 export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], departments = [], restaurantWarehouseIds = [] }: MenuItemFormProps) {
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -166,6 +170,8 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
         setBatches((data.batches as any[]).map(b => ({
           ...b,
           _price: b.selling_price != null ? String(b.selling_price) : '',
+          _saving: false,
+          _saved: false,
         })));
       })
       .catch(e => { if (!cancelled) setBatchError(e.message); })
@@ -175,7 +181,38 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
   }, [watchedStockType, watchedLinkedId, item?.id]);
 
   const handleBatchPriceChange = (batchId: string, value: string) => {
-    setBatches(prev => prev.map(b => b.id === batchId ? { ...b, _price: value } : b));
+    setBatches(prev => prev.map(b => b.id === batchId ? { ...b, _price: value, _saved: false } : b));
+  };
+
+  const handleSaveBatchPrice = async (batchId: string) => {
+    const menuItemId = item?.id;
+    if (!menuItemId) return;
+    const batch = batches.find(b => b.id === batchId);
+    if (!batch) return;
+    const parsed = parseFloat(batch._price);
+    if (batch._price === '' || isNaN(parsed) || parsed <= 0) {
+      toast({ variant: 'destructive', title: 'Invalid price', description: 'Enter a price greater than 0.' });
+      return;
+    }
+    setBatches(prev => prev.map(b => b.id === batchId ? { ...b, _saving: true } : b));
+    try {
+      const res = await fetch('/api/admin/inventory/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menu_item_id: menuItemId, batch_id: batchId, selling_price: parsed }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setBatches(prev => prev.map(b =>
+        b.id === batchId
+          ? { ...b, pricing_id: data.pricing.id, selling_price: parsed, _saving: false, _saved: true }
+          : b
+      ));
+      toast({ title: 'Price Saved', description: `Selling price set for batch ${batch.batch_number || '(no number)'}` });
+    } catch (err: any) {
+      setBatches(prev => prev.map(b => b.id === batchId ? { ...b, _saving: false } : b));
+      toast({ variant: 'destructive', title: 'Error', description: err.message });
+    }
   };
 
   // Restaurant warehouse filtering using saved setting
@@ -358,17 +395,35 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                                           type="number"
                                           step="0.01"
                                           min="0"
-                                          placeholder={batch.selling_price != null ? String(batch.selling_price) : 'Set price…'}
+                                          placeholder="Set price…"
                                           className="h-7 w-28 text-xs"
                                           value={batch._price}
                                           onChange={e => handleBatchPriceChange(batch.id, e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter' && item?.id) { e.preventDefault(); handleSaveBatchPrice(batch.id); } }}
+                                          disabled={batch._saving}
                                         />
-                                        {batch.selling_price != null && batch._price === '' && (
-                                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                            current: {batch.selling_price.toFixed(2)}
-                                          </span>
+                                        {item?.id && (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant={batch._saved ? 'outline' : 'default'}
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => handleSaveBatchPrice(batch.id)}
+                                            disabled={batch._saving}
+                                          >
+                                            {batch._saving
+                                              ? <RefreshCw className="h-3 w-3 animate-spin" />
+                                              : batch._saved
+                                                ? <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                                : 'Set'}
+                                          </Button>
                                         )}
                                       </div>
+                                      {batch.selling_price != null && batch.selling_price > 0 && !batch._saved && batch._price === '' && (
+                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                          current: {batch.selling_price.toFixed(2)}
+                                        </span>
+                                      )}
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -484,22 +539,28 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
 
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold border-b pb-2">Pricing & Availability</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField control={form.control} name="price" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Selling Price (LKR)</FormLabel>
-                      <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="buyingPrice" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Buying Price (LKR)</FormLabel>
-                      <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
+                {watchedStockType === 'Inventoried' ? (
+                  <p className="text-sm text-muted-foreground border rounded-md p-3 bg-muted/30">
+                    Selling price is set per batch via Batch Pricing in the menu item actions.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="price" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Selling Price (LKR)</FormLabel>
+                        <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="buyingPrice" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Buying Price (LKR)</FormLabel>
+                        <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                )}
                 <FormField control={form.control} name="availability" render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <FormLabel>Available for Sale</FormLabel>

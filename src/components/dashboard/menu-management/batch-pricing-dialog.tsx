@@ -78,7 +78,8 @@ export function BatchPricingDialog({
         setIsLoading(true);
         try {
             const res = await fetch(
-                `/api/admin/inventory/batches?item_id=${inventoryItemId}&menu_item_id=${menuItemId}`
+                `/api/admin/inventory/batches?item_id=${inventoryItemId}&menu_item_id=${menuItemId}`,
+                { cache: 'no-store' }
             );
             const data = await res.json();
             if (data.error) throw new Error(data.error);
@@ -116,8 +117,8 @@ export function BatchPricingDialog({
         if (!batch) return;
 
         const parsed = parseFloat(batch._editPrice);
-        if (batch._editPrice === '' || isNaN(parsed) || parsed < 0) {
-            toast({ variant: 'destructive', title: 'Invalid price', description: 'Enter a valid positive number.' });
+        if (batch._editPrice === '' || isNaN(parsed) || parsed <= 0) {
+            toast({ variant: 'destructive', title: 'Invalid price', description: 'Enter a price greater than 0.' });
             return;
         }
 

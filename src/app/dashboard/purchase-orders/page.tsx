@@ -305,13 +305,7 @@ export default function PurchaseOrdersPage() {
                                                         Submit for Approval
                                                     </Button>
                                                 )}
-                                                {po.status === 'approved' && (
-                                                    <Button variant="ghost" size="sm" className="text-blue-600 text-xs gap-1"
-                                                        onClick={() => handleStatusUpdate(po.id, 'sent')}>
-                                                        <Send className="h-3 w-3" /> Mark Sent
-                                                    </Button>
-                                                )}
-                                                {po.status === 'sent' && (
+                                                {(po.status === 'approved' || po.status === 'sent') && (
                                                     <Button variant="ghost" size="sm" className="text-green-600 text-xs gap-1"
                                                         onClick={() => { 
                                                             setReceivePO(po); 

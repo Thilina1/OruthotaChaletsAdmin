@@ -41,7 +41,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { description, amount, source, date } = body;
+        const { description, amount, source, date, support_links = [] } = body;
 
         if (!description || !amount || !source || !date) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
         const { data, error } = await supabase
             .from('other_incomes')
-            .insert({ description, amount, source, date })
+            .insert({ description, amount, source, date, support_links })
             .select()
             .single();
 
@@ -70,13 +70,13 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, description, amount, source, date } = body;
+        const { id, description, amount, source, date, support_links = [] } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
         const { data, error } = await supabase
             .from('other_incomes')
-            .update({ description, amount, source, date, updated_at: new Date().toISOString() })
+            .update({ description, amount, source, date, support_links, updated_at: new Date().toISOString() })
             .eq('id', id)
             .select()
             .single();

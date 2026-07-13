@@ -58,12 +58,12 @@ export async function POST(request: Request) {
 
     try {
         const body = await request.json();
-        const { user_id, basic_salary, fixed_allowances } = body;
+        const { user_id, basic_salary, fixed_allowances, paye_tax = 0 } = body;
 
         const { data: salaryDetail, error } = await supabase
             .from('salary_details')
             .upsert([
-                { user_id, basic_salary, fixed_allowances, updated_at: new Date().toISOString() }
+                { user_id, basic_salary, fixed_allowances, paye_tax: Number(paye_tax), updated_at: new Date().toISOString() }
             ], { onConflict: 'user_id' })
             .select()
             .single();

@@ -127,14 +127,11 @@ export default function TableManagementPage() {
     const handleFormSubmit = async (values: any) => {
         if (!currentUser) return;
 
-        // Map form values to DB values
-        // Form likely provides camelCase: tableNumber, capacity, status, section
         const dataToSave = {
-            table_number: values.tableNumber,
+            table_number: parseInt(values.tableNumber, 10),
             capacity: values.capacity,
             status: values.status,
-            location: values.section, // Map section to location
-            // DB columns: table_number, capacity, status, location
+            location: values.section,
         };
 
         try {
@@ -162,9 +159,9 @@ export default function TableManagementPage() {
 
                 toast({ title: "Table Created", description: "A new table has been successfully added." });
             }
-        } catch (error) {
-            console.error("Error saving table: ", error);
-            toast({ variant: "destructive", title: "Error", description: "Failed to save table." });
+        } catch (error: any) {
+            console.error("Error saving table:", error?.message ?? error);
+            toast({ variant: "destructive", title: "Error", description: error?.message ?? "Failed to save table." });
         }
 
         setIsDialogOpen(false);

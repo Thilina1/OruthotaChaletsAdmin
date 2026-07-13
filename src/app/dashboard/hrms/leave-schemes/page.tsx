@@ -143,7 +143,7 @@ function LeaveTypeForm({
                     <FormField control={form.control} name="days_count" render={({ field }) => (
                         <FormItem>
                             <FormLabel>Days Count</FormLabel>
-                            <FormControl><Input type="number" min={0} {...field} /></FormControl>
+                            <FormControl><Input type="number" min={0} step={0.5} placeholder="e.g. 14 or 0.5" {...field} /></FormControl>
                             <FormMessage />
                         </FormItem>
                     )} />
@@ -179,7 +179,7 @@ function LeaveTypeForm({
                     <FormField control={form.control} name="carry_forward_max" render={({ field }) => (
                         <FormItem>
                             <FormLabel>Max Carry Forward Days</FormLabel>
-                            <FormControl><Input type="number" min={0} placeholder="Leave blank for no limit" {...field} /></FormControl>
+                            <FormControl><Input type="number" min={0} step={0.5} placeholder="Leave blank for no limit" {...field} /></FormControl>
                             <FormMessage />
                         </FormItem>
                     )} />
@@ -219,7 +219,7 @@ function SchemeRow({
         const { carry_forward_max, ...rest } = values;
         return {
             ...rest,
-            carry_forward_max: values.carry_forward && carry_forward_max ? parseInt(carry_forward_max, 10) : null,
+            carry_forward_max: values.carry_forward && carry_forward_max ? parseFloat(carry_forward_max) : null,
         };
     };
 

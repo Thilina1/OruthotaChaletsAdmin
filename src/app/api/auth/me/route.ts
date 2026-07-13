@@ -31,13 +31,16 @@ export async function GET() {
         return NextResponse.json({ user: null }, { status: 200 });
     }
 
-    // Fetch leave scheme and working calendar names if assigned
-    const [leaveSchemeRes, calendarRes] = await Promise.all([
+    // Fetch leave scheme, working calendar, and reporting manager if assigned
+    const [leaveSchemeRes, calendarRes, managerRes] = await Promise.all([
         dbUser.leave_scheme_id
             ? supabase.from('leave_schemes').select('id, name, leave_scheme_types(id, name, days_count, reset_period)').eq('id', dbUser.leave_scheme_id).single()
             : Promise.resolve({ data: null }),
         dbUser.working_calendar_id
             ? supabase.from('working_calendars').select('id, name, year, description').eq('id', dbUser.working_calendar_id).single()
+            : Promise.resolve({ data: null }),
+        dbUser.reporting_manager_id
+            ? supabase.from('users').select('id, name, job_title').eq('id', dbUser.reporting_manager_id).single()
             : Promise.resolve({ data: null }),
     ]);
 
@@ -61,6 +64,7 @@ export async function GET() {
         reporting_manager_id: dbUser.reporting_manager_id || null,
         leave_scheme: leaveSchemeRes.data || null,
         working_calendar: calendarRes.data || null,
+        reporting_manager: managerRes.data || null,
     };
 
     return NextResponse.json({ user }, { status: 200 });

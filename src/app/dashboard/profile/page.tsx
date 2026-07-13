@@ -20,6 +20,7 @@ import {
   CalendarDays,
   BookOpen,
   CheckCircle2,
+  UserCheck,
 } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -119,6 +120,27 @@ export default function ProfilePage() {
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
                 <InfoRow icon={Briefcase} label="Designation / Job Title" value={user.job_title || user.role} />
+
+                {/* Reporting Manager */}
+                <div className="group">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Reporting Manager</p>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-muted/50 rounded-md group-hover:bg-primary/10 transition-colors">
+                      <UserCheck className="w-4 h-4 text-primary/70 group-hover:text-primary" />
+                    </div>
+                    {user.reporting_manager ? (
+                      <div>
+                        <p className="font-medium text-foreground">{user.reporting_manager.name}</p>
+                        {user.reporting_manager.job_title && (
+                          <p className="text-xs text-muted-foreground">{user.reporting_manager.job_title}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="font-medium text-muted-foreground">Not assigned</span>
+                    )}
+                  </div>
+                </div>
+
                 <InfoRow
                   icon={Calendar}
                   label="Joining Date"

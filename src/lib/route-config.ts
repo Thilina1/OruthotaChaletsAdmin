@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -22,6 +22,7 @@ export const customerMenuItems: MenuItem[] = [
 
 export const restaurantMenuItems: MenuItem[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
+    { href: '/dashboard/restaurant-analytics', icon: BarChart, label: 'Restaurant Analytics', roles: ['admin'] },
     { href: '/dashboard/billing', icon: CreditCard, label: 'Restaurant Billing', roles: ['admin', 'payment'] },
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
@@ -50,6 +51,7 @@ export const roomBookingMenuItems: MenuItem[] = [
 ];
 
 export const otherMenue: MenuItem[] = [
+    { href: '/dashboard/accounting', icon: BookOpen, label: 'Accounting', roles: ['admin'] },
     { href: '/dashboard/expenses', icon: Zap, label: 'Expenses', roles: ['admin'] },
     { href: '/dashboard/other-incomes', icon: Zap, label: 'Other Incomes', roles: ['admin'] },
 ];
@@ -59,10 +61,24 @@ export const hrmsMenuItems: MenuItem[] = [
     { href: '/dashboard/hrms/leaves', icon: Calendar, label: 'Leaves', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/leave-schemes', icon: Layers, label: 'Leave Schemes', roles: ['admin'] },
     { href: '/dashboard/hrms/leave-approvals', icon: ShieldCheck, label: 'Leave Approvals', roles: ['admin'] },
+    { href: '/dashboard/hrms/manager-leave-approvals', icon: Users, label: 'Manager Leave Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/working-calendar', icon: CalendarDays, label: 'Working Calendar', roles: ['admin'] },
     { href: '/dashboard/hrms/reports', icon: ClipboardList, label: 'Daily Reports', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/payroll', icon: Banknote, label: 'Payroll', roles: ['admin'] },
+    { href: '/dashboard/hrms/payroll-summary', icon: ReceiptText, label: 'Payroll Summary', roles: ['admin'] },
+    { href: '/dashboard/hrms/apit-settings', icon: SlidersHorizontal, label: 'APIT Tax Settings', roles: ['admin'] },
+    { href: '/dashboard/hrms/payslip', icon: Banknote, label: 'My Payslips', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/allowance-types', icon: Coins, label: 'Allowance Types', roles: ['admin'] },
     { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/daily-workers', icon: HardHat, label: 'Daily Workers', roles: ['admin'] },
+    { href: '/dashboard/hrms/ot', icon: AlarmClock, label: 'My OT Requests', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/manager-ot-approvals', icon: CheckSquare, label: 'Manager OT Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/ot-approvals', icon: CheckSquare, label: 'OT Approvals', roles: ['admin'] },
+    { href: '/dashboard/hrms/ot-settings', icon: SlidersHorizontal, label: 'OT Settings', roles: ['admin'] },
+    { href: '/dashboard/settings/roles', icon: ShieldCheck, label: 'Role Permissions', roles: ['admin'] },
+    { href: '/dashboard/hrms/petty-cash', icon: Wallet, label: 'My Petty Cash', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/petty-cash-approvals', icon: CheckSquare, label: 'Petty Cash Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/petty-cash-accounts', icon: Banknote, label: 'Petty Cash (Accounts)', roles: ['admin', 'payment'] },
 ];
 
 export const otherMenuItems: MenuItem[] = [
@@ -78,12 +94,19 @@ export const servicesMenuItems: MenuItem[] = [
     { href: '/dashboard/services/spa', icon: Waves, label: 'Spa/Pool Income', roles: ['admin'] },
 ];
 
+export const chaletMenuItems: MenuItem[] = [
+    { href: '/dashboard/chalet/bookings', icon: BedDouble, label: 'Chalet Bookings', roles: ['admin'] },
+    { href: '/dashboard/chalet/rooms', icon: BedDouble, label: 'Chalet Rooms', roles: ['admin'] },
+    { href: '/dashboard/chalet/rates', icon: BedDouble, label: 'Room Rates & Packages', roles: ['admin'] },
+];
+
 export const allMenuItems = [
     ...generalMenuItems,
     ...customerMenuItems,
     ...restaurantMenuItems,
     ...inventoryMenuItems,
     ...roomBookingMenuItems,
+    ...chaletMenuItems,
     ...otherMenue,
     ...servicesMenuItems,
     ...hrmsMenuItems,

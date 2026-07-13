@@ -36,14 +36,14 @@ export async function GET(request: Request) {
             .select('leave_type_id, days_count, status')
             .eq('user_id', userId)
             .gte('start_date', yearStart)
-            .in('status', ['approved', 'pending']);
+            .in('status', ['approved', 'pending', 'pending_manager']);
 
         const balance = (schemeTypes ?? []).map(type => {
             const approved = (requests ?? [])
                 .filter(r => r.leave_type_id === type.id && r.status === 'approved')
                 .reduce((sum, r) => sum + Number(r.days_count), 0);
             const pending = (requests ?? [])
-                .filter(r => r.leave_type_id === type.id && r.status === 'pending')
+                .filter(r => r.leave_type_id === type.id && (r.status === 'pending' || r.status === 'pending_manager'))
                 .reduce((sum, r) => sum + Number(r.days_count), 0);
             return {
                 ...type,

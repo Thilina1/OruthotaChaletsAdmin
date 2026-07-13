@@ -15,12 +15,11 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Pencil, Trash2 } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, Link2, ExternalLink, X, Plus } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +54,7 @@ export default function OtherIncomesPage() {
   const [amount, setAmount] = useState('');
   const [source, setSource] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [supportLinks, setSupportLinks] = useState<string[]>([]);
 
   const sources = ['Events', 'Catering', 'Rentals', 'Merchandise', 'Tips', 'Other'];
 
@@ -91,6 +91,7 @@ export default function OtherIncomesPage() {
     setAmount('');
     setSource('');
     setDate(new Date().toISOString().split('T')[0]);
+    setSupportLinks([]);
     setEditingIncome(null);
   };
 
@@ -101,26 +102,32 @@ export default function OtherIncomesPage() {
       setAmount(income.amount.toString());
       setSource(income.source);
       setDate(income.date);
+      setSupportLinks(income.support_links ?? []);
     } else {
       resetForm();
     }
     setIsDialogOpen(true);
   };
 
+  const addLink = () => setSupportLinks(prev => [...prev, '']);
+  const removeLink = (i: number) => setSupportLinks(prev => prev.filter((_, idx) => idx !== i));
+  const updateLink = (i: number, val: string) =>
+    setSupportLinks(prev => prev.map((l, idx) => idx === i ? val : l));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const url = editingIncome ? '/api/admin/other-incomes' : '/api/admin/other-incomes';
       const method = editingIncome ? 'PUT' : 'POST';
       const body = {
         id: editingIncome?.id,
         description,
         amount: parseFloat(amount),
         source,
-        date
+        date,
+        support_links: supportLinks.filter(l => l.trim() !== ''),
       };
 
-      const res = await fetch(url, {
+      const res = await fetch('/api/admin/other-incomes', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -179,17 +186,18 @@ export default function OtherIncomesPage() {
               <TableHead>Description</TableHead>
               <TableHead>Source</TableHead>
               <TableHead className="text-right">Amount (LKR)</TableHead>
+              <TableHead>Links</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10">Loading...</TableCell>
+                <TableCell colSpan={6} className="text-center py-10">Loading...</TableCell>
               </TableRow>
             ) : (!paginatedItems || paginatedItems.length === 0) ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No income records found.</TableCell>
+                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No income records found.</TableCell>
               </TableRow>
             ) : (
               paginatedItems.map((income) => (
@@ -202,6 +210,27 @@ export default function OtherIncomesPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">LKR {income.amount.toFixed(2)}</TableCell>
+                  <TableCell>
+                    {(income.support_links ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {(income.support_links ?? []).map((link, i) => (
+                          <a
+                            key={i}
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                            title={link}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Link {i + 1}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(income)}>
                       <Pencil className="h-4 w-4" />
@@ -226,8 +255,8 @@ export default function OtherIncomesPage() {
         )}
       </div>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) resetForm(); setIsDialogOpen(open); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingIncome ? 'Edit Income' : 'Add New Income'}</DialogTitle>
           </DialogHeader>
@@ -277,7 +306,45 @@ export default function OtherIncomesPage() {
                 required
               />
             </div>
-            <div className="flex justify-end pt-4">
+
+            {/* Supporting Links */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-1.5">
+                  <Link2 className="h-4 w-4" /> Supporting Links
+                </Label>
+                <Button type="button" variant="outline" size="sm" onClick={addLink}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Link
+                </Button>
+              </div>
+              {supportLinks.length === 0 && (
+                <p className="text-xs text-muted-foreground">No links added. Click "Add Link" to attach document URLs.</p>
+              )}
+              <div className="space-y-2">
+                {supportLinks.map((link, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <Input
+                      type="url"
+                      placeholder="https://..."
+                      value={link}
+                      onChange={(e) => updateLink(i, e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeLink(i)}
+                      className="text-destructive hover:text-destructive shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2">
               <Button type="submit" className="w-full">
                 {editingIncome ? 'Update Income' : 'Save Income'}
               </Button>

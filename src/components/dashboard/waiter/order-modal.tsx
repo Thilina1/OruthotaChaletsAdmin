@@ -37,11 +37,14 @@ import {
   Utensils,
   CheckCircle,
   Trash2,
+  Clock,
+  RefreshCw,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogDescription,
@@ -49,6 +52,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useUserContext } from '@/context/user-context';
+
+type ChargeEntry = { id: string; name: string; type: 'percentage' | 'fixed'; value: number; enabled: boolean };
+type BillingCfg = { vat: { enabled: boolean; rate: number }; service_charges: ChargeEntry[]; other_charges: ChargeEntry[] };
 
 interface OrderModalProps {
   table: TableType;
@@ -71,6 +77,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [openOrder, setOpenOrder] = useState<Order | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [customerMobile, setCustomerMobile] = useState('');
+  const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
+  const [showBillBreakdown, setShowBillBreakdown] = useState(false);
 
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -80,23 +89,34 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     if (!isOpen) return;
     setIsLoading(true);
     try {
-      // Fetch Restaurant Warehouse ID
+      // Fetch Menu Items and Categories via API route (service role key — bypasses RLS)
+      const menuApiRes = await fetch('/api/admin/menu-items').then(r => r.json());
+
+      // Fetch Restaurant Warehouse ID and stock concurrently
       const { data: restaurantWH } = await supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle();
       const restaurantWHId = restaurantWH?.id;
+      const stockRes = restaurantWHId
+        ? await supabase.from('inventory_stock').select('*, batch:inventory_batches(*)').eq('warehouse_id', restaurantWHId)
+        : { data: [] };
 
-      // Fetch Menu Items, Categories, and Stock concurrently
-      const [tablesRes, menuRes, categoriesRes, stockRes] = await Promise.all([
-        supabase.from('restaurant_tables').select('*'),
-        supabase.from('menu_items').select('*'),
-        supabase.from('menu_sections').select('*').order('name'),
-        restaurantWHId ? supabase.from('inventory_stock').select('*, batch:inventory_batches(*)').eq('warehouse_id', restaurantWHId) : Promise.resolve({ data: [] })
-      ]);
+      const menuRawItems = menuApiRes.menuItems ?? [];
 
-      if (menuRes.data) {
+      if (menuRawItems.length > 0) {
         const stockData = stockRes.data || [];
         const todayStr = new Date().toISOString().split('T')[0];
 
-        const enhancedMenuItems = menuRes.data.map((item: any) => {
+        // Fetch batch pricing for all menu items in one query
+        const allMenuItemIds = menuRawItems.map((m: any) => m.id);
+        const { data: allPricingData } = allMenuItemIds.length > 0
+          ? await supabase.from('menu_item_batch_pricing').select('menu_item_id, batch_id, selling_price').in('menu_item_id', allMenuItemIds)
+          : { data: [] };
+        const pricingMap: Record<string, Record<string, number>> = {};
+        (allPricingData ?? []).forEach((p: any) => {
+          if (!pricingMap[p.menu_item_id]) pricingMap[p.menu_item_id] = {};
+          pricingMap[p.menu_item_id][p.batch_id] = p.selling_price;
+        });
+
+        const enhancedMenuItems = menuRawItems.map((item: any) => {
           let available_batches: any[] = [];
           let restaurant_stock = 0;
 
@@ -111,7 +131,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                  id: s.batch.id,
                  batch_number: s.batch.batch_number,
                  expiry_date: s.batch.expiry_date,
-                 quantity: s.quantity
+                 quantity: s.quantity,
+                 selling_price: pricingMap[item.id]?.[s.batch.id] ?? null,
                });
                restaurant_stock += s.quantity;
              });
@@ -135,25 +156,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         setMenuItems(enhancedMenuItems);
       }
 
-      if (categoriesRes.data) {
-        setMenuCategories(categoriesRes.data.map((s: any) => s.name));
+      if (menuApiRes.menuSections) {
+        setMenuCategories(menuApiRes.menuSections.map((s: any) => s.name));
       }
 
-      // Fetch Open Order
+      // Fetch the most recent open or billed order for this table
       const { data: orderData } = await supabase.from('orders')
         .select('*')
         .eq('table_id', table.id)
-        .eq('status', 'open')
-        .maybeSingle(); // Assuming only one open order per table
+        .in('status', ['open', 'billed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (orderData) {
         setOpenOrder(orderData as any);
-        // Fetch Order Items
+        setCustomerMobile((orderData as any).customer_mobile || '');
         const { data: itemsData } = await supabase.from('order_items').select('*').eq('order_id', orderData.id);
         if (itemsData) setOrderItems(itemsData as any);
       } else {
         setOpenOrder(null);
         setOrderItems([]);
+        setCustomerMobile('');
+        setBillingConfig(null);
       }
 
     } catch (e) {
@@ -167,6 +192,14 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     fetchData();
   }, [fetchData]);
 
+  // Load billing config as soon as order is billed so breakdown shows immediately
+  useEffect(() => {
+    if (openOrder?.status !== 'billed') { setBillingConfig(null); return; }
+    fetch('/api/admin/app-settings?key=restaurant_billing_config')
+      .then(r => r.json())
+      .then(res => { if (res.value) setBillingConfig(res.value as BillingCfg); })
+      .catch(() => {});
+  }, [openOrder?.status, openOrder?.id]);
 
   const [localMenuItems, setLocalMenuItems] = useState<MenuItem[] | null>(null);
 
@@ -221,22 +254,18 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
   }, [menuItems, orderItems]);
 
-  // Real-time subscription for Order Items
+  // Real-time subscription for Order Items and Order row (catches confirmed_total updates from cashier)
   useEffect(() => {
     if (!openOrder?.id || !isOpen) return;
 
-    const channel = supabase.channel(`order-items-${openOrder.id}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'order_items', 
-          filter: `order_id=eq.${openOrder.id}` 
-        }, 
-        () => {
-          // Refetch items and order total
-          fetchData();
-        }
+    const channel = supabase.channel(`order-waiter-${openOrder.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'order_items', filter: `order_id=eq.${openOrder.id}` },
+        () => { fetchData(); }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${openOrder.id}` },
+        () => { fetchData(); }
       )
       .subscribe();
 
@@ -332,6 +361,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
           total_price: 0,
           waiter_id: currentUser.id,
           waiter_name: currentUser.name,
+          ...(customerMobile ? { customer_mobile: customerMobile } : {}),
         }]).select().single();
 
         if (createError) throw createError;
@@ -348,16 +378,17 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         const menuItem = menuItems?.find((m) => m.id === menuItemId);
         
         if (menuItem) {
-          orderTotalPriceUpdate += menuItem.price * quantityToAdd;
+          const batch = batchId ? (menuItem as any).available_batches?.find((b: any) => b.id === batchId) : null;
+          const itemPrice = batch?.selling_price || menuItem.price;
+          orderTotalPriceUpdate += itemPrice * quantityToAdd;
 
-          // Check if item exists in order
-          let query = supabase.from('order_items').select('*').eq('order_id', currentOrderId).eq('menu_item_id', menuItemId);
-          if (batchId) {
-            query = query.eq('batch_id', batchId);
-          } else {
-            query = query.is('batch_id', null);
-          }
-          const { data: existingItems } = await query;
+          // Check if item (with same price) exists in order
+          const { data: existingItems } = await supabase
+            .from('order_items')
+            .select('*')
+            .eq('order_id', currentOrderId)
+            .eq('menu_item_id', menuItemId)
+            .eq('price', itemPrice);
 
           if (existingItems && existingItems.length > 0) {
             const existingItem = existingItems[0];
@@ -368,9 +399,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             await supabase.from('order_items').insert([{
               order_id: currentOrderId,
               menu_item_id: menuItemId,
-              batch_id: batchId || null,
               name: menuItem.name,
-              price: menuItem.price,
+              price: itemPrice,
               quantity: quantityToAdd
             }]);
           }
@@ -426,7 +456,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         total_price: currentTotal + orderTotalPriceUpdate,
         updated_at: new Date().toISOString(),
         waiter_id: currentUser.id,
-        waiter_name: currentUser.name
+        waiter_name: currentUser.name,
+        ...(customerMobile ? { customer_mobile: customerMobile } : {}),
       }).eq('id', currentOrderId);
 
       // Update Table Status
@@ -575,6 +606,11 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
   };
 
+  const handleSaveCustomerMobile = async () => {
+    if (!openOrder?.id || !customerMobile) return;
+    await supabase.from('orders').update({ customer_mobile: customerMobile }).eq('id', openOrder.id);
+  };
+
   const handleProcessPayment = async () => {
     if (!openOrder || !table) {
       toast({ variant: 'destructive', title: 'Cannot Process Payment', description: 'There is no open order for this table.' });
@@ -582,27 +618,32 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
 
     try {
-      // Just update status to 'billed' for now as bills table might be missing
-      // If we want to be fancy we insert to 'bills' if it existed
       await supabase.from('orders').update({
         status: 'billed',
         updated_at: new Date().toISOString()
       }).eq('id', openOrder.id);
 
+      // Keep table occupied — only the cashier confirming payment should free it
+      await supabase.from('restaurant_tables').update({ status: 'occupied' }).eq('id', table.id);
+
+      setLocalOrder({});
       toast({ title: 'Bill Sent for Payment', description: `The bill for Table ${table.table_number} is now pending payment.` });
-      onClose();
+      fetchData();
     } catch (error) {
       console.error('Error processing payment:', error);
       toast({ variant: 'destructive', title: 'Process Failed', description: 'Could not send the bill for payment.' });
     }
   };
 
-  // const isLoading ... already defined
+  const isBilled = openOrder?.status === 'billed';
 
   const totalLocalprice = Object.entries(localOrder).reduce((acc, [orderKey, quantity]) => {
-    const menuItemId = orderKey.split('::')[0];
-    const item = menuItems?.find((m) => m.id === menuItemId);
-    return acc + (item ? item.price * quantity : 0);
+    const [menuItemId, batchId] = orderKey.split('::');
+    const item = menuItems?.find((m) => m.id === menuItemId) as any;
+    if (!item) return acc;
+    const batch = batchId ? item.available_batches?.find((b: any) => b.id === batchId) : null;
+    const price = batch?.selling_price || item.price;
+    return acc + price * quantity;
   }, 0);
   const totalBill = (openOrder?.total_price || 0) + totalLocalprice;
 
@@ -614,9 +655,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         </DialogHeader>
 
         {/* Grid container: using min-h-0 & flex-1 to allow children to size correctly */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 items-start flex-1 min-h-0 p-6 pt-2">
-          {/* Menu Card */}
-          <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden">
+        <div className={`grid gap-8 items-start flex-1 min-h-0 p-6 pt-2 ${isBilled ? 'grid-cols-1 max-w-md mx-auto w-full' : 'md:grid-cols-2 lg:grid-cols-3'}`}>
+          {/* Menu Card — hidden when bill is sent to payment */}
+          {!isBilled && <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden">
             <CardHeader className="flex-shrink-0">
               <CardTitle>Menu</CardTitle>
               <CardDescription>Select items to add to the order.</CardDescription>
@@ -677,7 +718,15 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
                             <div>
                               <p className="font-semibold">{item.name}</p>
-                              <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
+                              {item.stock_type === 'Inventoried' ? (() => {
+                                const batches: any[] = (item as any).available_batches ?? [];
+                                const prices = [...new Set(batches.map((b: any) => b.selling_price).filter((p: any) => p != null && p > 0))] as number[];
+                                if (prices.length === 0) return <p className="text-sm text-muted-foreground">Price by batch</p>;
+                                const min = Math.min(...prices); const max = Math.max(...prices);
+                                return <p className="text-sm text-muted-foreground">LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</p>;
+                              })() : (
+                                <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
+                              )}
                               {item.stock_type === 'Inventoried' && (
                                 <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>
                                   Stock: {effectiveStock - currentCountInCart}
@@ -698,7 +747,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                 </div>
               </ScrollArea>
             </CardContent>
-          </Card>
+          </Card>}
 
           {/* Current Bill Card */}
           <Card className="h-full flex flex-col overflow-hidden sticky top-0">
@@ -706,7 +755,6 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
               <CardTitle className="flex items-center">
                 <ShoppingCart className="mr-2" /> Current Bill
               </CardTitle>
-
               {table && <Badge className="capitalize w-fit">{table.status}</Badge>}
               {openOrder?.waiter_name && <p className="text-sm text-muted-foreground pt-1">Waiter: {openOrder.waiter_name}</p>}
             </CardHeader>
@@ -714,8 +762,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             <CardContent className="flex-1 min-h-0 overflow-hidden">
               <ScrollArea className="h-full pr-4">
                 <div className="space-y-4">
+
+                  {/* Customer Mobile (Loyalty) */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Customer Mobile (Loyalty)</label>
+                    <Input
+                      placeholder="e.g. 0771234567 (optional)"
+                      value={customerMobile}
+                      onChange={(e) => setCustomerMobile(e.target.value)}
+                      onBlur={handleSaveCustomerMobile}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+
+                  {/* Payment-pending banner */}
+                  {isBilled && (
+                    <div className="flex items-center gap-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-300 dark:border-yellow-700 rounded-lg px-3 py-2 text-sm text-yellow-800 dark:text-yellow-300">
+                      <Clock className="h-4 w-4 shrink-0" />
+                      <span>Bill sent — awaiting payment from cashier.</span>
+                    </div>
+                  )}
+
                   <Separator />
-                  <h3 className="font-semibold">Current Order</h3>
+                  <h3 className="font-semibold">Order Items</h3>
                   <div className="space-y-2">
                     {isLoading ? (
                       <Skeleton className="h-16 w-full" />
@@ -726,19 +795,22 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             <p className="font-medium">{item.name}</p>
                             <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
                           </div>
-                          
-                          <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
-                              <MinusCircle className="h-3 w-3" />
-                            </Button>
-                            <span className="w-4 text-center font-bold">{item.quantity}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
-                              <PlusCircle className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          {isBilled ? (
+                            <span className="text-sm font-medium ml-2">× {item.quantity}</span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
+                                <MinusCircle className="h-3 w-3" />
+                              </Button>
+                              <span className="w-4 text-center font-bold">{item.quantity}</span>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
+                                <PlusCircle className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ))
                     ) : (
@@ -746,61 +818,133 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     )}
                   </div>
 
-                  <Separator />
-                  <h3 className="font-semibold">New Items</h3>
-                  <div className="space-y-1">
-                    {Object.keys(localOrder).length > 0 ? (
-                      Object.entries(localOrder).map(([orderKey, quantity]) => {
-                        const [menuItemId, batchId] = orderKey.split('::');
-                        const item = menuItems?.find((m) => m.id === menuItemId);
-                        if (!item) return null;
-                        
-                        let batchLabel = "";
-                        if (batchId && (item as any).available_batches) {
-                           const b = (item as any).available_batches.find((b: any) => b.id === batchId);
-                           if (b) batchLabel = ` (Batch: ${b.batch_number})`;
-                        }
-
-                        return (
-                          <div key={orderKey} className="flex justify-between items-center text-sm mb-1">
-                            <div><p>{item.name}{batchLabel} x {quantity}</p></div>
-                            <div className="flex items-center gap-2">
-                              <p>LKR {(item.price * quantity).toFixed(2)}</p>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleAddConfirmedItem(item, batchId || null)}>
-                                <PlusCircle className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveItem(orderKey)}>
-                                <MinusCircle className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Add items from the menu.</p>
-                    )}
-                  </div>
+                  {/* Bill breakdown — shown as soon as order is billed */}
+                  {!isBilled && (
+                    <>
+                      <Separator />
+                      <h3 className="font-semibold">New Items</h3>
+                      <div className="space-y-1">
+                        {Object.keys(localOrder).length > 0 ? (
+                          Object.entries(localOrder).map(([orderKey, quantity]) => {
+                            const [menuItemId, batchId] = orderKey.split('::');
+                            const item = menuItems?.find((m) => m.id === menuItemId) as any;
+                            if (!item) return null;
+                            const batch = batchId ? item.available_batches?.find((b: any) => b.id === batchId) : null;
+                            const price = batch?.selling_price || item.price;
+                            const batchLabel = batch ? ` (Batch: ${batch.batch_number})` : '';
+                            return (
+                              <div key={orderKey} className="flex justify-between items-center text-sm mb-1">
+                                <div><p>{item.name}{batchLabel} x {quantity}</p></div>
+                                <div className="flex items-center gap-2">
+                                  <p>LKR {(price * quantity).toFixed(2)}</p>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleAddConfirmedItem(item, batchId || null)}>
+                                    <PlusCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveItem(orderKey)}>
+                                    <MinusCircle className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Add items from the menu.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </ScrollArea>
             </CardContent>
 
             <CardFooter className="flex flex-col gap-4 mt-auto border-t pt-4 flex-shrink-0">
-              <div className="w-full flex justify-between items-center text-xl font-bold">
-                <span>Total Bill:</span>
-                <span>LKR {totalBill.toFixed(2)}</span>
-              </div>
+              {!isBilled && (
+                <>
+                  <div className="w-full flex justify-between items-center text-xl font-bold">
+                    <span>Total Bill:</span>
+                    <span>LKR {totalBill.toFixed(2)}</span>
+                  </div>
+                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0}>
+                    Add Items to Bill
+                  </Button>
+                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder}>
+                    <CheckCircle className="mr-2" /> Send to Payment
+                  </Button>
+                </>
+              )}
 
-              <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0}>
-                Add Items to Bill
-              </Button>
+              {isBilled && (
+                <>
+                  <div className="w-full flex items-center justify-between gap-2 text-sm text-yellow-700 dark:text-yellow-400 font-medium py-1">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Waiting for cashier to complete payment…
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => fetchData()}>
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Button
+                    className="w-full"
+                    variant="default"
+                    disabled={!(openOrder as any)?.confirmed_total}
+                    onClick={() => setShowBillBreakdown(true)}
+                  >
+                    {(openOrder as any)?.confirmed_total
+                      ? `View Bill — LKR ${((openOrder as any).confirmed_total as number).toFixed(2)}`
+                      : 'View Bill (awaiting cashier confirmation)'}
+                  </Button>
+                </>
+              )}
 
-              <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder}>
-                <CheckCircle className="mr-2" /> Send to Payment
-              </Button>
             </CardFooter>
           </Card>
         </div>
         
+        {/* Bill Breakdown Dialog — shown after cashier confirms */}
+        <Dialog open={showBillBreakdown} onOpenChange={setShowBillBreakdown}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Bill — Table {table.table_number}</DialogTitle>
+            </DialogHeader>
+            {billingConfig && openOrder && (() => {
+              const subtotal = orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+              const scLines = (billingConfig.service_charges || []).filter(s => s.enabled).map(s => ({ ...s, amt: s.type === 'percentage' ? subtotal * s.value / 100 : s.value }));
+              const ocLines = (billingConfig.other_charges || []).filter(o => o.enabled).map(o => ({ ...o, amt: o.type === 'percentage' ? subtotal * o.value / 100 : o.value }));
+              const scTotal = scLines.reduce((a, l) => a + l.amt, 0);
+              const ocTotal = ocLines.reduce((a, l) => a + l.amt, 0);
+              const vatAmt = billingConfig.vat?.enabled ? (subtotal + scTotal + ocTotal) * billingConfig.vat.rate / 100 : 0;
+              const grandTotal = (openOrder as any).confirmed_total ?? (subtotal + scTotal + ocTotal + vatAmt);
+              return (
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1 text-sm">
+                    {orderItems.map(item => (
+                      <div key={item.id} className="flex justify-between text-muted-foreground">
+                        <span>{item.name} × {item.quantity}</span>
+                        <span>LKR {(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Separator />
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>LKR {subtotal.toFixed(2)}</span></div>
+                    {scLines.map(s => <div key={s.id} className="flex justify-between text-muted-foreground"><span>{s.name}{s.type === 'percentage' ? ` (${s.value}%)` : ''}</span><span>LKR {s.amt.toFixed(2)}</span></div>)}
+                    {ocLines.map(o => <div key={o.id} className="flex justify-between text-muted-foreground"><span>{o.name}{o.type === 'percentage' ? ` (${o.value}%)` : ''}</span><span>LKR {o.amt.toFixed(2)}</span></div>)}
+                    {billingConfig.vat?.enabled && <div className="flex justify-between text-muted-foreground"><span>VAT ({billingConfig.vat.rate}%)</span><span>LKR {vatAmt.toFixed(2)}</span></div>}
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between font-bold text-lg text-green-700 dark:text-green-400">
+                    <span>Total</span><span>LKR {grandTotal.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowBillBreakdown(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Batch Selection Dialog */}
         <Dialog open={!!batchSelectionItem} onOpenChange={(open) => !open && setBatchSelectionItem(null)}>
           <DialogContent className="max-w-md">
@@ -818,9 +962,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                 return (
                   <div key={b.id} className="flex justify-between items-center p-3 border rounded-lg">
                     <div>
-                      <p className="font-semibold text-sm">Batch: {b.batch_number}</p>
-                      <p className="text-xs text-muted-foreground">Expires: {b.expiry_date}</p>
-                      <p className="text-xs font-medium mt-1">Avail Stock: {b.quantity - inCart}</p>
+                      <p className="font-semibold text-sm">Batch: {b.batch_number || '—'}</p>
+                      {b.expiry_date && <p className="text-xs text-muted-foreground">Expires: {b.expiry_date}</p>}
+                      <p className="text-xs font-medium mt-1">Stock: {b.quantity - inCart}</p>
+                      <p className="text-xs text-primary font-semibold">Selling Price: LKR {(b.selling_price || batchSelectionItem.price).toFixed(2)}</p>
                     </div>
                     <Button size="sm" onClick={() => handleAddConfirmedItem(batchSelectionItem, b.id)} disabled={outOfStock}>
                       Add to Order

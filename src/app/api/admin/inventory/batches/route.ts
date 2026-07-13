@@ -86,7 +86,7 @@ export async function GET(request: Request) {
 
 // POST /api/admin/inventory/batches
 // Body: { menu_item_id, batch_id, selling_price }
-// Upserts a selling price record linking a menu item to an inventory batch.
+// Creates or updates the selling price record linking a menu item to an inventory batch.
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -96,14 +96,35 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'menu_item_id, batch_id, and selling_price are required' }, { status: 400 });
         }
 
-        const { data, error } = await supabase
+        // Check if a pricing row already exists for this menu_item + batch combo
+        const { data: existing, error: selectError } = await supabase
             .from('menu_item_batch_pricing')
-            .upsert(
-                { menu_item_id, batch_id, selling_price, updated_at: new Date().toISOString() },
-                { onConflict: 'menu_item_id,batch_id' }
-            )
-            .select('id, menu_item_id, batch_id, selling_price')
-            .single();
+            .select('id')
+            .eq('menu_item_id', menu_item_id)
+            .eq('batch_id', batch_id)
+            .maybeSingle();
+
+        if (selectError) throw selectError;
+
+        let data: any;
+        let error: any;
+
+        if (existing) {
+            // Update the existing row
+            ({ data, error } = await supabase
+                .from('menu_item_batch_pricing')
+                .update({ selling_price })
+                .eq('id', existing.id)
+                .select('id, menu_item_id, batch_id, selling_price')
+                .single());
+        } else {
+            // Insert a new row
+            ({ data, error } = await supabase
+                .from('menu_item_batch_pricing')
+                .insert({ menu_item_id, batch_id, selling_price })
+                .select('id, menu_item_id, batch_id, selling_price')
+                .single());
+        }
 
         if (error) throw error;
 

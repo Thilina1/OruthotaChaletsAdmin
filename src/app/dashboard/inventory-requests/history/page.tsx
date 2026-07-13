@@ -298,9 +298,16 @@ export default function InventoryRequestHistoryPage() {
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-baseline gap-1">
-                                                <span className="text-lg font-black text-slate-700">{req.requested_quantity}</span>
+                                                <span className="text-lg font-black text-slate-700">
+                                                    {req.status === 'COMPLETED' && req.received_quantity != null
+                                                        ? req.received_quantity
+                                                        : req.requested_quantity}
+                                                </span>
                                                 <span className="text-[10px] font-black text-slate-300 uppercase">{req.item?.unit?.name || 'units'}</span>
                                             </div>
+                                            {req.status === 'COMPLETED' && req.received_quantity != null && req.received_quantity !== req.requested_quantity && (
+                                                <span className="text-[10px] text-slate-400">requested: {req.requested_quantity}</span>
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             <Badge className={cn(
@@ -391,7 +398,7 @@ export default function InventoryRequestHistoryPage() {
                                 <div className="space-y-3">
                                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">Available Batches</label>
                                     <div className="grid grid-cols-1 gap-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {transferRequest.item?.warehouse_stock?.map((wh: any) => (
+                                        {transferRequest.item?.warehouse_stock?.filter((wh: any) => wh.is_main).map((wh: any) => (
                                             wh.batches?.map((batch: any, bIdx: number) => (
                                                 <div key={`${wh.id}-${bIdx}`} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-primary/30 transition-all group">
                                                     <div className="flex items-center gap-3">
