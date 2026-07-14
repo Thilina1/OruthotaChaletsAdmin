@@ -35,6 +35,8 @@ export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management/add-item', icon: PackagePlus, label: 'Add New Item', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-requests/history', icon: History, label: 'Inventory Approvals', roles: ['admin'] },
+    { href: '/dashboard/inventory-cash-requests', icon: Wallet, label: 'Cash Requests', roles: ['admin'] },
+    { href: '/dashboard/inventory-cash-approvals', icon: CheckSquare, label: 'Cash Approvals', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },
     { href: '/dashboard/purchase-orders/approvals', icon: ClipboardCheck, label: 'PO Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
@@ -52,6 +54,7 @@ export const roomBookingMenuItems: MenuItem[] = [
 
 export const otherMenue: MenuItem[] = [
     { href: '/dashboard/accounting', icon: BookOpen, label: 'Accounting', roles: ['admin'] },
+    { href: '/dashboard/accounting/inventory-cash', icon: Banknote, label: 'Inventory Cash', roles: ['admin', 'payment'] },
     { href: '/dashboard/expenses', icon: Zap, label: 'Expenses', roles: ['admin'] },
     { href: '/dashboard/other-incomes', icon: Zap, label: 'Other Incomes', roles: ['admin'] },
 ];

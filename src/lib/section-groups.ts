@@ -33,6 +33,8 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/inventory-management/add-item', label: 'Add New Item' },
       { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
       { path: '/dashboard/inventory-requests/history', label: 'Inventory Approvals' },
+      { path: '/dashboard/inventory-cash-requests', label: 'Cash Requests' },
+      { path: '/dashboard/inventory-cash-approvals', label: 'Cash Approvals' },
       { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
       { path: '/dashboard/purchase-orders/approvals', label: 'PO Approvals' },
       { path: '/dashboard/inventory-stock-overview', label: 'Stock Overview' },
@@ -62,6 +64,7 @@ export const APP_SECTION_GROUPS = [
     name: 'Financial',
     sections: [
       { path: '/dashboard/accounting', label: 'Accounting' },
+      { path: '/dashboard/accounting/inventory-cash', label: 'Inventory Cash' },
       { path: '/dashboard/expenses', label: 'Expenses' },
       { path: '/dashboard/other-incomes', label: 'Other Incomes' },
       { path: '/dashboard/reports', label: 'Financial Reports' },

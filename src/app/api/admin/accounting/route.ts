@@ -38,6 +38,8 @@ function assignDepartment(category: string, source?: string): string {
 
   if (cat === 'other income') return 'General';
 
+  if (cat === 'inventory purchases') return 'Inventory';
+
   return 'Administration';
 }
 
@@ -222,8 +224,52 @@ export async function GET(request: Request) {
             };
         }).filter((r: any) => r.amount > 0);
 
+        // Inventory cash purchases — kept separate so a missing table never breaks the rest of accounting
+        // ISSUED: cash is already out of accounting, use issued_at as the expense date
+        // SETTLED: confirmed spend, use settled_at; any returned cash reduces the net figure via meta
+        let cashPurchaseExpenses: any[] = [];
+        try {
+            const { data: cashData } = await supabase
+                .from('inventory_cash_requests')
+                .select('id,request_number,purpose,status,issued_amount,additional_issued_amount,spent_amount,returned_amount,issued_at,settled_at,requested_by_user:users!inventory_cash_requests_requested_by_fkey(name)')
+                .in('status', ['ISSUED', 'SETTLED']);
+
+            cashPurchaseExpenses = (cashData || []).map((r: any) => {
+                const employeeName = r.requested_by_user?.name || 'Employee';
+                const isSettled = r.status === 'SETTLED';
+                const dateStr = isSettled
+                    ? (r.settled_at || '').split('T')[0]
+                    : (r.issued_at || '').split('T')[0];
+
+                // Apply date filter in JS — issued vs settled use different date columns
+                if (!dateStr) return null;
+                if (from && dateStr < from) return null;
+                if (to && dateStr > to) return null;
+
+                const amount = isSettled
+                    ? Number(r.spent_amount || 0)
+                    : Number(r.issued_amount || 0) + Number(r.additional_issued_amount || 0);
+                const returned = isSettled ? Number(r.returned_amount || 0) : 0;
+
+                return {
+                    id: r.id, type: 'expense' as const,
+                    description: `${r.purpose} (${r.request_number})`,
+                    amount,
+                    category: 'Inventory Purchases',
+                    date: dateStr,
+                    source: 'Cash Request',
+                    department: 'Inventory',
+                    meta: isSettled
+                        ? `By ${employeeName}${returned > 0 ? ` · Returned LKR ${returned.toLocaleString()}` : ''}`
+                        : `By ${employeeName} · Pending settlement`,
+                };
+            }).filter((r: any) => r && r.amount > 0);
+        } catch (_) {
+            // inventory_cash_requests table not yet migrated — skip silently
+        }
+
         const allIncomes = [...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
-        const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs];
+        const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs, ...cashPurchaseExpenses];
 
         const totalIncome = allIncomes.reduce((s, r) => s + r.amount, 0);
         const totalExpenses = allExpenses.reduce((s, r) => s + r.amount, 0);

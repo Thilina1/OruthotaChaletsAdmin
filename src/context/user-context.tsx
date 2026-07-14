@@ -56,8 +56,11 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
 
   const hasPathAccess = (path: string) => {
     if (!user) return false;
-    if (user.role === 'admin' && !user.restrict_admin_permissions) return true; // Admins default to all paths for safety
-    return !!(user.permissions && user.permissions.includes(path));
+    if (user.role === 'admin' && !user.restrict_admin_permissions) return true;
+    if (!user.permissions) return false;
+    // Prefix match: permission on /dashboard/purchase-orders also covers
+    // /dashboard/purchase-orders/create, /dashboard/purchase-orders/[id]/edit, etc.
+    return user.permissions.some(p => path === p || path.startsWith(p + '/'));
   };
 
   const value = {
