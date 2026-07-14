@@ -172,10 +172,16 @@ export default function ReceiveGRNPage() {
         setReceivedItems(prev => prev.filter(i => i.id !== id));
     };
 
-    // Items missing a unit price
+    // Items missing a unit price (0 is accepted; only empty is invalid)
     const missingPriceIds = useMemo(
-        () => receivedItems.filter(item => !itemPrices[item.id] || parseFloat(itemPrices[item.id]) <= 0).map(i => i.id),
+        () => receivedItems.filter(item => itemPrices[item.id] === undefined || itemPrices[item.id] === null || itemPrices[item.id] === '').map(i => i.id),
         [receivedItems, itemPrices]
+    );
+
+    // Items missing a batch number
+    const missingBatchIds = useMemo(
+        () => receivedItems.filter(item => !batchNumbers[item.id]?.trim()).map(i => i.id),
+        [receivedItems, batchNumbers]
     );
 
     const handleReceive = async () => {
@@ -186,6 +192,15 @@ export default function ReceiveGRNPage() {
                 variant: 'destructive',
                 title: 'Unit Price Required',
                 description: `Please enter a Unit Price (LKR) for all ${missingPriceIds.length} item(s) highlighted in red.`,
+            });
+            return;
+        }
+
+        if (missingBatchIds.length > 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Batch Number Required',
+                description: `Please enter a Batch Number for all ${missingBatchIds.length} item(s) highlighted in red.`,
             });
             return;
         }
@@ -462,16 +477,10 @@ export default function ReceiveGRNPage() {
                                                     )}
                                                     type="number"
                                                     step="0.01"
-                                                    min="0.01"
+                                                    min="0"
                                                     placeholder="LKR 0.00"
                                                     value={itemPrices[item.id] ?? ''}
                                                     onChange={e => handleUnitPriceChange(item.id, e.target.value)}
-                                                    onBlur={e => {
-                                                        const v = parseFloat(e.target.value);
-                                                        if (!e.target.value || v <= 0) {
-                                                            handleUnitPriceChange(item.id, '');
-                                                        }
-                                                    }}
                                                 />
                                                 {missingPriceIds.includes(item.id) && (
                                                     <p className="text-[10px] text-red-500 font-semibold ml-1">Required</p>
@@ -500,13 +509,26 @@ export default function ReceiveGRNPage() {
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Batch Number</label>
-                                                <Input 
-                                                    className="h-11 rounded-xl font-mono text-xs bg-slate-50 border-slate-200 focus:bg-white transition-all"
+                                                <label className={cn(
+                                                    "text-[10px] font-black uppercase tracking-widest ml-1",
+                                                    missingBatchIds.includes(item.id) ? "text-red-500" : "text-slate-400"
+                                                )}>
+                                                    Batch Number <span className="text-red-500">*</span>
+                                                </label>
+                                                <Input
+                                                    className={cn(
+                                                        "h-11 rounded-xl font-mono text-xs transition-all",
+                                                        missingBatchIds.includes(item.id)
+                                                            ? "bg-red-50 border-red-300 focus:bg-white ring-1 ring-red-200"
+                                                            : "bg-slate-50 border-slate-200 focus:bg-white"
+                                                    )}
                                                     placeholder="BATCH-XXXX"
                                                     value={batchNumbers[item.id] ?? ''}
                                                     onChange={e => setBatchNumbers(prev => ({ ...prev, [item.id]: e.target.value }))}
                                                 />
+                                                {missingBatchIds.includes(item.id) && (
+                                                    <p className="text-[10px] text-red-500 font-semibold ml-1">Required</p>
+                                                )}
                                             </div>
                                             <div className="space-y-1.5">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Expiry Date</label>
@@ -603,14 +625,20 @@ export default function ReceiveGRNPage() {
                             <Button
                                 className={cn(
                                     "rounded-xl font-black h-12 px-10 shadow-xl transition-all",
-                                    missingPriceIds.length > 0
+                                    (missingPriceIds.length > 0 || missingBatchIds.length > 0)
                                         ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                                         : "bg-white text-slate-900 hover:bg-slate-100 hover:scale-[1.05]"
                                 )}
                                 onClick={handleReceive}
-                                disabled={isSubmitting || missingPriceIds.length > 0}
+                                disabled={isSubmitting || missingPriceIds.length > 0 || missingBatchIds.length > 0}
                             >
-                                {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : missingPriceIds.length > 0 ? `${missingPriceIds.length} price(s) missing` : "Receive All Items"}
+                                {isSubmitting
+                                    ? <Loader2 className="h-5 w-5 animate-spin" />
+                                    : missingPriceIds.length > 0
+                                        ? `${missingPriceIds.length} price(s) missing`
+                                        : missingBatchIds.length > 0
+                                            ? `${missingBatchIds.length} batch number(s) missing`
+                                            : "Receive All Items"}
                             </Button>
                         </div>
                     </div>
