@@ -83,9 +83,8 @@ export async function PATCH(
                 break;
 
             case 'issue': {
-                if (!isAdmin && !isPayment) {
-                    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-                }
+                // Any authenticated user who can reach the inventory-cash page may issue.
+                // Page-level access (route-config / section-groups) is the gate.
                 if (existing.status !== 'APPROVED') {
                     return NextResponse.json({ error: 'Can only issue APPROVED requests' }, { status: 400 });
                 }

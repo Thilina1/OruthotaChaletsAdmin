@@ -41,11 +41,11 @@ export async function GET(request: Request) {
             `)
             .order('created_at', { ascending: false });
 
-        // Only return all requests when ?view=all is passed by an authorized caller
-        // (admin / inventory-admin / payment). Without this flag the API ALWAYS scopes
-        // to the logged-in user so User A can never see User B's requests.
+        // ?view=all — return all requests; any authenticated user may request this.
+        // Page-level access control (route-config / section-groups) decides who can
+        // reach the pages that pass this flag. Without it, scope to the logged-in user.
         const viewAll = searchParams.get('view') === 'all';
-        if (!viewAll || (!isAdmin && !isInventoryAdmin && !isPayment)) {
+        if (!viewAll) {
             query = query.eq('requested_by', payload.userId);
         }
 
