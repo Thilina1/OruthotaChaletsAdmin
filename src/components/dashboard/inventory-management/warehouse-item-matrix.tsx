@@ -12,10 +12,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Warehouse, Plus, Loader2, CheckCircle2 } from 'lucide-react';
+import { Search, Warehouse, Plus, Loader2, CheckCircle2, X } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import type { InventoryItem, InventoryWarehouse } from '@/lib/types';
 import { cn } from "@/lib/utils";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface WarehouseItemMatrixProps {
     items: InventoryItem[];
@@ -28,6 +38,8 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
     const { toast } = useToast();
     const [searchQuery, setSearchQuery] = useState('');
     const [isProcessing, setIsProcessing] = useState<string | null>(null);
+    const [confirmRemove, setConfirmRemove] = useState<{ itemId: string; warehouseId: string; itemName: string; whName: string } | null>(null);
+    const [isRemoving, setIsRemoving] = useState(false);
 
     const filteredItems = useMemo(() => {
         return items.filter(item => 
@@ -35,6 +47,26 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
             item.code.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [items, searchQuery]);
+
+    const handleRemove = async () => {
+        if (!confirmRemove) return;
+        setIsRemoving(true);
+        try {
+            const res = await fetch(
+                `/api/admin/inventory/initialize?item_id=${confirmRemove.itemId}&warehouse_id=${confirmRemove.warehouseId}`,
+                { method: 'DELETE' }
+            );
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            toast({ title: 'Removed', description: `${confirmRemove.itemName} removed from ${confirmRemove.whName}.` });
+            setConfirmRemove(null);
+            onRefresh();
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to remove initialization.' });
+        } finally {
+            setIsRemoving(false);
+        }
+    };
 
     const handleAssign = async (itemId: string, warehouseId: string) => {
         const processKey = `${itemId}-${warehouseId}`;
@@ -140,15 +172,32 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
                                             const processKey = `${item.id}-${wh.id}`;
                                             const isThisProcessing = isProcessing === processKey;
 
+                                            const isZeroStock = isLinked && stockEntry.total_stock === 0;
+
                                             return (
                                                 <TableCell key={wh.id} className="text-center">
                                                     {isLinked ? (
                                                         <div className="flex flex-col items-center gap-1">
-                                                            <div className="flex items-center gap-1.5 text-emerald-600">
+                                                            <div className={`flex items-center gap-1.5 ${isZeroStock ? 'text-slate-400' : 'text-emerald-600'}`}>
                                                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                                                 <span className="text-sm font-black">{stockEntry.total_stock}</span>
                                                             </div>
                                                             <span className="text-[9px] font-bold text-muted-foreground uppercase">{item.unit?.name}</span>
+                                                            {isZeroStock && (
+                                                                <button
+                                                                    onClick={() => setConfirmRemove({
+                                                                        itemId: item.id,
+                                                                        warehouseId: wh.id,
+                                                                        itemName: item.name,
+                                                                        whName: wh.name,
+                                                                    })}
+                                                                    className="flex items-center gap-0.5 text-[9px] text-red-500 hover:text-red-700 font-semibold transition-colors"
+                                                                    title="Remove initialization"
+                                                                >
+                                                                    <X className="h-2.5 w-2.5" />
+                                                                    Remove
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     ) : (
                                                         <Button
@@ -179,8 +228,32 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
             
             <div className="flex items-center justify-between text-[11px] text-muted-foreground px-2">
                 <p>Showing {filteredItems.length} items across {warehouses.length} warehouses.</p>
-                <p>Items with a green check are already initialized in that warehouse.</p>
+                <p>Green check = initialized. Grey = 0 stock (removable).</p>
             </div>
+
+            <AlertDialog open={!!confirmRemove} onOpenChange={open => { if (!open) setConfirmRemove(null); }}>
+                <AlertDialogContent className="rounded-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove Initialization?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will remove <strong>{confirmRemove?.itemName}</strong> from <strong>{confirmRemove?.whName}</strong>.
+                            The item has 0 units in stock so no inventory will be lost.
+                            You can re-initialize it at any time.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel className="rounded-xl" disabled={isRemoving}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={e => { e.preventDefault(); handleRemove(); }}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
+                            disabled={isRemoving}
+                        >
+                            {isRemoving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Remove
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

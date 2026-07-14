@@ -15,8 +15,6 @@ import {
     Barcode,
     Tag,
     Layers,
-    Scale,
-    Plus,
     AlertCircle
 } from 'lucide-react';
 import Link from 'next/link';
@@ -39,7 +37,6 @@ export default function RegisterItemPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [categories, setCategories] = useState<{ id: string, name: string }[]>([]);
     const [units, setUnits] = useState<{ id: string, name: string }[]>([]);
-    const [sizes, setSizes] = useState<{ id: string, name: string }[]>([]);
     const [items, setItems] = useState<any[]>([]);
     const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
@@ -51,28 +48,23 @@ export default function RegisterItemPage() {
         category_id: '',
         unit_id: '',
         brand: '',
-        item_size: '',
         status: 'active' as 'active' | 'inactive'
     });
 
     const fetchMetadata = async () => {
         try {
-            const [catRes, unitRes, itemsRes, sizesRes] = await Promise.all([
+            const [catRes, unitRes, itemsRes] = await Promise.all([
                 fetch('/api/admin/inventory/categories'),
                 fetch('/api/admin/inventory/units'),
                 fetch('/api/admin/inventory/items?includeStock=false'),
-                fetch('/api/admin/inventory/sizes')
             ]);
             const catData = await catRes.json();
             const unitData = await unitRes.json();
             const itemsData = await itemsRes.json();
 
-            const sizesData = await sizesRes.json();
-            
             setCategories(catData.categories || []);
             setUnits(unitData.units || []);
             setItems(itemsData.items || []);
-            setSizes(sizesData.sizes || []);
         } catch (error) {
             console.error("Error fetching metadata:", error);
         } finally {
@@ -134,8 +126,7 @@ export default function RegisterItemPage() {
                 unit_id: existing.unit_id,
                 code: existing.code,
                 description: existing.description || '',
-                brand: existing.brand || '',
-                item_size: existing.item_size || ''
+                brand: existing.brand || ''
             });
             setDuplicateWarning(null);
         } else {
@@ -176,24 +167,6 @@ export default function RegisterItemPage() {
             }
         } catch (error) {
             toast({ variant: 'destructive', title: "Error", description: "Failed to create unit." });
-        }
-    };
-
-    const handleCreateSize = async (name: string) => {
-        try {
-            const res = await fetch('/api/admin/inventory/sizes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            });
-            const data = await res.json();
-            if (data.size) {
-                setSizes(prev => [...prev, data.size]);
-                setFormData(prev => ({ ...prev, item_size: data.size.name }));
-                toast({ title: "Size Created", description: `"${name}" added to master data.` });
-            }
-        } catch (error) {
-            toast({ variant: 'destructive', title: "Error", description: "Failed to create size attribute." });
         }
     };
 
@@ -412,9 +385,9 @@ export default function RegisterItemPage() {
                             <CardTitle className="text-lg flex items-center gap-2">
                                 <Layers className="h-5 w-5 text-primary" /> Physical Attributes
                             </CardTitle>
-                            <CardDescription>Define the brand and packaging specifications.</CardDescription>
+                            <CardDescription>Define the brand of this item.</CardDescription>
                         </CardHeader>
-                        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <CardContent>
                             <div className="grid gap-2">
                                 <Label htmlFor="brand" className="text-xs font-bold uppercase tracking-wider">Brand</Label>
                                 <Input
@@ -424,27 +397,6 @@ export default function RegisterItemPage() {
                                     onChange={e => setFormData({ ...formData, brand: e.target.value })}
                                     className="bg-white"
                                 />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="item_size" className="text-xs font-bold uppercase tracking-wider text-slate-500">Package / Size</Label>
-                                {isLoadingMetadata ? (
-                                    <div className="h-10 bg-slate-100 animate-pulse rounded-md" />
-                                ) : (
-                                    <CreatableCombobox
-                                        options={sizes.map(s => s.name)}
-                                        value={formData.item_size}
-                                        onValueChange={(val) => {
-                                            const existing = sizes.find(s => s.name.toLowerCase() === val.toLowerCase());
-                                            if (existing) {
-                                                setFormData({ ...formData, item_size: existing.name });
-                                            } else if (val) {
-                                                handleCreateSize(val);
-                                            }
-                                        }}
-                                        placeholder="e.g. 1L, 500g, Case of 12"
-                                        className="bg-white border-slate-200"
-                                    />
-                                )}
                             </div>
                         </CardContent>
                     </Card>

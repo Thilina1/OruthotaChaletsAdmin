@@ -21,18 +21,31 @@ function DashboardContent({ children }: { children: ReactNode }) {
     );
 
     const hasAccess = React.useMemo(() => {
-        if (!user || loading) return true; // Let the UserProvider handle loading state or basic auth
+        if (!user || loading) return true;
         if (user.role === 'admin') return true;
 
-        // If it's a known menu item, check roles
         if (currentMenuItem) {
-            const hasRoleAccess = currentMenuItem.roles.includes(user.role);
+            const hasRoleAccess = currentMenuItem.roles.includes(user.role as any);
+            // Direct permission: user has a permission that is a prefix of the current path
             const hasExplicitAccess = hasPathAccess(pathname);
-            return hasRoleAccess || hasExplicitAccess;
+            if (hasRoleAccess || hasExplicitAccess) return true;
+
+            // Section-sibling access: user has a permission within the same top-level section
+            // (e.g., permission on /dashboard/purchase-orders/approvals grants access to
+            //  /dashboard/purchase-orders/[id]/edit because they're in the same section)
+            const segments = pathname.split('/').filter(Boolean);
+            if (segments.length >= 2) {
+                const sectionPrefix = '/' + segments.slice(0, 2).join('/') + '/';
+                const hasSectionAccess = (user.permissions ?? []).some(
+                    (p: string) => p.startsWith(sectionPrefix)
+                );
+                if (hasSectionAccess) return true;
+            }
+
+            return false;
         }
 
-        // If it's not a known menu item (e.g., a sub-page), default to true for now 
-        // or add more specific logic if sub-pages follow a pattern.
+        // Not a known menu item — allow by default (sub-pages inherit parent access)
         return true;
     }, [user, loading, currentMenuItem, hasPathAccess, pathname]);
 
