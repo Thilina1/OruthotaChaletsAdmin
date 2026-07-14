@@ -172,8 +172,24 @@ export default function ReceiveGRNPage() {
         setReceivedItems(prev => prev.filter(i => i.id !== id));
     };
 
+    // Items missing a unit price
+    const missingPriceIds = useMemo(
+        () => receivedItems.filter(item => !itemPrices[item.id] || parseFloat(itemPrices[item.id]) <= 0).map(i => i.id),
+        [receivedItems, itemPrices]
+    );
+
     const handleReceive = async () => {
         if (!purchaseOrder) return;
+
+        if (missingPriceIds.length > 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Unit Price Required',
+                description: `Please enter a Unit Price (LKR) for all ${missingPriceIds.length} item(s) highlighted in red.`,
+            });
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const item_prices = receivedItems.map((item: any) => ({
@@ -245,14 +261,6 @@ export default function ReceiveGRNPage() {
                 <div className="flex gap-3">
                     <Button variant="outline" className="rounded-xl font-bold h-12 px-6" onClick={() => router.back()}>
                         Cancel
-                    </Button>
-                    <Button 
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black h-12 px-8 shadow-lg shadow-emerald-200 gap-2 transition-all hover:scale-[1.02]"
-                        onClick={handleReceive}
-                        disabled={isSubmitting}
-                    >
-                        {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Truck className="h-5 w-5" />}
-                        Confirm Stock Intake
                     </Button>
                 </div>
             </div>
@@ -439,15 +447,35 @@ export default function ReceiveGRNPage() {
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit Price (LKR)</label>
-                                                <Input 
-                                                    className="h-11 rounded-xl font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all"
+                                                <label className={cn(
+                                                    "text-[10px] font-black uppercase tracking-widest ml-1",
+                                                    missingPriceIds.includes(item.id) ? "text-red-500" : "text-slate-400"
+                                                )}>
+                                                    Unit Price (LKR) <span className="text-red-500">*</span>
+                                                </label>
+                                                <Input
+                                                    className={cn(
+                                                        "h-11 rounded-xl font-bold transition-all",
+                                                        missingPriceIds.includes(item.id)
+                                                            ? "bg-red-50 border-red-300 focus:bg-white focus:ring-red-300 ring-1 ring-red-200"
+                                                            : "bg-slate-50 border-slate-200 focus:bg-white"
+                                                    )}
                                                     type="number"
                                                     step="0.01"
+                                                    min="0.01"
                                                     placeholder="LKR 0.00"
                                                     value={itemPrices[item.id] ?? ''}
                                                     onChange={e => handleUnitPriceChange(item.id, e.target.value)}
+                                                    onBlur={e => {
+                                                        const v = parseFloat(e.target.value);
+                                                        if (!e.target.value || v <= 0) {
+                                                            handleUnitPriceChange(item.id, '');
+                                                        }
+                                                    }}
                                                 />
+                                                {missingPriceIds.includes(item.id) && (
+                                                    <p className="text-[10px] text-red-500 font-semibold ml-1">Required</p>
+                                                )}
                                             </div>
                                             <div className="space-y-1.5">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Discount (LKR)</label>
@@ -572,12 +600,17 @@ export default function ReceiveGRNPage() {
                             <Button variant="ghost" className="text-white hover:bg-white/10 rounded-xl font-bold h-12" onClick={() => router.back()}>
                                 Go Back
                             </Button>
-                            <Button 
-                                className="bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-black h-12 px-10 shadow-xl transition-all hover:scale-[1.05]"
+                            <Button
+                                className={cn(
+                                    "rounded-xl font-black h-12 px-10 shadow-xl transition-all",
+                                    missingPriceIds.length > 0
+                                        ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                                        : "bg-white text-slate-900 hover:bg-slate-100 hover:scale-[1.05]"
+                                )}
                                 onClick={handleReceive}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || missingPriceIds.length > 0}
                             >
-                                {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : "Receive All Items"}
+                                {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : missingPriceIds.length > 0 ? `${missingPriceIds.length} price(s) missing` : "Receive All Items"}
                             </Button>
                         </div>
                     </div>
