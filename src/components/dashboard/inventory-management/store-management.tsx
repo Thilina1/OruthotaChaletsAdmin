@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 
 interface StoreManagementProps {
     warehouses: InventoryWarehouse[];
+    invDepts: { id: string; name: string }[];
     onUpdate: () => void;
 }
 
@@ -29,7 +30,7 @@ const safeJson = async (res: Response) => {
     try { return JSON.parse(text); } catch { return {}; }
 };
 
-export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) {
+export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagementProps) {
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [newName, setNewName] = useState('');
@@ -39,22 +40,16 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
 
     // HR department names from job_titles (same source as User Management)
     const [hrDepts, setHrDepts] = useState<string[]>([]);
-    // Existing inventory_departments (for UUID lookup / auto-create)
-    const [invDepts, setInvDepts] = useState<{ id: string; name: string }[]>([]);
 
     // Per-warehouse: selected HR dept name
     const [linkingName, setLinkingName] = useState<Record<string, string>>({});
     const [savingLink, setSavingLink] = useState<string | null>(null);
 
-    // Fetch HR departments and inventory departments in parallel
+    // Fetch only HR departments on mount — invDepts comes from the parent (always fresh)
     useEffect(() => {
-        Promise.all([
-            fetch('/api/admin/job-titles').then(r => r.json()),
-            fetch('/api/admin/inventory-departments?all=true').then(r => r.json()),
-        ]).then(([jobData, invData]) => {
+        fetch('/api/admin/job-titles').then(r => r.json()).then(jobData => {
             const names: string[] = Object.keys(jobData.titles || {}).sort();
             setHrDepts(names);
-            setInvDepts(invData.departments || []);
         }).catch(() => {});
     }, []);
 
@@ -77,13 +72,14 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
     }, [invDepts]);
 
     // Resolve an HR dept name to an inventory_departments UUID.
-    // Creates the inventory_dept if it doesn't exist yet.
+    // Uses the parent-supplied invDepts list (always fresh after onUpdate).
+    // Only creates a new inventory_dept if genuinely missing.
     const resolveInvDeptId = async (name: string): Promise<string | null> => {
         if (!name) return null;
         const existing = invDeptByName[name.toLowerCase()];
         if (existing) return existing.id;
 
-        // Auto-create
+        // Not found in parent's fresh list — safe to create
         const res = await fetch('/api/admin/inventory-departments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -91,8 +87,6 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
         });
         const data = await safeJson(res);
         if (data.error) throw new Error(data.error);
-        // Keep local cache in sync so subsequent saves don't re-create
-        setInvDepts(prev => [...prev, data.department]);
         return data.department.id;
     };
 
@@ -209,7 +203,11 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
                         </Label>
                         <Select
                             value={newDeptName || NONE}
-                            onValueChange={(val) => setNewDeptName(val === NONE ? '' : val)}
+                            onValueChange={(val) => {
+                                const name = val === NONE ? '' : val;
+                                setNewDeptName(name);
+                                if (name) setNewName(name);
+                            }}
                         >
                             <SelectTrigger className="bg-white/50">
                                 <SelectValue placeholder="Select HR department" />
@@ -223,7 +221,12 @@ export function StoreManagement({ warehouses, onUpdate }: StoreManagementProps) 
                         </Select>
                     </div>
                 </div>
-                <Button type="submit" disabled={isSubmitting || !newName.trim()} className="w-full h-11 font-bold">
+                {newDeptName && newName.trim() !== newDeptName && (
+                    <p className="text-xs text-destructive font-medium">
+                        Store Name must match the linked department name. Please set Store Name to &ldquo;{newDeptName}&rdquo;.
+                    </p>
+                )}
+                <Button type="submit" disabled={isSubmitting || !newName.trim() || (!!newDeptName && newName.trim() !== newDeptName)} className="w-full h-11 font-bold">
                     {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                     Initialize Warehouse Location
                 </Button>

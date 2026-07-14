@@ -90,6 +90,7 @@ const categoryColors: Record<string, string> = {
   'Salaries': 'bg-red-100 text-red-800',
   'Daily Wages': 'bg-orange-100 text-orange-800',
   'Inventory Purchases': 'bg-teal-100 text-teal-800',
+  'Inventory Loss': 'bg-red-100 text-red-800',
 };
 
 // ─── Formatters ───────────────────────────────────────────────────────────────

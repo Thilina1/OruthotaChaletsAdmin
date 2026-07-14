@@ -213,7 +213,7 @@ export default function WarehouseManagementPage() {
                         <div className="mt-4 text-muted-foreground">Loading stores...</div>
                     </div>
                 ) : (
-                    <StoreManagement warehouses={warehouses} onUpdate={handleUpdate} />
+                    <StoreManagement warehouses={warehouses} invDepts={invDepts} onUpdate={handleUpdate} />
                 )}
             </div>
 

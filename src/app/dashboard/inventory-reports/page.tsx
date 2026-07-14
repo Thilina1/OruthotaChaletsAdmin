@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
-import { Calendar as CalendarIcon, FileBarChart, ArrowUpCircle, ArrowDownCircle, AlertCircle, TrendingUp, Download, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, FileBarChart, ArrowUpCircle, ArrowDownCircle, AlertCircle, TrendingUp, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ export default function InventoryReportsPage() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [dmgRecords, setDmgRecords] = useState<any[]>([]);
   
   const supabase = createClient();
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -88,18 +89,24 @@ export default function InventoryReportsPage() {
       const startStr = range.from.toISOString();
       const endStr = (range.to || range.from).toISOString();
       
-      const [resTx, resWh] = await Promise.all([
+      const fromDate = range.from.toISOString().split('T')[0];
+      const toDate = (range.to || range.from).toISOString().split('T')[0];
+
+      const [resTx, resWh, resDmg] = await Promise.all([
         fetch(`/api/admin/inventory-transactions?limit=5000&startDate=${startStr}&endDate=${endStr}`),
-        fetch('/api/admin/inventory/warehouses')
+        fetch('/api/admin/inventory/warehouses'),
+        fetch(`/api/admin/inventory/damage-reports?from=${fromDate}&to=${toDate}`),
       ]);
-      
+
       const dataTx = await resTx.json();
       const dataWh = await resWh.json();
-      
+      const dataDmg = await resDmg.json();
+
       if (dataTx.error) throw new Error(dataTx.error);
-      
+
       setTransactions(dataTx.transactions || []);
       setWarehouses(dataWh.warehouses || []);
+      setDmgRecords(dataDmg.records || []);
     } catch (error) {
       console.error("Error fetching report data:", error);
     } finally {
@@ -273,6 +280,37 @@ export default function InventoryReportsPage() {
   const displayTransactions = useMemo(() => {
     return filteredTransactions.filter(tx => tx.transaction_type !== 'initial_stock');
   }, [filteredTransactions]);
+
+  // Damage/Expired report data
+  const filteredDmg = useMemo(() => {
+    if (selectedDepartment === 'all') return dmgRecords;
+    return dmgRecords.filter((r: any) => r.warehouse?.id === selectedDepartment);
+  }, [dmgRecords, selectedDepartment]);
+
+  const dmgTotals = useMemo(() => {
+    let totalQty = 0, totalLoss = 0, totalEstLoss = 0, pendingCount = 0;
+    const byType: Record<string, { qty: number; loss: number; estLoss: number }> = { damage: { qty: 0, loss: 0, estLoss: 0 }, expired: { qty: 0, loss: 0, estLoss: 0 } };
+    const byWarehouse: Record<string, { name: string; qty: number; loss: number; estLoss: number }> = {};
+
+    for (const r of filteredDmg) {
+      const qty = Number(r.quantity || 0);
+      const valued = r.total_loss_value != null ? Number(r.total_loss_value) : 0;
+      const est = r.batch?.buying_price != null ? qty * Number(r.batch.buying_price) : 0;
+      totalQty += qty;
+      if (r.action_taken === 'written_off' && valued > 0) totalLoss += valued;
+      if (r.action_taken === null) { totalEstLoss += est; pendingCount++; }
+
+      const t = r.transaction_type as 'damage' | 'expired';
+      if (byType[t]) { byType[t].qty += qty; byType[t].loss += valued; byType[t].estLoss += est; }
+
+      const whId = r.warehouse?.id ?? 'unknown';
+      if (!byWarehouse[whId]) byWarehouse[whId] = { name: r.warehouse?.name ?? 'Unknown', qty: 0, loss: 0, estLoss: 0 };
+      byWarehouse[whId].qty += qty;
+      byWarehouse[whId].loss += valued;
+      byWarehouse[whId].estLoss += est;
+    }
+    return { totalQty, totalLoss, totalEstLoss, pendingCount, byType, byWarehouse: Object.values(byWarehouse).sort((a: any, b: any) => b.loss - a.loss) };
+  }, [filteredDmg]);
 
   const {
     currentPage,
@@ -587,6 +625,209 @@ export default function InventoryReportsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Expired & Damaged Report ─────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          <h2 className="text-xl font-bold">Expired &amp; Damaged Report</h2>
+        </div>
+
+        {/* Summary metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="border-amber-100 bg-amber-50/30">
+            <CardContent className="pt-4 pb-3">
+              <div className="text-xs font-bold uppercase text-amber-700 tracking-wider">Total Items Affected</div>
+              <div className="text-2xl font-black text-amber-800 mt-1">{dmgTotals.totalQty}</div>
+              <div className="text-[10px] text-amber-600 mt-0.5">
+                {dmgTotals.byType.damage.qty} damaged · {dmgTotals.byType.expired.qty} expired
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-red-100 bg-red-50/30">
+            <CardContent className="pt-4 pb-3">
+              <div className="text-xs font-bold uppercase text-red-700 tracking-wider">Confirmed Loss</div>
+              <div className="text-base font-black text-red-800 mt-1">
+                LKR {dmgTotals.totalLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="text-[10px] text-red-600 mt-0.5">Written-off and valued</div>
+            </CardContent>
+          </Card>
+          <Card className="border-orange-100 bg-orange-50/30">
+            <CardContent className="pt-4 pb-3">
+              <div className="text-xs font-bold uppercase text-orange-700 tracking-wider">Est. Pending Loss</div>
+              <div className="text-base font-black text-orange-800 mt-1">
+                LKR {dmgTotals.totalEstLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="text-[10px] text-orange-600 mt-0.5">Based on buying price</div>
+            </CardContent>
+          </Card>
+          <Card className={dmgTotals.pendingCount > 0 ? 'border-amber-300 bg-amber-50' : 'border-slate-100 bg-slate-50/30'}>
+            <CardContent className="pt-4 pb-3">
+              <div className={`text-xs font-bold uppercase tracking-wider ${dmgTotals.pendingCount > 0 ? 'text-amber-700' : 'text-slate-600'}`}>Unprocessed</div>
+              <div className={`text-2xl font-black mt-1 ${dmgTotals.pendingCount > 0 ? 'text-amber-800' : 'text-slate-700'}`}>{dmgTotals.pendingCount}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Awaiting valuation</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* By Type */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold">By Type</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Confirmed Loss</TableHead>
+                    <TableHead className="text-right">Est. Loss</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(['damage', 'expired'] as const).map(t => (
+                    <TableRow key={t}>
+                      <TableCell>
+                        <Badge className={`text-[10px] border ${t === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-orange-100 text-orange-800 border-orange-200'}`}>
+                          {t === 'expired' ? 'Expired' : 'Damaged'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">{dmgTotals.byType[t].qty}</TableCell>
+                      <TableCell className="text-right font-bold text-red-700">
+                        {dmgTotals.byType[t].loss > 0
+                          ? `LKR ${dmgTotals.byType[t].loss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground text-sm">
+                        {dmgTotals.byType[t].estLoss > 0
+                          ? `LKR ${dmgTotals.byType[t].estLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* By Warehouse */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold">By Warehouse / Department</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dmgTotals.byWarehouse.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">No data for this period.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Confirmed Loss</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(dmgTotals.byWarehouse as any[]).map((w, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-semibold text-sm">{w.name}</TableCell>
+                        <TableCell className="text-right">{w.qty}</TableCell>
+                        <TableCell className="text-right font-bold text-red-700">
+                          {w.loss > 0
+                            ? `LKR ${w.loss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : <span className="text-muted-foreground font-normal">—</span>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Detail table */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-bold">Expired &amp; Damaged Detail Log</CardTitle>
+            <CardDescription>All records for the selected period. Process them on the Expired &amp; Damaged page to assign values.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+              </div>
+            ) : filteredDmg.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">No expired or damaged records for this period.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead>Batch</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Unit Value</TableHead>
+                      <TableHead className="text-right">Total Loss</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredDmg.map((r: any) => {
+                      const unitCost = r.unit_value ?? r.batch?.buying_price ?? null;
+                      const totalVal = r.total_loss_value ?? (unitCost != null ? unitCost * r.quantity : null);
+                      return (
+                        <TableRow key={r.id} className={r.action_taken === null ? 'bg-amber-50/20' : ''}>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {format(new Date(r.created_at), 'dd MMM yyyy')}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={`text-[10px] border ${r.transaction_type === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-orange-100 text-orange-800 border-orange-200'}`}>
+                              {r.transaction_type === 'expired' ? 'Expired' : 'Damaged'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold text-sm">{r.item?.name ?? '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{r.item?.category?.name ?? '—'}</TableCell>
+                          <TableCell className="text-sm">{r.warehouse?.name ?? '—'}</TableCell>
+                          <TableCell className="font-mono text-xs">{r.batch?.batch_number ?? '—'}</TableCell>
+                          <TableCell className="text-right">
+                            {r.quantity} <span className="text-[10px] text-muted-foreground">{r.item?.unit?.name}</span>
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            {unitCost != null
+                              ? <span className={r.unit_value != null ? 'font-semibold' : 'text-muted-foreground'}>{unitCost.toLocaleString()}{r.unit_value == null ? ' (est)' : ''}</span>
+                              : '—'}
+                          </TableCell>
+                          <TableCell className="text-right font-bold">
+                            {totalVal != null
+                              ? <span className={r.total_loss_value != null ? 'text-red-700' : 'text-muted-foreground'}>
+                                  LKR {totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {r.total_loss_value == null && <span className="text-[9px] ml-0.5">(est)</span>}
+                                </span>
+                              : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {r.action_taken === null && <Badge className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px]">Pending</Badge>}
+                            {r.action_taken === 'written_off' && <Badge className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">Written Off</Badge>}
+                            {r.action_taken === 'returned' && <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px]">Returned</Badge>}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

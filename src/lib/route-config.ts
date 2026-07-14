@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -42,6 +42,8 @@ export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
     { href: '/dashboard/inventory-management/grn', icon: Truck, label: 'GRN (Stock In)', roles: ['admin'] },
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/stock-usage', icon: PackageOpen, label: 'Stock Usage', roles: ['admin', 'waiter', 'payment'] },
+    { href: '/dashboard/inventory-management/expired-damaged', icon: AlertTriangle, label: 'Expired & Damaged', roles: ['admin'] },
     { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
 ];
 

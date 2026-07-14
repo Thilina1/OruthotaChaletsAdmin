@@ -39,6 +39,7 @@ function assignDepartment(category: string, source?: string): string {
   if (cat === 'other income') return 'General';
 
   if (cat === 'inventory purchases') return 'Inventory';
+  if (cat === 'inventory loss') return 'Inventory';
 
   return 'Administration';
 }
@@ -268,8 +269,47 @@ export async function GET(request: Request) {
             // inventory_cash_requests table not yet migrated — skip silently
         }
 
+        // Inventory loss — valued damage/expired write-offs (action_taken = 'written_off')
+        let inventoryLossExpenses: any[] = [];
+        try {
+            const { data: lossData } = await supabase
+                .from('inventory_transactions')
+                .select(`
+                    id, transaction_type, quantity, total_loss_value, unit_value, action_at,
+                    item:inventory_items(name, category:inventory_categories(name)),
+                    reporter:users!inventory_transactions_created_by_fkey(name)
+                `)
+                .in('transaction_type', ['damage', 'expired'])
+                .eq('action_taken', 'written_off')
+                .not('total_loss_value', 'is', null);
+
+            inventoryLossExpenses = (lossData || []).map((r: any) => {
+                const dateStr = (r.action_at || '').split('T')[0];
+                if (!dateStr) return null;
+                if (from && dateStr < from) return null;
+                if (to && dateStr > to) return null;
+                const amount = Number(r.total_loss_value || 0);
+                if (amount <= 0) return null;
+                const itemName = r.item?.name ?? 'Item';
+                const typeLbl = r.transaction_type === 'expired' ? 'Expired' : 'Damaged';
+                return {
+                    id: `loss-${r.id}`,
+                    type: 'expense' as const,
+                    description: `${typeLbl}: ${itemName} (${r.quantity} units)`,
+                    amount,
+                    category: 'Inventory Loss',
+                    date: dateStr,
+                    source: 'Inventory',
+                    department: 'Inventory',
+                    meta: `By ${r.reporter?.name ?? 'staff'} · LKR ${(r.unit_value ?? 0).toLocaleString()}/unit`,
+                };
+            }).filter(Boolean);
+        } catch (_) {
+            // Column not yet migrated — skip silently
+        }
+
         const allIncomes = [...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
-        const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs, ...cashPurchaseExpenses];
+        const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs, ...cashPurchaseExpenses, ...inventoryLossExpenses];
 
         const totalIncome = allIncomes.reduce((s, r) => s + r.amount, 0);
         const totalExpenses = allExpenses.reduce((s, r) => s + r.amount, 0);
