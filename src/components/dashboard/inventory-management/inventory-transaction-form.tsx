@@ -33,13 +33,14 @@ const TRANSACTION_TYPES = [
     { value: 'issue', label: 'Issue (Stock Out)' },
     { value: 'transfer', label: 'Transfer between Warehouses' },
     { value: 'damage', label: 'Record Damage/Wastage' },
+    { value: 'expired', label: 'Record Expired Stock' },
     { value: 'audit_adjustment', label: 'Physical Stock Take' },
 ] as const;
 
-const DAMAGE_REASONS = ['Expired', 'Broken', 'Rotten', 'Theft', 'Other'] as const;
+const DAMAGE_REASONS = ['Broken', 'Rotten', 'Theft', 'Other'] as const;
 
 const formSchema = z.object({
-    transaction_type: z.enum(['issue', 'damage', 'audit_adjustment', 'transfer']),
+    transaction_type: z.enum(['issue', 'damage', 'expired', 'audit_adjustment', 'transfer']),
     warehouse_id: z.string().min(1, { message: 'Please select a source warehouse.' }),
     batch_id: z.string().optional(),
     quantity: z.coerce.number().min(0.01, { message: 'Quantity must be greater than 0.' }),
@@ -115,7 +116,7 @@ export function InventoryTransactionForm({ item, departments: warehouses, onSucc
                 body: JSON.stringify({
                     ...payload,
                     batch_id: values.batch_id === 'auto' ? null : values.batch_id,
-                    immediate: values.transaction_type === 'transfer' || values.transaction_type === 'audit_adjustment' || values.transaction_type === 'issue' || values.transaction_type === 'damage', 
+                    immediate: true,
                     to_warehouse_id: values.to_warehouse_id,
                     action_metadata: {
                         ...payload.action_metadata,
@@ -127,11 +128,23 @@ export function InventoryTransactionForm({ item, departments: warehouses, onSucc
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 
+            const toastTitles: Record<string, string> = {
+                transfer: 'Stock Transferred',
+                damage: 'Damage Recorded',
+                expired: 'Expired Stock Recorded',
+                issue: 'Stock Issued',
+                audit_adjustment: 'Audit Adjustment Saved',
+            };
+            const toastDescs: Record<string, string> = {
+                transfer: `Successfully moved ${values.quantity} ${item.unit?.name || 'units'} across warehouses.`,
+                damage: `${values.quantity} ${item.unit?.name || 'units'} of ${item.name} recorded as damaged and moved to Expired & Damaged.`,
+                expired: `${values.quantity} ${item.unit?.name || 'units'} of ${item.name} recorded as expired and moved to Expired & Damaged.`,
+                issue: `${values.quantity} ${item.unit?.name || 'units'} of ${item.name} issued from stock.`,
+                audit_adjustment: `Stock count for ${item.name} has been adjusted.`,
+            };
             toast({
-                title: values.transaction_type === 'transfer' ? "Stock Transferred" : "Transaction Submitted",
-                description: values.transaction_type === 'transfer' 
-                    ? `Successfully moved ${values.quantity} ${item.unit?.name || 'units'} across warehouses.`
-                    : `Request for ${item.name} has been submitted for approval.`,
+                title: toastTitles[values.transaction_type] ?? 'Transaction Saved',
+                description: toastDescs[values.transaction_type] ?? '',
             });
             onSuccess();
         } catch (error: any) {
@@ -344,6 +357,11 @@ export function InventoryTransactionForm({ item, departments: warehouses, onSucc
                         )}
                     />
                 )}
+                {transactionType === 'expired' && (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 font-medium">
+                        Expired stock will be deducted from the warehouse and recorded in the Expired &amp; Damaged section for valuation and write-off.
+                    </div>
+                )}
 
                 <FormField
                     control={form.control}
@@ -364,7 +382,13 @@ export function InventoryTransactionForm({ item, departments: warehouses, onSucc
 
                 <div className="pt-4 border-t">
                     <Button type="submit" className="w-full font-bold h-12 text-lg" disabled={isSubmitting}>
-                        {isSubmitting ? 'Processing...' : (transactionType === 'transfer' ? 'Transfer Now' : 'Submit for Approval')}
+                        {isSubmitting ? 'Processing...' : (
+                            transactionType === 'transfer' ? 'Transfer Now' :
+                            transactionType === 'damage' ? 'Record Damage' :
+                            transactionType === 'expired' ? 'Record Expired' :
+                            transactionType === 'issue' ? 'Issue Stock' :
+                            'Save Adjustment'
+                        )}
                     </Button>
                 </div>
             </form>

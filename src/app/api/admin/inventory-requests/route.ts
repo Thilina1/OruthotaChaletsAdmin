@@ -104,6 +104,9 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { request_type, item_id, batch_id, requested_quantity, estimated_cost, notes, action_metadata, brand, supplier_name, item_size } = body;
 
+        const userId = decoded.userId || decoded.id || decoded.sub;
+        const isImmediate = body.immediate && ['transfer', 'audit_adjustment', 'issue', 'damage', 'expired', 'initial_stock'].includes(request_type);
+
         const dataToSave: any = {
             request_type,
             item_id: request_type === 'NEW_ITEM' ? null : item_id,
@@ -114,17 +117,23 @@ export async function POST(request: Request) {
             supplier_name,
             item_size,
             action_metadata,
-            status: 'PENDING',
-            requested_by: decoded.userId || decoded.id || decoded.sub,
+            status: isImmediate ? 'COMPLETED' : 'PENDING',
+            requested_by: userId,
+            reviewed_by: isImmediate ? userId : null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
 
+        // Insert the request record FIRST — if the constraint check fails, we abort before touching stock
+        const { data: savedRequest, error: saveError } = await supabase
+            .from('inventory_requests')
+            .insert(dataToSave)
+            .select()
+            .single();
+        if (saveError) throw saveError;
+
         // NEW: Immediate Processing for New System (Stock Overview)
-        if (body.immediate && ['transfer', 'audit_adjustment', 'issue', 'damage', 'initial_stock'].includes(request_type)) {
-            const userId = decoded.userId || decoded.id || decoded.sub;
-            dataToSave.status = 'COMPLETED';
-            dataToSave.reviewed_by = userId;
+        if (isImmediate) {
 
             const totalRequestedQuantity = Number(requested_quantity || 0);
             const source_warehouse_id = body.warehouse_id;
@@ -236,6 +245,14 @@ export async function POST(request: Request) {
                     return NextResponse.json({ error: 'No stock found in source warehouse for this item.' }, { status: 400 });
                 }
 
+                // Resolve warehouse names for readable remarks
+                const whIds = [source_warehouse_id, target_warehouse_id].filter(Boolean);
+                const { data: whRows } = await supabase.from('inventory_warehouses').select('id, name').in('id', whIds);
+                const whNameMap: Record<string, string> = {};
+                for (const wh of whRows ?? []) whNameMap[wh.id] = wh.name;
+                const sourceWhName = whNameMap[source_warehouse_id] || source_warehouse_id;
+                const targetWhName = target_warehouse_id ? (whNameMap[target_warehouse_id] || target_warehouse_id) : '';
+
                 // 2. Process Deduction (Iterate through batches to fulfill total quantity)
                 let remainingQuantity = totalRequestedQuantity;
 
@@ -244,7 +261,7 @@ export async function POST(request: Request) {
 
                     const takeAmt = Math.min(Number(stock.quantity), remainingQuantity);
                     const current_batch_id = stock.batch_id;
-                    
+
                     // A. Update Source Stock
                     await supabase.from('inventory_stock')
                         .update({ quantity: Number(stock.quantity) - takeAmt, last_updated: new Date().toISOString() })
@@ -254,17 +271,30 @@ export async function POST(request: Request) {
                         if (!target_warehouse_id) return NextResponse.json({ error: 'Destination warehouse is required for transfer' }, { status: 400 });
 
                         // B. Update/Create Destination Stock
-                        const { data: targetStock } = await supabase.from('inventory_stock')
-                            .select('*').eq('warehouse_id', target_warehouse_id).eq('item_id', item_id).eq('batch_id', current_batch_id).maybeSingle();
+                        const { data: targetStock, error: targetFetchErr } = await supabase
+                            .from('inventory_stock')
+                            .select('*')
+                            .eq('warehouse_id', target_warehouse_id)
+                            .eq('item_id', item_id)
+                            .eq('batch_id', current_batch_id)
+                            .maybeSingle();
+                        if (targetFetchErr) throw targetFetchErr;
 
                         if (targetStock) {
-                            await supabase.from('inventory_stock').update({ quantity: Number(targetStock.quantity) + takeAmt, last_updated: new Date().toISOString() }).eq('id', targetStock.id);
+                            const { error: targetUpdateErr } = await supabase
+                                .from('inventory_stock')
+                                .update({ quantity: Number(targetStock.quantity) + takeAmt, last_updated: new Date().toISOString() })
+                                .eq('id', targetStock.id);
+                            if (targetUpdateErr) throw targetUpdateErr;
                         } else {
-                            await supabase.from('inventory_stock').insert([{ warehouse_id: target_warehouse_id, item_id, batch_id: current_batch_id, quantity: takeAmt }]);
+                            const { error: targetInsertErr } = await supabase
+                                .from('inventory_stock')
+                                .insert([{ warehouse_id: target_warehouse_id, item_id, batch_id: current_batch_id, quantity: takeAmt, last_updated: new Date().toISOString() }]);
+                            if (targetInsertErr) throw targetInsertErr;
                         }
 
-                        // C. Record Dual Transactions
-                        await supabase.from('inventory_transactions').insert([
+                        // C. Record Dual Transactions (tagged [HIM] so the transaction log can highlight them)
+                        const { error: txErr } = await supabase.from('inventory_transactions').insert([
                             {
                                 item_id,
                                 batch_id: current_batch_id,
@@ -272,7 +302,7 @@ export async function POST(request: Request) {
                                 quantity: takeAmt,
                                 department_id: source_warehouse_id,
                                 reference_department: target_warehouse_id,
-                                remarks: `FIFO Transfer to ${target_warehouse_id}. Ref: ${notes || 'Immediate'}`,
+                                remarks: `[HIM] Transfer to ${targetWhName}${notes ? ': ' + notes : ''}`,
                                 created_by: userId
                             },
                             {
@@ -282,19 +312,19 @@ export async function POST(request: Request) {
                                 quantity: takeAmt,
                                 department_id: target_warehouse_id,
                                 reference_department: source_warehouse_id,
-                                remarks: `FIFO Transfer from ${source_warehouse_id}. Ref: ${notes || 'Immediate'}`,
+                                remarks: `[HIM] Transfer from ${sourceWhName}${notes ? ': ' + notes : ''}`,
                                 created_by: userId
                             }
                         ]);
-                    } else if (['issue', 'damage'].includes(request_type)) {
-                        // C. Record Single Transaction
+                        if (txErr) throw txErr;
+                    } else if (['issue', 'damage', 'expired'].includes(request_type)) {
                         await supabase.from('inventory_transactions').insert([{
                             item_id,
                             batch_id: current_batch_id,
                             transaction_type: request_type,
                             quantity: takeAmt,
                             department_id: source_warehouse_id,
-                            remarks: notes || 'Immediate Adjustment',
+                            remarks: `[HIM]${notes ? ' ' + notes : ''}`,
                             created_by: userId
                         }]);
                     } else if (request_type === 'audit_adjustment') {
@@ -305,7 +335,7 @@ export async function POST(request: Request) {
                             transaction_type: 'audit_adjustment',
                             quantity: totalRequestedQuantity - Number(stock.quantity),
                             department_id: source_warehouse_id,
-                            remarks: notes || 'Immediate Audit',
+                            remarks: `[HIM]${notes ? ' ' + notes : ''}`,
                             created_by: userId
                         }]);
                         remainingQuantity = 0; // Stop after first batch for audit
@@ -321,13 +351,7 @@ export async function POST(request: Request) {
             }
         }
 
-        const { data, error } = await supabase
-            .from('inventory_requests')
-            .insert(dataToSave)
-            .select()
-            .single();
-
-        if (error) throw error;
+        const data = savedRequest;
 
         return NextResponse.json({ request: data }, { status: 201 });
     } catch (error: any) {

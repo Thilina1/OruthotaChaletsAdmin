@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
-import { Calendar as CalendarIcon, FileBarChart, ArrowUpCircle, ArrowDownCircle, AlertCircle, TrendingUp, Download, Loader2, AlertTriangle } from 'lucide-react';
+import { Calendar as CalendarIcon, FileBarChart, ArrowUpCircle, ArrowDownCircle, AlertCircle, TrendingUp, Download, Loader2, AlertTriangle, History, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { DateRange } from 'react-day-picker';
 
 import { Button } from "@/components/ui/button";
@@ -827,6 +828,20 @@ export default function InventoryReportsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Transaction Log highlight */}
+        <Link href="/dashboard/inventory-management/transaction-log" className="block group">
+          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/40 dark:to-purple-950/40 p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-violet-400 transition-all">
+            <div className="flex-shrink-0 rounded-lg bg-violet-100 dark:bg-violet-900/60 p-3">
+              <History className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-violet-900 dark:text-violet-200 text-sm">Transaction Log</p>
+              <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">Detailed history of all stock movements — issues, transfers, damage, GRN receipts &amp; adjustments</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-violet-400 group-hover:text-violet-600 group-hover:translate-x-1 transition-all flex-shrink-0" />
+          </div>
+        </Link>
       </div>
     </div>
   );

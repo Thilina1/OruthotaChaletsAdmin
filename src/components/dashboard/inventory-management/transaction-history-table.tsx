@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { cn } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -131,7 +132,12 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
               </TableRow>
             ) : (
                 paginatedItems.map((tx) => (
-                <TableRow key={tx.id} className="hover:bg-muted/30 transition-colors">
+                <TableRow key={tx.id} className={cn(
+                  "transition-colors",
+                  (tx as any).from_him
+                    ? "bg-violet-50/60 hover:bg-violet-100/60 border-l-2 border-l-violet-400"
+                    : "hover:bg-muted/30"
+                )}>
                   <TableCell className="text-xs text-muted-foreground font-mono">
                     {tx.created_at ? format(new Date(tx.created_at), "yyyy-MM-dd HH:mm") : 'N/A'}
                   </TableCell>
@@ -188,7 +194,16 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                   </TableCell>
                   <TableCell>
                     <div className="max-w-[200px]">
-                      {tx.remarks && <span className="text-xs italic text-muted-foreground truncate block" title={tx.remarks}>{tx.remarks}</span>}
+                      {(tx as any).transaction_type === 'transfer' || ((tx as any).transaction_type === 'issue' && (tx as any).reference_department) || ((tx as any).transaction_type === 'receive' && (tx as any).reference_department) ? (
+                        <span className="text-xs text-muted-foreground block">
+                          {(tx as any).transaction_type === 'receive'
+                            ? <>From: <strong>{(tx as any).reference_warehouse_name || (tx as any).reference_department}</strong></>
+                            : <>To: <strong>{(tx as any).reference_warehouse_name || (tx as any).reference_department}</strong></>
+                          }
+                        </span>
+                      ) : tx.remarks ? (
+                        <span className="text-xs italic text-muted-foreground truncate block" title={tx.remarks}>{tx.remarks}</span>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">
@@ -312,13 +327,21 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                 </div>
               </div>
 
-              {selectedTransaction.remarks && (
-                <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100">
+              {((selectedTransaction as any).reference_warehouse_name || (selectedTransaction as any).warehouse_name || selectedTransaction.remarks) && (
+                <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 space-y-1">
                   <div className="flex items-center gap-2 text-[10px] font-bold text-amber-700 uppercase mb-1">
                     <Info className="h-3 w-3" />
                     Remarks / Notes
                   </div>
-                  <p className="text-sm text-amber-800 italic">"{selectedTransaction.remarks}"</p>
+                  {(selectedTransaction as any).warehouse_name && (
+                    <p className="text-sm text-amber-800">Warehouse: <strong>{(selectedTransaction as any).warehouse_name}</strong></p>
+                  )}
+                  {(selectedTransaction as any).reference_warehouse_name && (
+                    <p className="text-sm text-amber-800">
+                      {selectedTransaction.transaction_type === 'receive' ? 'From' : 'To'}: <strong>{(selectedTransaction as any).reference_warehouse_name}</strong>
+                    </p>
+                  )}
+                  {selectedTransaction.remarks && <p className="text-sm text-amber-800 italic">"{selectedTransaction.remarks}"</p>}
                 </div>
               )}
 

@@ -305,18 +305,6 @@ export default function PurchaseOrdersPage() {
                                                         Submit for Approval
                                                     </Button>
                                                 )}
-                                                {(po.status === 'approved' || po.status === 'sent') && (
-                                                    <Button variant="ghost" size="sm" className="text-green-600 text-xs gap-1"
-                                                        onClick={() => { 
-                                                            setReceivePO(po); 
-                                                            setItemPrices({}); 
-                                                            const initialQtys: Record<string, string> = {};
-                                                            po.purchase_order_items.forEach(i => initialQtys[i.id] = String(i.quantity));
-                                                            setReceivedQuantities(initialQtys);
-                                                        }}>
-                                                        <PackageCheck className="h-3 w-3" /> Receive
-                                                    </Button>
-                                                )}
                                                 {(po.status === 'draft' || po.status === 'cancelled') && (
                                                     <Button variant="ghost" size="sm" className="text-destructive text-xs gap-1"
                                                         onClick={() => setDeleteId(po.id)}>

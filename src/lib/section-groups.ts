@@ -42,6 +42,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/inventory-management', label: 'Manage Items' },
       { path: '/dashboard/inventory-management/stock-usage', label: 'Stock Usage' },
       { path: '/dashboard/inventory-management/expired-damaged', label: 'Expired & Damaged' },
+      { path: '/dashboard/inventory-management/transaction-log', label: 'Transaction Log' },
       { path: '/dashboard/inventory-reports', label: 'Inventory Reports' },
     ],
   },

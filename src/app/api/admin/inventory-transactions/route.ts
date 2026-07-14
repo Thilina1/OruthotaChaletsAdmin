@@ -83,10 +83,31 @@ export async function GET(req: NextRequest) {
             for (const u of users ?? []) userMap[u.id] = u.name;
         }
 
-        const transactions = (data ?? []).map((r: any) => ({
-            ...r,
-            user: r.created_by ? { id: r.created_by, name: userMap[r.created_by] ?? '—' } : null,
-        }));
+        // Resolve warehouse names for department_id and reference_department
+        const whIds = [...new Set([
+            ...(data ?? []).map((r: any) => r.department_id),
+            ...(data ?? []).map((r: any) => r.reference_department),
+        ].filter(Boolean))];
+        let whMap: Record<string, string> = {};
+        if (whIds.length > 0) {
+            const { data: whs } = await supabase
+                .from('inventory_warehouses')
+                .select('id, name')
+                .in('id', whIds);
+            for (const w of whs ?? []) whMap[w.id] = w.name;
+        }
+
+        const transactions = (data ?? []).map((r: any) => {
+            const isHIM = typeof r.remarks === 'string' && r.remarks.startsWith('[HIM]');
+            return {
+                ...r,
+                remarks: isHIM ? r.remarks.replace(/^\[HIM\]\s*/, '') : r.remarks,
+                from_him: isHIM,
+                user: r.created_by ? { id: r.created_by, name: userMap[r.created_by] ?? '—' } : null,
+                warehouse_name: r.department_id ? (whMap[r.department_id] ?? null) : null,
+                reference_warehouse_name: r.reference_department ? (whMap[r.reference_department] ?? null) : null,
+            };
+        });
 
         return NextResponse.json({ transactions });
 

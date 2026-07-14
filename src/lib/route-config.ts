@@ -44,6 +44,7 @@ export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
     { href: '/dashboard/inventory-management/stock-usage', icon: PackageOpen, label: 'Stock Usage', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/inventory-management/expired-damaged', icon: AlertTriangle, label: 'Expired & Damaged', roles: ['admin'] },
+    { href: '/dashboard/inventory-management/transaction-log', icon: History, label: 'Transaction Log', roles: ['admin'] },
     { href: '/dashboard/inventory-reports', icon: FileBarChart, label: 'Inventory Reports', roles: ['admin'] },
 ];
 
