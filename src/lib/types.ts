@@ -778,12 +778,17 @@ export type ChaletBooking = {
     customer_name: string;
     customer_email?: string;
     customer_phone?: string;
+    customer_nic?: string;
+    nationality?: string;
     check_in_date: string;
     check_out_date: string;
     nights: number;
+    total_nights?: number;
     package_id?: string;
     occupancy_type_id?: string;
     guest_count: number;
+    adults: number;
+    children: number;
     room_id?: string;
     rate_per_night: number;
     service_charge_pct: number;

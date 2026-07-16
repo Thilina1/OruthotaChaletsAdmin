@@ -54,11 +54,14 @@ const emptyForm = {
     customer_name: '',
     customer_email: '',
     customer_phone: '',
+    customer_nic: '',
+    nationality: '',
     check_in_date: '',
     check_out_date: '',
     package_id: '',
     occupancy_type_id: '',
-    guest_count: 1,
+    adults: 1,
+    children: 0,
     room_id: '',
     rate_per_night: 0,
     service_charge_pct: 10,
@@ -143,6 +146,19 @@ export default function ChaletBookingsPage() {
     const scAmount = subtotal * form.service_charge_pct / 100;
     const grandTotal = subtotal + scAmount;
 
+    // Mirrors the overlap check in the API: back-to-back stays (one checks
+    // out the day the next checks in) don't count as a conflict.
+    const isRoomBooked = (roomId: string, checkIn: string, checkOut: string, excludeId?: string | null) => {
+        if (!checkIn || !checkOut) return false;
+        return bookings.some(b =>
+            b.room_id === roomId &&
+            b.status !== 'cancelled' &&
+            b.id !== excludeId &&
+            b.check_in_date < checkOut &&
+            b.check_out_date > checkIn
+        );
+    };
+
     const openNew = () => {
         setEditingId(null);
         setForm({ ...emptyForm });
@@ -155,11 +171,14 @@ export default function ChaletBookingsPage() {
             customer_name: b.customer_name,
             customer_email: b.customer_email || '',
             customer_phone: b.customer_phone || '',
+            customer_nic: b.customer_nic || '',
+            nationality: b.nationality || '',
             check_in_date: b.check_in_date,
             check_out_date: b.check_out_date,
             package_id: b.package_id || '',
             occupancy_type_id: b.occupancy_type_id || '',
-            guest_count: b.guest_count,
+            adults: b.adults ?? 1,
+            children: b.children ?? 0,
             room_id: b.room_id || '',
             rate_per_night: b.rate_per_night,
             service_charge_pct: b.service_charge_pct,
@@ -179,6 +198,7 @@ export default function ChaletBookingsPage() {
         try {
             const payload = {
                 ...form,
+                guest_count: form.adults + form.children,
                 package_id: form.package_id || null,
                 occupancy_type_id: form.occupancy_type_id || null,
                 room_id: form.room_id || null,
@@ -414,6 +434,17 @@ export default function ChaletBookingsPage() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
+                                <Label>NIC / Passport</Label>
+                                <Input value={form.customer_nic} onChange={e => setForm(p => ({ ...p, customer_nic: e.target.value }))} placeholder="NIC or passport number" />
+                            </div>
+                            <div className="space-y-1">
+                                <Label>Nationality</Label>
+                                <Input value={form.nationality} onChange={e => setForm(p => ({ ...p, nationality: e.target.value }))} placeholder="e.g. Sri Lankan" />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
                                 <Label>Check-in Date *</Label>
                                 <Input type="date" value={form.check_in_date} onChange={e => setForm(p => ({ ...p, check_in_date: e.target.value }))} />
                             </div>
@@ -448,10 +479,14 @@ export default function ChaletBookingsPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                             <div className="space-y-1">
-                                <Label>Guest Count</Label>
-                                <Input type="number" min={1} value={form.guest_count} onChange={e => setForm(p => ({ ...p, guest_count: parseInt(e.target.value) || 1 }))} />
+                                <Label>Adults</Label>
+                                <Input type="number" min={1} value={form.adults} onChange={e => setForm(p => ({ ...p, adults: parseInt(e.target.value) || 1 }))} />
+                            </div>
+                            <div className="space-y-1">
+                                <Label>Children</Label>
+                                <Input type="number" min={0} value={form.children} onChange={e => setForm(p => ({ ...p, children: parseInt(e.target.value) || 0 }))} />
                             </div>
                             <div className="space-y-1">
                                 <Label>Assign Chalet Room</Label>
@@ -459,9 +494,14 @@ export default function ChaletBookingsPage() {
                                     <SelectTrigger><SelectValue placeholder="Select room (optional)" /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="__none__">Unassigned</SelectItem>
-                                        {rooms.map(r => (
-                                            <SelectItem key={r.id} value={r.id}>Chalet {r.room_number} — {r.status}</SelectItem>
-                                        ))}
+                                        {rooms.map(r => {
+                                            const booked = isRoomBooked(r.id, form.check_in_date, form.check_out_date, editingId);
+                                            return (
+                                                <SelectItem key={r.id} value={r.id} disabled={booked}>
+                                                    Chalet {r.room_number} — {booked ? 'Booked for these dates' : r.status}
+                                                </SelectItem>
+                                            );
+                                        })}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -552,14 +592,19 @@ export default function ChaletBookingsPage() {
                                 <SelectTrigger><SelectValue placeholder="Choose a chalet" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="__none__">Unassigned</SelectItem>
-                                    {rooms.map(r => (
-                                        <SelectItem key={r.id} value={r.id}>
-                                            Chalet {r.room_number} — {r.name}
-                                            <span className={`ml-2 text-xs ${r.status === 'available' ? 'text-green-600' : 'text-orange-500'}`}>
-                                                ({r.status})
-                                            </span>
-                                        </SelectItem>
-                                    ))}
+                                    {rooms.map(r => {
+                                        const booked = assigningBooking
+                                            ? isRoomBooked(r.id, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id)
+                                            : false;
+                                        return (
+                                            <SelectItem key={r.id} value={r.id} disabled={booked}>
+                                                Chalet {r.room_number} — {r.name}
+                                                <span className={`ml-2 text-xs ${booked ? 'text-red-600' : r.status === 'available' ? 'text-green-600' : 'text-orange-500'}`}>
+                                                    {booked ? '(Booked for these dates)' : `(${r.status})`}
+                                                </span>
+                                            </SelectItem>
+                                        );
+                                    })}
                                 </SelectContent>
                             </Select>
                         </div>
