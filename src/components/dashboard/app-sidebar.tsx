@@ -182,7 +182,7 @@ export default function AppSidebar() {
 
 
 
-          {/* {roomBookingSection && (
+          {roomBookingSection && (
             <>
               <SidebarSeparator className="my-2" />
               <SidebarGroup>
@@ -190,7 +190,7 @@ export default function AppSidebar() {
                 <SidebarGroupContent>{roomBookingSection}</SidebarGroupContent>
               </SidebarGroup>
             </>
-          )} */}
+          )}
 
           {chaletSection && (
             <>
