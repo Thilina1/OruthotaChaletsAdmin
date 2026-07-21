@@ -204,6 +204,7 @@ export type Reservation = {
   check_out_time?: string;
   total_cost: number;
   status: ReservationStatus;
+  payment_status?: 'unpaid' | 'paid';
   created_at?: string;
   updated_at?: string;
 };
@@ -317,6 +318,7 @@ export type ServiceIncome = {
 export type ConsolidatedBill = {
   customer: Customer;
   reservations: Reservation[];
+  chaletBookings: ChaletBooking[];
   orders: Order[];
   serviceIncomes: ServiceIncome[];
   totalOutstanding: number;
@@ -721,6 +723,14 @@ export type TableBooking = {
   comments?: string;
   status: TableBookingStatus;
   created_at?: string;
+  package_id?: string;
+  price_per_guest?: number;
+  service_charge_amount?: number;
+  other_charge_amount?: number;
+  vat_amount?: number;
+  total_amount?: number;
+  // joined
+  buffet_packages?: { name: string };
 };
 
 // ─── Chalet Booking System ──────────────────────────────────────────────────
@@ -740,6 +750,11 @@ export type ChaletRoom = {
     updated_at?: string;
 };
 
+export type ChaletPackageFacility = {
+    id: string;
+    name: string;
+};
+
 export type ChaletPackage = {
     id: string;
     name: string;
@@ -747,10 +762,20 @@ export type ChaletPackage = {
     includes_breakfast: boolean;
     includes_lunch: boolean;
     includes_dinner: boolean;
+    facilities?: ChaletPackageFacility[];
     sort_order: number;
     is_active: boolean;
     created_at?: string;
     updated_at?: string;
+};
+
+export type ChaletFacilityUsage = {
+    id: string;
+    booking_id: string;
+    facility_key: string;
+    facility_name: string;
+    usage_date: string;
+    used_at?: string;
 };
 
 export type ChaletOccupancyType = {
@@ -767,6 +792,40 @@ export type ChaletRate = {
     package_id: string;
     occupancy_type_id: string;
     rate_per_night: number;
+    updated_at?: string;
+};
+
+export type BuffetOtherCharge = {
+    id: string;
+    name: string;
+    type: 'percentage' | 'fixed';
+    value: number;
+};
+
+export type BuffetPackage = {
+    id: string;
+    name: string;
+    description?: string;
+    vat_rate: number;
+    service_charge_rate: number;
+    other_charges: BuffetOtherCharge[];
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+    // joined
+    buffet_menu_items?: BuffetMenuItem[];
+};
+
+export type BuffetMenuItem = {
+    id: string;
+    package_id: string;
+    name: string;
+    description?: string;
+    price: number;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
     updated_at?: string;
 };
 
@@ -796,6 +855,7 @@ export type ChaletBooking = {
     service_charge_amount: number;
     grand_total: number;
     status: ChaletBookingStatus;
+    payment_status?: 'unpaid' | 'paid';
     special_requests?: string;
     notes?: string;
     created_by?: string;

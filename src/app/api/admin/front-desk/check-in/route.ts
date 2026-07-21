@@ -20,7 +20,7 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { reservation_id, customer_name, phone, email, id_number, address, is_loyalty } = body;
 
-        if (!reservation_id || !customer_name) {
+        if (!customer_name) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
@@ -62,38 +62,53 @@ export async function POST(request: Request) {
 
         // 2. Add to loyalty if checked
         if (is_loyalty && customer_id) {
-            // Check if already in loyalty
-            const { data: existingLoyalty } = await supabase
-                .from('loyalty_customers')
-                .select('id')
-                .ilike('name', customer_name.trim())
-                .limit(1)
-                .single();
-                
+            // Check if already in loyalty (by phone first, falling back to name)
+            let existingLoyalty = null;
+            if (phone) {
+                const { data } = await supabase
+                    .from('loyalty_customers')
+                    .select('id')
+                    .eq('mobile_number', phone)
+                    .limit(1)
+                    .single();
+                existingLoyalty = data;
+            }
             if (!existingLoyalty) {
-                const loyaltyId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                await supabase.from('loyalty_customers').insert({
-                    loyalty_id: `LOYALTY-${loyaltyId}`,
+                const { data } = await supabase
+                    .from('loyalty_customers')
+                    .select('id')
+                    .ilike('name', customer_name.trim())
+                    .limit(1)
+                    .single();
+                existingLoyalty = data;
+            }
+
+            if (!existingLoyalty) {
+                const { error: loyaltyError } = await supabase.from('loyalty_customers').insert({
                     name: customer_name.trim(),
-                    phone_number: phone || null,
-                    email: email || null
+                    mobile_number: phone || '',
                 });
+                if (loyaltyError) throw loyaltyError;
             }
         }
 
         // 3. Update reservation status to checked-in and attach customer_id
-        const { data: updatedReservation, error: updateError } = await supabase
-            .from('reservations')
-            .update({ 
-                status: 'checked-in',
-                customer_id: customer_id,
-                check_in_time: new Date().toISOString()
-            })
-            .eq('id', reservation_id)
-            .select()
-            .single();
+        let updatedReservation = null;
+        if (reservation_id) {
+            const { data, error: updateError } = await supabase
+                .from('reservations')
+                .update({
+                    status: 'checked-in',
+                    customer_id: customer_id,
+                    check_in_time: new Date().toISOString()
+                })
+                .eq('id', reservation_id)
+                .select()
+                .single();
 
-        if (updateError) throw updateError;
+            if (updateError) throw updateError;
+            updatedReservation = data;
+        }
 
         return NextResponse.json({ reservation: updatedReservation, customer_id }, { status: 200 });
 

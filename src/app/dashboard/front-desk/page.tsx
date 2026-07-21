@@ -20,8 +20,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Printer, CheckCircle2 } from 'lucide-react';
+import { Printer, CheckCircle2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { Reservation, ConsolidatedBill, ChaletBooking } from '@/lib/types';
 
@@ -34,11 +41,34 @@ export default function FrontDeskPage() {
   const [checkedInReservations, setCheckedInReservations] = useState<Reservation[]>([]);
   const [chaletArrivals, setChaletArrivals] = useState<ChaletBooking[]>([]);
   const [chaletInHouse, setChaletInHouse] = useState<ChaletBooking[]>([]);
+  const [historyReservations, setHistoryReservations] = useState<Reservation[]>([]);
+  const [historyChalet, setHistoryChalet] = useState<ChaletBooking[]>([]);
+  const [resolvableCustomerNames, setResolvableCustomerNames] = useState<Set<string>>(new Set());
   const [isLoadingReservations, setIsLoadingReservations] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [selectedChaletBooking, setSelectedChaletBooking] = useState<ChaletBooking | null>(null);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
-  
+
+  // Arrivals search & filter
+  const [arrivalSearch, setArrivalSearch] = useState('');
+  const [arrivalTypeFilter, setArrivalTypeFilter] = useState<'all' | 'reservation' | 'chalet'>('all');
+
+  // In-house search & filter
+  const [inHouseSearch, setInHouseSearch] = useState('');
+  const [inHouseTypeFilter, setInHouseTypeFilter] = useState<'all' | 'reservation' | 'chalet'>('all');
+
+  // History search, date range & filter
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | 'reservation' | 'chalet'>('all');
+
+  // Guest details view
+  const [viewGuestRow, setViewGuestRow] = useState<ArrivalRow | null>(null);
+  const [isGuestDetailOpen, setIsGuestDetailOpen] = useState(false);
+  const [viewGuestCustomer, setViewGuestCustomer] = useState<any | null>(null);
+  const [isLoadingGuestDetail, setIsLoadingGuestDetail] = useState(false);
+
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -55,9 +85,23 @@ export default function FrontDeskPage() {
   const [isLoadingBill, setIsLoadingBill] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [isSettling, setIsSettling] = useState(false);
+  const [isCheckingOutBill, setIsCheckingOutBill] = useState(false);
+  const [cashReceived, setCashReceived] = useState('');
+
+  // Add Other Charge to bill
+  const [otherChargeDesc, setOtherChargeDesc] = useState('');
+  const [otherChargeAmount, setOtherChargeAmount] = useState('');
+  const [isAddingCharge, setIsAddingCharge] = useState(false);
+
+  // Quick check-out from the Checked-In Guests list
+  const [checkoutRow, setCheckoutRow] = useState<ArrivalRow | null>(null);
+  const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
+  const [checkoutPreview, setCheckoutPreview] = useState<ConsolidatedBill | null>(null);
+  const [isLoadingCheckoutPreview, setIsLoadingCheckoutPreview] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   useEffect(() => {
-    if (activeTab === 'check-in' || activeTab === 'in-house') {
+    if (activeTab === 'check-in' || activeTab === 'in-house' || activeTab === 'history') {
       fetchReservations();
     }
   }, [activeTab]);
@@ -74,9 +118,10 @@ export default function FrontDeskPage() {
   const fetchReservations = async () => {
     setIsLoadingReservations(true);
     try {
-      const [resData, chaletData] = await Promise.all([
+      const [resData, chaletData, customersData] = await Promise.all([
         fetch('/api/admin/reservations?status=confirmed,pending,checked-in').then(r => r.json()),
         fetch('/api/chalet/bookings').then(r => r.json()),
+        fetch('/api/admin/customers').then(r => r.json()),
       ]);
 
       const allRes: Reservation[] = resData.reservations || [];
@@ -86,6 +131,12 @@ export default function FrontDeskPage() {
       const allChalet: ChaletBooking[] = chaletData.bookings || [];
       setChaletArrivals(allChalet.filter(b => b.status === 'pending' || b.status === 'confirmed'));
       setChaletInHouse(allChalet.filter(b => b.status === 'checked_in'));
+
+      setHistoryReservations(allRes.filter(r => r.status === 'completed' || r.status === 'checked-out' || r.status === 'cancelled'));
+      setHistoryChalet(allChalet.filter(b => b.status === 'checked_out' || b.status === 'cancelled'));
+
+      const names: string[] = (customersData.customers || []).map((c: any) => c.name?.trim().toLowerCase()).filter(Boolean);
+      setResolvableCustomerNames(new Set(names));
     } catch (error) {
       console.error(error);
     } finally {
@@ -132,14 +183,29 @@ export default function FrontDeskPage() {
     setIsCheckingIn(true);
     try {
       if (selectedChaletBooking) {
-        // Chalet booking check-in — update status to checked_in
-        const res = await fetch('/api/chalet/bookings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: selectedChaletBooking.id, status: 'checked_in' }),
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        // Chalet booking check-in — update status to checked_in, and register
+        // the guest in the customers table (and loyalty list, if requested).
+        const [statusRes, registerRes] = await Promise.all([
+          fetch('/api/chalet/bookings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: selectedChaletBooking.id, status: 'checked_in' }),
+          }).then(r => r.json()),
+          fetch('/api/admin/front-desk/check-in', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customer_name: customerName,
+              phone,
+              email,
+              id_number: idNumber,
+              address,
+              is_loyalty: isLoyalty,
+            }),
+          }).then(r => r.json()),
+        ]);
+        if (statusRes.error) throw new Error(statusRes.error);
+        if (registerRes.error) throw new Error(registerRes.error);
         toast({ title: 'Checked In', description: `${customerName} has been checked in to Chalet ${selectedChaletBooking.chalet_rooms?.room_number ?? ''}.` });
       } else if (selectedReservation) {
         const res = await fetch('/api/admin/front-desk/check-in', {
@@ -169,6 +235,7 @@ export default function FrontDeskPage() {
 
   const handleSelectCustomerForBill = async (customer: any) => {
     setSelectedCustomerForBill(customer);
+    setCashReceived('');
     setIsLoadingBill(true);
     try {
       const res = await fetch(`/api/admin/front-desk/billing?customer_id=${customer.id}`);
@@ -182,7 +249,122 @@ export default function FrontDeskPage() {
     }
   };
 
-  const handleSettleBill = async () => {
+  const handleAddOtherCharge = async () => {
+    if (!billData || !otherChargeDesc.trim() || !otherChargeAmount) return;
+    setIsAddingCharge(true);
+    try {
+      const res = await fetch('/api/admin/service-incomes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: otherChargeDesc.trim(),
+          amount: parseFloat(otherChargeAmount) || 0,
+          service_type: 'Other',
+          date: new Date().toISOString().split('T')[0],
+          customer_name: billData.customer.name,
+          payment_status: 'add_to_bill',
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      toast({ title: 'Charge Added', description: `${otherChargeDesc.trim()} added to the bill.` });
+      setOtherChargeDesc('');
+      setOtherChargeAmount('');
+      handleSelectCustomerForBill(billData.customer);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+    } finally {
+      setIsAddingCharge(false);
+    }
+  };
+
+  // Resolves the customers-table record behind an in-house row. Reservations
+  // carry customer_id directly; chalet bookings don't, so fall back to a name
+  // lookup (set during check-in registration).
+  const resolveCustomerForRow = async (row: ArrivalRow): Promise<{ id: string; name: string } | null> => {
+    if (row.type === 'reservation') {
+      return row.item.customer_id ? { id: row.item.customer_id, name: row.item.guest_name } : null;
+    }
+    try {
+      const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(row.item.customer_name)}`);
+      const data = await res.json();
+      const match = (data.customers || []).find(
+        (c: any) => c.name?.trim().toLowerCase() === row.item.customer_name.trim().toLowerCase()
+      );
+      return match ? { id: match.id, name: match.name } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Jumps straight from a Checked-In Guests row to their consolidated bill on
+  // the Billing & Check-Out tab, loading it immediately instead of leaving
+  // staff to search/click the customer manually.
+  const handleMoveToBill = async (row: ArrivalRow) => {
+    setActiveTab('check-out');
+    const customer = await resolveCustomerForRow(row);
+    if (customer) {
+      handleSelectCustomerForBill(customer);
+    } else {
+      setCustomerSearch(row.type === 'reservation' ? row.item.guest_name : row.item.customer_name);
+    }
+  };
+
+  const openCheckoutConfirm = async (row: ArrivalRow) => {
+    setCheckoutRow(row);
+    setCheckoutDialogOpen(true);
+    setCheckoutPreview(null);
+    setIsLoadingCheckoutPreview(true);
+    try {
+      const customer = await resolveCustomerForRow(row);
+      if (!customer) {
+        // No customers-table record to check a bill against — quietly fall
+        // back to Move to Bill instead of surfacing an alarming error toast.
+        setCheckoutDialogOpen(false);
+        handleMoveToBill(row);
+        return;
+      }
+      const res = await fetch(`/api/admin/front-desk/billing?customer_id=${customer.id}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setCheckoutPreview(data.bill);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to load guest bill.' });
+      setCheckoutDialogOpen(false);
+    } finally {
+      setIsLoadingCheckoutPreview(false);
+    }
+  };
+
+  const handleConfirmCheckout = async () => {
+    if (!checkoutPreview) return;
+    setIsCheckingOut(true);
+    try {
+      const res = await fetch('/api/admin/front-desk/settle-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: checkoutPreview.customer.id, mode: 'checkout' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to check out guest');
+
+      toast({ title: 'Checked Out', description: `${checkoutPreview.customer.name} has been checked out.` });
+      setCheckoutDialogOpen(false);
+      setCheckoutRow(null);
+      setCheckoutPreview(null);
+      fetchReservations();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  // Paying settles every outstanding charge but keeps the guest checked in —
+  // Check Out is a deliberate separate step, only enabled once nothing is
+  // left owing.
+  const handlePayBill = async () => {
     if (!billData) return;
     setIsSettling(true);
     try {
@@ -191,24 +373,126 @@ export default function FrontDeskPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_id: billData.customer.id,
-          payment_method: paymentMethod
+          payment_method: paymentMethod,
+          mode: 'pay',
         })
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to settle bill');
 
-      if (!res.ok) throw new Error('Failed to settle bill');
-      
-      // Print before clearing
-      window.print();
-      
-      toast({ title: "Bill Settled", description: "All outstanding balances have been marked as paid." });
-      setBillData(null);
-      setSelectedCustomerForBill(null);
+      toast({ title: "Bill Paid", description: "All outstanding balances have been marked as paid. You can now check out the guest." });
+      setCashReceived('');
+      handleSelectCustomerForBill(billData.customer);
     } catch (error: any) {
       toast({ variant: 'destructive', title: "Error", description: error.message });
     } finally {
       setIsSettling(false);
     }
   };
+
+  const handleCheckOutFromBill = async () => {
+    if (!billData) return;
+    setIsCheckingOutBill(true);
+    try {
+      const res = await fetch('/api/admin/front-desk/settle-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: billData.customer.id,
+          mode: 'checkout',
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to check out guest');
+
+      // Print before clearing
+      window.print();
+
+      toast({ title: "Checked Out", description: `${billData.customer.name} has been checked out.` });
+      setBillData(null);
+      setSelectedCustomerForBill(null);
+      setCashReceived('');
+      fetchReservations();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: "Error", description: error.message });
+    } finally {
+      setIsCheckingOutBill(false);
+    }
+  };
+
+  const handleViewGuest = async (row: ArrivalRow) => {
+    setViewGuestRow(row);
+    setViewGuestCustomer(null);
+    setIsGuestDetailOpen(true);
+
+    if (row.type === 'reservation' && row.item.customer_id) {
+      setIsLoadingGuestDetail(true);
+      try {
+        const res = await fetch(`/api/admin/customers?id=${row.item.customer_id}`);
+        const data = await res.json();
+        setViewGuestCustomer(data.customers?.[0] || null);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setIsLoadingGuestDetail(false);
+      }
+    }
+  };
+
+  type ArrivalRow =
+    | { type: 'reservation'; item: Reservation }
+    | { type: 'chalet'; item: ChaletBooking };
+
+  const matchesRow = (row: ArrivalRow, search: string, typeFilter: 'all' | 'reservation' | 'chalet') => {
+    if (typeFilter !== 'all' && row.type !== typeFilter) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    if (row.type === 'reservation') {
+      return (
+        row.item.guest_name?.toLowerCase().includes(q) ||
+        row.item.room?.title?.toLowerCase().includes(q)
+      );
+    }
+    return (
+      row.item.customer_name?.toLowerCase().includes(q) ||
+      row.item.booking_ref?.toLowerCase().includes(q) ||
+      row.item.chalet_rooms?.name?.toLowerCase().includes(q) ||
+      row.item.chalet_rooms?.room_number?.toLowerCase().includes(q)
+    );
+  };
+
+  const arrivalRows: ArrivalRow[] = [
+    ...reservations.map((item): ArrivalRow => ({ type: 'reservation', item })),
+    ...chaletArrivals.map((item): ArrivalRow => ({ type: 'chalet', item })),
+  ]
+    .sort((a, b) => new Date(a.item.check_in_date).getTime() - new Date(b.item.check_in_date).getTime())
+    .filter((row) => matchesRow(row, arrivalSearch, arrivalTypeFilter));
+
+  // Only show guests we can actually check out / bill — i.e. ones with a
+  // resolvable customers-table record (reservations always get one during
+  // check-in; chalet bookings only do if they were checked in through the
+  // front-desk flow rather than have their status edited directly).
+  const inHouseRows: ArrivalRow[] = [
+    ...checkedInReservations.filter(r => !!r.customer_id).map((item): ArrivalRow => ({ type: 'reservation', item })),
+    ...chaletInHouse
+      .filter(b => resolvableCustomerNames.has(b.customer_name?.trim().toLowerCase()))
+      .map((item): ArrivalRow => ({ type: 'chalet', item })),
+  ]
+    .sort((a, b) => new Date(a.item.check_in_date).getTime() - new Date(b.item.check_in_date).getTime())
+    .filter((row) => matchesRow(row, inHouseSearch, inHouseTypeFilter));
+
+  const rowPrice = (row: ArrivalRow) => row.type === 'reservation' ? Number(row.item.total_cost || 0) : Number(row.item.grand_total || 0);
+
+  const historyRows: ArrivalRow[] = [
+    ...historyReservations.map((item): ArrivalRow => ({ type: 'reservation', item })),
+    ...historyChalet.map((item): ArrivalRow => ({ type: 'chalet', item })),
+  ]
+    .sort((a, b) => new Date(b.item.check_out_date).getTime() - new Date(a.item.check_out_date).getTime())
+    .filter((row) => matchesRow(row, historySearch, historyTypeFilter))
+    .filter((row) => !historyFrom || row.item.check_out_date >= historyFrom)
+    .filter((row) => !historyTo || row.item.check_out_date <= historyTo);
+
+  const historyTotal = historyRows.reduce((sum, row) => sum + rowPrice(row), 0);
 
   return (
     <div className="p-6 max-w-6xl mx-auto print:p-0 print:max-w-none">
@@ -225,6 +509,7 @@ export default function FrontDeskPage() {
             <TabsTrigger value="check-in">Arrivals & Check-In</TabsTrigger>
             <TabsTrigger value="in-house">In-House Guests</TabsTrigger>
             <TabsTrigger value="check-out">Billing & Check-Out</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="check-in">
@@ -232,13 +517,36 @@ export default function FrontDeskPage() {
               <h2 className="text-lg font-semibold mb-4">
                 Pending Arrivals
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({reservations.length + chaletArrivals.length} total)
+                  ({arrivalRows.length} total)
                 </span>
               </h2>
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by guest name, room, or chalet..."
+                    value={arrivalSearch}
+                    onChange={(e) => setArrivalSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={arrivalTypeFilter} onValueChange={(val: any) => setArrivalTypeFilter(val)}>
+                  <SelectTrigger className="sm:w-48">
+                    <SelectValue placeholder="Filter by type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="reservation">Reservation</SelectItem>
+                    <SelectItem value="chalet">Chalet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {isLoadingReservations ? (
                 <p className="text-muted-foreground py-8 text-center">Loading reservations...</p>
               ) : reservations.length === 0 && chaletArrivals.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">No pending arrivals.</p>
+              ) : arrivalRows.length === 0 ? (
+                <p className="text-muted-foreground py-8 text-center">No arrivals match your search/filter.</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -253,41 +561,54 @@ export default function FrontDeskPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {reservations.map((res) => (
-                      <TableRow key={`res-${res.id}`}>
+                    {arrivalRows.map((row) => row.type === 'reservation' ? (
+                      <TableRow key={`res-${row.item.id}`}>
                         <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
-                        <TableCell className="font-medium">{res.guest_name}</TableCell>
-                        <TableCell>{res.room?.title || 'Unassigned'}</TableCell>
+                        <TableCell className="font-medium">{row.item.guest_name}</TableCell>
+                        <TableCell>{row.item.room?.title || 'Unassigned'}</TableCell>
                         <TableCell className="text-muted-foreground">—</TableCell>
-                        <TableCell>{new Date(res.check_in_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(res.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" onClick={() => handleOpenCheckIn(res)}>Check In</Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenCheckIn(row.item)}
+                            disabled={!row.item.room}
+                            title={!row.item.room ? 'Assign a room before checking in' : undefined}
+                          >
+                            Check In
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
-                    {chaletArrivals.map((booking) => (
-                      <TableRow key={`chalet-${booking.id}`}>
+                    ) : (
+                      <TableRow key={`chalet-${row.item.id}`}>
                         <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
                         <TableCell className="font-medium">
-                          {booking.customer_name}
-                          <div className="text-xs text-muted-foreground">{booking.booking_ref}</div>
+                          {row.item.customer_name}
+                          <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
                         </TableCell>
                         <TableCell>
-                          {booking.chalet_rooms
-                            ? `Chalet ${booking.chalet_rooms.room_number} — ${booking.chalet_rooms.name}`
+                          {row.item.chalet_rooms
+                            ? `Chalet ${row.item.chalet_rooms.room_number} — ${row.item.chalet_rooms.name}`
                             : <span className="text-muted-foreground italic">Unassigned</span>}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {booking.chalet_packages?.name || '—'}
-                          {booking.chalet_occupancy_types && (
-                            <div className="text-xs text-muted-foreground">{booking.chalet_occupancy_types.name}</div>
+                          {row.item.chalet_packages?.name || '—'}
+                          {row.item.chalet_occupancy_types && (
+                            <div className="text-xs text-muted-foreground">{row.item.chalet_occupancy_types.name}</div>
                           )}
                         </TableCell>
-                        <TableCell>{new Date(booking.check_in_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(booking.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" onClick={() => handleOpenChaletCheckIn(booking)}>Check In</Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenChaletCheckIn(row.item)}
+                            disabled={!row.item.chalet_rooms}
+                            title={!row.item.chalet_rooms ? 'Assign a chalet before checking in' : undefined}
+                          >
+                            Check In
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -302,13 +623,36 @@ export default function FrontDeskPage() {
               <h2 className="text-lg font-semibold mb-4">
                 Checked-In Guests
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({checkedInReservations.length + chaletInHouse.length} total)
+                  ({inHouseRows.length} total)
                 </span>
               </h2>
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by guest name, room, or chalet..."
+                    value={inHouseSearch}
+                    onChange={(e) => setInHouseSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={inHouseTypeFilter} onValueChange={(val: any) => setInHouseTypeFilter(val)}>
+                  <SelectTrigger className="sm:w-48">
+                    <SelectValue placeholder="Filter by type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="reservation">Reservation</SelectItem>
+                    <SelectItem value="chalet">Chalet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {isLoadingReservations ? (
                 <p className="text-muted-foreground py-8 text-center">Loading guests...</p>
               ) : checkedInReservations.length === 0 && chaletInHouse.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">No guests are currently checked in.</p>
+              ) : inHouseRows.length === 0 ? (
+                <p className="text-muted-foreground py-8 text-center">No guests match your search/filter.</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -322,43 +666,71 @@ export default function FrontDeskPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {checkedInReservations.map((res) => (
-                      <TableRow key={`res-${res.id}`}>
+                    {inHouseRows.map((row) => row.type === 'reservation' ? (
+                      <TableRow key={`res-${row.item.id}`}>
                         <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
-                        <TableCell className="font-medium">{res.guest_name}</TableCell>
-                        <TableCell>{res.room?.title || 'Unassigned'}</TableCell>
+                        <TableCell className="font-medium">{row.item.guest_name}</TableCell>
+                        <TableCell>{row.item.room?.title || 'Unassigned'}</TableCell>
                         <TableCell>
-                          <div>{new Date(res.check_in_date).toLocaleDateString()}</div>
-                          {res.check_in_time && (
+                          <div>{new Date(row.item.check_in_date).toLocaleDateString()}</div>
+                          {row.item.check_in_time && (
                             <div className="text-xs text-muted-foreground mt-0.5">
-                              {new Date(res.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(row.item.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           )}
                         </TableCell>
-                        <TableCell>{new Date(res.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" variant="outline" onClick={() => { setCustomerSearch(res.guest_name); setActiveTab('check-out'); }}>
-                            View Bill
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleViewGuest(row)}>
+                              View
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleMoveToBill(row)}>
+                              Move to Bill
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => openCheckoutConfirm(row)}
+                              disabled={Number(row.item.total_cost) > 0 && row.item.payment_status !== 'paid'}
+                              title={Number(row.item.total_cost) > 0 && row.item.payment_status !== 'paid' ? 'Pay the bill before checking out' : undefined}
+                            >
+                              Check Out
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
-                    ))}
-                    {chaletInHouse.map((booking) => (
-                      <TableRow key={`chalet-${booking.id}`}>
+                    ) : (
+                      <TableRow key={`chalet-${row.item.id}`}>
                         <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
                         <TableCell className="font-medium">
-                          {booking.customer_name}
-                          <div className="text-xs text-muted-foreground">{booking.booking_ref}</div>
+                          {row.item.customer_name}
+                          <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
                         </TableCell>
                         <TableCell>
-                          {booking.chalet_rooms
-                            ? `Chalet ${booking.chalet_rooms.room_number}`
+                          {row.item.chalet_rooms
+                            ? `Chalet ${row.item.chalet_rooms.room_number}`
                             : <span className="text-muted-foreground italic">Unassigned</span>}
                         </TableCell>
-                        <TableCell>{new Date(booking.check_in_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(booking.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
-                          <Badge className="bg-green-100 text-green-800 border-green-200">In House</Badge>
+                          <div className="flex justify-end items-center gap-2">
+                            <Badge className="bg-green-100 text-green-800 border-green-200">In House</Badge>
+                            <Button size="sm" variant="outline" onClick={() => handleViewGuest(row)}>
+                              View
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleMoveToBill(row)}>
+                              Move to Bill
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => openCheckoutConfirm(row)}
+                              disabled={Number(row.item.grand_total) > 0 && row.item.payment_status !== 'paid'}
+                              title={Number(row.item.grand_total) > 0 && row.item.payment_status !== 'paid' ? 'Pay the bill before checking out' : undefined}
+                            >
+                              Check Out
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -427,6 +799,30 @@ export default function FrontDeskPage() {
                         </div>
                       )}
 
+                      {billData.chaletBookings.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-lg border-b pb-2 mb-3">Chalet Charges</h3>
+                          <Table>
+                            <TableBody>
+                              {billData.chaletBookings.map(cb => (
+                                <TableRow key={cb.id}>
+                                  <TableCell>
+                                    <div>
+                                      {cb.chalet_rooms ? `Chalet ${cb.chalet_rooms.room_number}` : 'Chalet'} — {cb.chalet_packages?.name || 'No package'}
+                                      {' '}({new Date(cb.check_in_date).toLocaleDateString()} to {new Date(cb.check_out_date).toLocaleDateString()})
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Package price: LKR {Number(cb.rate_per_night || 0).toFixed(2)} / night × {cb.nights} night{cb.nights !== 1 ? 's' : ''} + {cb.service_charge_pct}% service charge
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">LKR {Number(cb.grand_total || 0).toFixed(2)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+
                       {billData.orders.length > 0 && (
                         <div>
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Restaurant Orders</h3>
@@ -459,17 +855,49 @@ export default function FrontDeskPage() {
                         </div>
                       )}
 
-                      {billData.totalOutstanding === 0 && (
-                        <div className="text-center py-6 text-green-600 font-medium">
-                          <CheckCircle2 className="w-8 h-8 mx-auto mb-2" />
-                          No outstanding balance.
+                      <div className="pt-6 border-t print:hidden">
+                        <h3 className="font-semibold text-lg mb-3">Add Other Charge</h3>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input
+                            placeholder="Description (e.g. Minibar, Damage fee)"
+                            value={otherChargeDesc}
+                            onChange={(e) => setOtherChargeDesc(e.target.value)}
+                            className="flex-1"
+                          />
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="Amount"
+                            value={otherChargeAmount}
+                            onChange={(e) => setOtherChargeAmount(e.target.value)}
+                            className="sm:w-40"
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={handleAddOtherCharge}
+                            disabled={isAddingCharge || !otherChargeDesc.trim() || !otherChargeAmount}
+                          >
+                            {isAddingCharge ? 'Adding...' : 'Add to Bill'}
+                          </Button>
                         </div>
-                      )}
+                      </div>
 
-                      {billData.totalOutstanding > 0 && (
+                      {billData.totalOutstanding === 0 ? (
+                        <div className="pt-6 border-t space-y-4">
+                          <div className="text-center py-2 text-green-600 font-medium">
+                            <CheckCircle2 className="w-8 h-8 mx-auto mb-2" />
+                            Bill is fully paid.
+                          </div>
+                          <Button onClick={handleCheckOutFromBill} disabled={isCheckingOutBill} className="w-full text-lg h-12">
+                            <Printer className="mr-2 h-5 w-5" />
+                            {isCheckingOutBill ? 'Checking Out...' : 'Check Out Guest & Print Invoice'}
+                          </Button>
+                        </div>
+                      ) : (
                         <div className="pt-6 border-t">
                           <Label className="mb-2 block">Payment Method for Settlement</Label>
-                          <div className="flex items-center space-x-4 mb-6">
+                          <div className="flex items-center space-x-4 mb-4">
                             <label className="flex items-center space-x-2 cursor-pointer">
                               <input type="radio" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="w-4 h-4 text-primary" />
                               <span>Cash</span>
@@ -479,11 +907,39 @@ export default function FrontDeskPage() {
                               <span>Credit/Debit Card</span>
                             </label>
                           </div>
-                          
-                          <Button onClick={handleSettleBill} disabled={isSettling} className="w-full text-lg h-12">
-                            <Printer className="mr-2 h-5 w-5" />
-                            {isSettling ? 'Processing...' : 'Settle Bill & Print Invoice'}
+
+                          {paymentMethod === 'cash' && (
+                            <div className="bg-muted/50 rounded-lg p-4 mb-6 space-y-2">
+                              <div className="flex items-center gap-3">
+                                <Label htmlFor="cashReceived" className="whitespace-nowrap">Cash Received</Label>
+                                <Input
+                                  id="cashReceived"
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  value={cashReceived}
+                                  onChange={(e) => setCashReceived(e.target.value)}
+                                  className="w-40"
+                                />
+                              </div>
+                              {cashReceived !== '' && (
+                                (() => {
+                                  const balance = (parseFloat(cashReceived) || 0) - billData.totalOutstanding;
+                                  return balance >= 0 ? (
+                                    <p className="text-green-600 font-medium">Balance to Return: LKR {balance.toFixed(2)}</p>
+                                  ) : (
+                                    <p className="text-red-600 font-medium">Amount Short: LKR {Math.abs(balance).toFixed(2)}</p>
+                                  );
+                                })()
+                              )}
+                            </div>
+                          )}
+
+                          <Button onClick={handlePayBill} disabled={isSettling} className="w-full text-lg h-12">
+                            {isSettling ? 'Processing...' : 'Pay Bill'}
                           </Button>
+                          <p className="text-xs text-muted-foreground text-center mt-2">Check Out unlocks once the bill is fully paid.</p>
                         </div>
                       )}
                     </div>
@@ -494,6 +950,108 @@ export default function FrontDeskPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <div className="bg-white rounded-lg shadow border p-4">
+              <h2 className="text-lg font-semibold mb-4">
+                Check-Out History
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  ({historyRows.length} record{historyRows.length !== 1 ? 's' : ''} · LKR {historyTotal.toFixed(2)} total)
+                </span>
+              </h2>
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-4">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by guest name, room, or chalet..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground whitespace-nowrap">From</Label>
+                  <Input type="date" className="w-40" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground whitespace-nowrap">To</Label>
+                  <Input type="date" className="w-40" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+                </div>
+                {(historyFrom || historyTo) && (
+                  <Button variant="outline" size="sm" onClick={() => { setHistoryFrom(''); setHistoryTo(''); }}>
+                    Clear Dates
+                  </Button>
+                )}
+                <Select value={historyTypeFilter} onValueChange={(val: any) => setHistoryTypeFilter(val)}>
+                  <SelectTrigger className="sm:w-48">
+                    <SelectValue placeholder="Filter by type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="reservation">Reservation</SelectItem>
+                    <SelectItem value="chalet">Chalet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {isLoadingReservations ? (
+                <p className="text-muted-foreground py-8 text-center">Loading history...</p>
+              ) : historyRows.length === 0 ? (
+                <p className="text-muted-foreground py-8 text-center">No check-out history matches your search/filter.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Guest Name</TableHead>
+                      <TableHead>Room / Chalet</TableHead>
+                      <TableHead>Check-in</TableHead>
+                      <TableHead>Check-out</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {historyRows.map((row) => row.type === 'reservation' ? (
+                      <TableRow key={`res-${row.item.id}`}>
+                        <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
+                        <TableCell className="font-medium">{row.item.guest_name}</TableCell>
+                        <TableCell>{row.item.room?.title || 'Unassigned'}</TableCell>
+                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">LKR {Number(row.item.total_cost || 0).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge className={row.item.status === 'cancelled' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-green-100 text-green-800 border-green-200'}>
+                            {row.item.status === 'cancelled' ? 'Cancelled' : 'Checked Out'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      <TableRow key={`chalet-${row.item.id}`}>
+                        <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
+                        <TableCell className="font-medium">
+                          {row.item.customer_name}
+                          <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
+                        </TableCell>
+                        <TableCell>
+                          {row.item.chalet_rooms
+                            ? `Chalet ${row.item.chalet_rooms.room_number}`
+                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                        </TableCell>
+                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">LKR {Number(row.item.grand_total || 0).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge className={row.item.status === 'cancelled' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-green-100 text-green-800 border-green-200'}>
+                            {row.item.status === 'cancelled' ? 'Cancelled' : 'Checked Out'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </div>
           </TabsContent>
         </Tabs>
@@ -545,6 +1103,207 @@ export default function FrontDeskPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Guest Detail Modal */}
+      <Dialog open={isGuestDetailOpen} onOpenChange={setIsGuestDetailOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Guest Details</DialogTitle>
+          </DialogHeader>
+          {viewGuestRow && viewGuestRow.type === 'reservation' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Guest Name</p>
+                  <p className="font-medium">{viewGuestRow.item.guest_name}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</p>
+                  <p className="font-medium capitalize">{viewGuestRow.item.status}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</p>
+                  <p className="font-medium">{viewGuestCustomer?.email || viewGuestRow.item.guest_email || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Phone</p>
+                  <p className="font-medium">{isLoadingGuestDetail ? 'Loading…' : (viewGuestCustomer?.phone || '—')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">ID / Passport Number</p>
+                  <p className="font-medium">{isLoadingGuestDetail ? 'Loading…' : (viewGuestCustomer?.id_number || '—')}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Address</p>
+                  <p className="font-medium">{isLoadingGuestDetail ? 'Loading…' : (viewGuestCustomer?.address || '—')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Room</p>
+                  <p className="font-medium">{viewGuestRow.item.room?.title || 'Unassigned'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Cost</p>
+                  <p className="font-medium">LKR {Number(viewGuestRow.item.total_cost || 0).toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-in</p>
+                  <p className="font-medium">
+                    {new Date(viewGuestRow.item.check_in_date).toLocaleDateString()}
+                    {viewGuestRow.item.check_in_time && ` at ${new Date(viewGuestRow.item.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-out</p>
+                  <p className="font-medium">{new Date(viewGuestRow.item.check_out_date).toLocaleDateString()}</p>
+                </div>
+              </div>
+              {!isLoadingGuestDetail && !viewGuestCustomer && (
+                <p className="text-xs text-muted-foreground italic">No additional customer profile on file for this guest.</p>
+              )}
+            </div>
+          )}
+
+          {viewGuestRow && viewGuestRow.type === 'chalet' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Guest Name</p>
+                  <p className="font-medium">{viewGuestRow.item.customer_name}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Booking Ref</p>
+                  <p className="font-medium">{viewGuestRow.item.booking_ref}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</p>
+                  <p className="font-medium">{viewGuestRow.item.customer_email || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Phone</p>
+                  <p className="font-medium">{viewGuestRow.item.customer_phone || '—'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">NIC / Passport</p>
+                  <p className="font-medium">{viewGuestRow.item.customer_nic || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Nationality</p>
+                  <p className="font-medium">{viewGuestRow.item.nationality || '—'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Chalet</p>
+                  <p className="font-medium">
+                    {viewGuestRow.item.chalet_rooms
+                      ? `${viewGuestRow.item.chalet_rooms.name} (${viewGuestRow.item.chalet_rooms.room_number})`
+                      : 'Unassigned'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Package</p>
+                  <p className="font-medium">{viewGuestRow.item.chalet_packages?.name || '—'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Occupancy</p>
+                  <p className="font-medium">{viewGuestRow.item.chalet_occupancy_types?.name || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Guests</p>
+                  <p className="font-medium">{viewGuestRow.item.adults} Adults, {viewGuestRow.item.children} Children</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-in</p>
+                  <p className="font-medium">{new Date(viewGuestRow.item.check_in_date).toLocaleDateString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-out</p>
+                  <p className="font-medium">{new Date(viewGuestRow.item.check_out_date).toLocaleDateString()}</p>
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Rate per Night</span><span>LKR {Number(viewGuestRow.item.rate_per_night || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>LKR {Number(viewGuestRow.item.subtotal || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Service Charge</span><span>LKR {Number(viewGuestRow.item.service_charge_amount || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between font-semibold pt-1 border-t"><span>Grand Total</span><span>LKR {Number(viewGuestRow.item.grand_total || 0).toFixed(2)}</span></div>
+              </div>
+              {(viewGuestRow.item.special_requests || viewGuestRow.item.notes) && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Requests / Notes</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {[viewGuestRow.item.special_requests, viewGuestRow.item.notes].filter(Boolean).join('\n')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Check Out Confirmation Modal */}
+      <Dialog open={checkoutDialogOpen} onOpenChange={setCheckoutDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Check Out Guest</DialogTitle>
+          </DialogHeader>
+          {isLoadingCheckoutPreview ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Loading guest bill...</p>
+          ) : checkoutPreview ? (
+            <div className="space-y-4">
+              <div className="bg-muted rounded-lg p-3 text-sm">
+                <p className="font-medium">{checkoutPreview.customer.name}</p>
+                <p className="text-muted-foreground">
+                  {checkoutRow?.type === 'chalet'
+                    ? `Chalet ${checkoutRow.item.chalet_rooms?.room_number ?? ''}`
+                    : checkoutRow?.type === 'reservation' ? (checkoutRow.item.room?.title || 'Room') : ''}
+                </p>
+              </div>
+
+              {checkoutPreview.totalOutstanding > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-red-600">
+                    This guest has an outstanding balance of <span className="font-semibold">LKR {checkoutPreview.totalOutstanding.toFixed(2)}</span>. Settle the bill before checking out.
+                  </p>
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      setCheckoutDialogOpen(false);
+                      if (checkoutRow) handleMoveToBill(checkoutRow);
+                    }}
+                  >
+                    Go to Bill
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-green-600 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" /> No outstanding balance.
+                  </p>
+                  <Button className="w-full" onClick={handleConfirmCheckout} disabled={isCheckingOut}>
+                    {isCheckingOut ? 'Checking Out...' : 'Confirm Check-Out'}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Printable Master Invoice */}
       {billData && (
         <div className="hidden print:block font-sans text-black bg-white">
@@ -580,6 +1339,14 @@ export default function FrontDeskPage() {
                 <tr key={res.id} className="border-b border-gray-100">
                   <td className="py-4 px-2 text-gray-800">Room Charge: {res.room?.title || 'Room'}</td>
                   <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(res.total_cost || 0).toFixed(2)}</td>
+                </tr>
+              ))}
+              {billData.chaletBookings.map(cb => (
+                <tr key={cb.id} className="border-b border-gray-100">
+                  <td className="py-4 px-2 text-gray-800">
+                    Chalet Charge: {cb.chalet_rooms ? `Chalet ${cb.chalet_rooms.room_number}` : 'Chalet'} — {cb.chalet_packages?.name || 'No package'} (LKR {Number(cb.rate_per_night || 0).toFixed(2)}/night × {cb.nights})
+                  </td>
+                  <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(cb.grand_total || 0).toFixed(2)}</td>
                 </tr>
               ))}
               {billData.orders.map(ord => (

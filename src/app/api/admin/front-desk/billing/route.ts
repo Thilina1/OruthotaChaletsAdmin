@@ -43,6 +43,20 @@ export async function GET(request: Request) {
             .eq('customer_id', customer_id)
             .in('status', ['checked-in', 'confirmed']);
 
+        // 2b. Get Chalet Bookings for this customer. Chalet bookings aren't
+        // linked by customer_id (they store the guest's details directly), so
+        // match by name instead.
+        const { data: chaletBookings } = await supabase
+            .from('chalet_bookings')
+            .select(`
+                *,
+                chalet_packages ( name ),
+                chalet_occupancy_types ( name ),
+                chalet_rooms ( name, room_number )
+            `)
+            .ilike('customer_name', customer.name.trim())
+            .in('status', ['checked_in', 'confirmed']);
+
         // 3. Get unpaid Orders (status = billed or open)
         const { data: orders } = await supabase
             .from('orders')
@@ -57,11 +71,17 @@ export async function GET(request: Request) {
             .eq('customer_id', customer_id)
             .eq('payment_status', 'add_to_bill');
 
-        // Calculate totals
+        // Calculate totals. Room/chalet charges only count as outstanding
+        // until they're marked paid — Check Out is a separate step from
+        // paying, so an already-paid stay shouldn't re-appear as owed.
         let totalOutstanding = 0;
-        
+
         reservations?.forEach(res => {
-            if (res.total_cost) totalOutstanding += Number(res.total_cost);
+            if (res.total_cost && res.payment_status !== 'paid') totalOutstanding += Number(res.total_cost);
+        });
+
+        chaletBookings?.forEach(cb => {
+            if (cb.grand_total && cb.payment_status !== 'paid') totalOutstanding += Number(cb.grand_total);
         });
 
         orders?.forEach(ord => {
@@ -76,6 +96,7 @@ export async function GET(request: Request) {
             bill: {
                 customer,
                 reservations: reservations || [],
+                chaletBookings: chaletBookings || [],
                 orders: orders || [],
                 serviceIncomes: serviceIncomes || [],
                 totalOutstanding,

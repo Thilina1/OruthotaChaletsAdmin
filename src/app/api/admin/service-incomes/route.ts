@@ -21,6 +21,8 @@ export async function GET(request: Request) {
 
         const { searchParams } = new URL(request.url);
         const serviceType = searchParams.get('service_type');
+        const from = searchParams.get('from');
+        const to = searchParams.get('to');
 
         let query = supabase
             .from('service_incomes')
@@ -29,6 +31,12 @@ export async function GET(request: Request) {
 
         if (serviceType) {
             query = query.eq('service_type', serviceType);
+        }
+        if (from) {
+            query = query.gte('date', from);
+        }
+        if (to) {
+            query = query.lte('date', to);
         }
 
         const { data, error } = await query;

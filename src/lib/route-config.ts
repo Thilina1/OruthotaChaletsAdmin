@@ -53,6 +53,7 @@ export const roomBookingMenuItems: MenuItem[] = [
     { href: '/dashboard/reservations', icon: BedDouble, label: 'Reservation Management', roles: ['admin'] },
     { href: '/dashboard/inquiries', icon: MessageSquare, label: 'Inquiries', roles: ['admin'] },
     { href: '/dashboard/buffet-bookings', icon: Utensils, label: 'Buffet Bookings', roles: ['admin'] },
+    { href: '/dashboard/buffet-packages', icon: Utensils, label: 'Buffet Packages', roles: ['admin'] },
 ];
 
 export const otherMenue: MenuItem[] = [

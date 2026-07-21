@@ -53,6 +53,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/reservations', label: 'Reservation Management' },
       { path: '/dashboard/inquiries', label: 'Inquiries' },
       { path: '/dashboard/buffet-bookings', label: 'Buffet Bookings' },
+      { path: '/dashboard/buffet-packages', label: 'Buffet Packages' },
     ],
   },
   {

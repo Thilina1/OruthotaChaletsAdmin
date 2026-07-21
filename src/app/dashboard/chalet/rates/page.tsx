@@ -31,8 +31,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import type { ChaletPackage, ChaletOccupancyType, ChaletRate } from '@/lib/types';
-import { Pencil, Trash2, Plus, Save, AlertCircle, Coffee, UtensilsCrossed } from 'lucide-react';
+import type { ChaletPackage, ChaletOccupancyType, ChaletRate, ChaletPackageFacility } from '@/lib/types';
+import { Pencil, Trash2, Plus, Save, AlertCircle, Coffee, UtensilsCrossed, X } from 'lucide-react';
 
 function formatCurrency(n: number) {
     return n.toLocaleString('en-LK', { minimumFractionDigits: 2 });
@@ -44,6 +44,7 @@ const emptyPackageForm = {
     includes_breakfast: false,
     includes_lunch: false,
     includes_dinner: false,
+    facilities: [] as ChaletPackageFacility[],
     sort_order: 0,
     is_active: true,
 };
@@ -68,6 +69,7 @@ export default function ChaletRatesPage() {
     const [deletePkgId, setDeletePkgId] = useState<string | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [newFacilityName, setNewFacilityName] = useState('');
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -138,6 +140,7 @@ export default function ChaletRatesPage() {
     const openNewPackage = () => {
         setEditingPkgId(null);
         setPkgForm({ ...emptyPackageForm });
+        setNewFacilityName('');
         setPkgDialogOpen(true);
     };
 
@@ -149,10 +152,25 @@ export default function ChaletRatesPage() {
             includes_breakfast: pkg.includes_breakfast,
             includes_lunch: pkg.includes_lunch,
             includes_dinner: pkg.includes_dinner,
+            facilities: pkg.facilities || [],
             sort_order: pkg.sort_order,
             is_active: pkg.is_active,
         });
         setPkgDialogOpen(true);
+    };
+
+    const addFacility = () => {
+        const name = newFacilityName.trim();
+        if (!name) return;
+        setPkgForm(p => ({
+            ...p,
+            facilities: [...p.facilities, { id: crypto.randomUUID(), name }],
+        }));
+        setNewFacilityName('');
+    };
+
+    const removeFacility = (id: string) => {
+        setPkgForm(p => ({ ...p, facilities: p.facilities.filter(f => f.id !== id) }));
     };
 
     const handleSavePackage = async () => {
@@ -383,6 +401,31 @@ export default function ChaletRatesPage() {
                             <div className="flex items-center justify-between">
                                 <Label className="font-normal">Dinner</Label>
                                 <Switch checked={pkgForm.includes_dinner} onCheckedChange={v => setPkgForm(p => ({ ...p, includes_dinner: v }))} />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Additional Facilities</Label>
+                            <p className="text-xs text-muted-foreground">Custom facilities guests on this package can use (e.g. Pool Access, Spa, Airport Pickup). Checked off per day during their stay from the Chalet Bookings page.</p>
+                            {pkgForm.facilities.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {pkgForm.facilities.map(f => (
+                                        <Badge key={f.id} variant="outline" className="gap-1 pr-1">
+                                            {f.name}
+                                            <button type="button" onClick={() => removeFacility(f.id)} className="rounded-full hover:bg-muted p-0.5">
+                                                <X className="h-3 w-3" />
+                                            </button>
+                                        </Badge>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="e.g. Pool Access"
+                                    value={newFacilityName}
+                                    onChange={e => setNewFacilityName(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFacility(); } }}
+                                />
+                                <Button type="button" variant="outline" onClick={addFacility}>Add</Button>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">

@@ -18,15 +18,10 @@ export async function GET() {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const { data, error } = await supabase
-            .from('chalet_packages')
+            .from('buffet_packages')
             .select(`
                 *,
-                chalet_rates (
-                    id,
-                    occupancy_type_id,
-                    rate_per_night,
-                    chalet_occupancy_types ( id, name )
-                )
+                buffet_menu_items ( id, name, description, price, sort_order, is_active )
             `)
             .order('sort_order', { ascending: true });
 
@@ -45,19 +40,18 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
+        const { name, description, vat_rate, service_charge_rate, other_charges, sort_order, is_active } = body;
 
         if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
         const { data, error } = await supabase
-            .from('chalet_packages')
+            .from('buffet_packages')
             .insert({
                 name,
                 description,
-                includes_breakfast: includes_breakfast ?? false,
-                includes_lunch: includes_lunch ?? false,
-                includes_dinner: includes_dinner ?? false,
-                facilities: facilities ?? [],
+                vat_rate: vat_rate ?? 0,
+                service_charge_rate: service_charge_rate ?? 0,
+                other_charges: other_charges ?? [],
                 sort_order: sort_order ?? 0,
                 is_active: is_active ?? true,
             })
@@ -79,13 +73,22 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
+        const { id, name, description, vat_rate, service_charge_rate, other_charges, sort_order, is_active } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
         const { data, error } = await supabase
-            .from('chalet_packages')
-            .update({ name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active, updated_at: new Date().toISOString() })
+            .from('buffet_packages')
+            .update({
+                name,
+                description,
+                vat_rate,
+                service_charge_rate,
+                other_charges,
+                sort_order,
+                is_active,
+                updated_at: new Date().toISOString(),
+            })
             .eq('id', id)
             .select()
             .single();
@@ -108,7 +111,7 @@ export async function DELETE(request: Request) {
         const id = searchParams.get('id');
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-        const { error } = await supabase.from('chalet_packages').delete().eq('id', id);
+        const { error } = await supabase.from('buffet_packages').delete().eq('id', id);
         if (error) throw error;
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error: any) {

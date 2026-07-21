@@ -30,9 +30,16 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+} from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import type { ChaletBooking, ChaletPackage, ChaletOccupancyType, ChaletRoom, ChaletRate, ChaletBookingStatus } from '@/lib/types';
-import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList } from 'lucide-react';
 
 const statusColors: Record<ChaletBookingStatus, string> = {
     pending: 'bg-orange-100 text-orange-800 border-orange-200',
@@ -96,6 +103,17 @@ export default function ChaletBookingsPage() {
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
+
+    // Checked-In Guests tab
+    const [checkedInSearch, setCheckedInSearch] = useState('');
+    const [checkedInDate, setCheckedInDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+    // Facility activity tracker
+    const [activityBooking, setActivityBooking] = useState<ChaletBooking | null>(null);
+    const [activityDialogOpen, setActivityDialogOpen] = useState(false);
+    const [activityUsage, setActivityUsage] = useState<Set<string>>(new Set());
+    const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+    const [togglingActivityKey, setTogglingActivityKey] = useState<string | null>(null);
 
     const fetchAll = useCallback(async () => {
         setLoading(true);
@@ -276,6 +294,94 @@ export default function ChaletBookingsPage() {
         checked_in: bookings.filter(b => b.status === 'checked_in').length,
     };
 
+    // Meal flags + custom facilities on a package, flattened into one
+    // checklist of { key, name } entries the front desk can mark used.
+    const packageFacilities = (pkg?: ChaletPackage): { key: string; name: string }[] => {
+        if (!pkg) return [];
+        const list: { key: string; name: string }[] = [];
+        if (pkg.includes_breakfast) list.push({ key: 'breakfast', name: 'Breakfast' });
+        if (pkg.includes_lunch) list.push({ key: 'lunch', name: 'Lunch' });
+        if (pkg.includes_dinner) list.push({ key: 'dinner', name: 'Dinner' });
+        (pkg.facilities || []).forEach(f => list.push({ key: f.id, name: f.name }));
+        return list;
+    };
+
+    // One entry per night of the stay (checkout day itself isn't a night).
+    const stayDates = (checkIn: string, checkOut: string): string[] => {
+        const dates: string[] = [];
+        const cur = new Date(checkIn);
+        const end = new Date(checkOut);
+        while (cur < end) {
+            dates.push(cur.toISOString().slice(0, 10));
+            cur.setDate(cur.getDate() + 1);
+        }
+        return dates;
+    };
+
+    const checkedInGuests = bookings
+        .filter(b => b.status === 'checked_in')
+        .filter(b => {
+            const q = checkedInSearch.trim().toLowerCase();
+            if (q && !b.customer_name?.toLowerCase().includes(q)) return false;
+            if (checkedInDate && !(b.check_in_date <= checkedInDate && checkedInDate <= b.check_out_date)) return false;
+            return true;
+        });
+
+    const openActivities = async (booking: ChaletBooking) => {
+        setActivityBooking(booking);
+        setActivityDialogOpen(true);
+        setIsLoadingActivity(true);
+        try {
+            const res = await fetch(`/api/chalet/facility-usage?booking_id=${booking.id}`);
+            const data = await res.json();
+            const usage: { facility_key: string; usage_date: string }[] = data.usage || [];
+            setActivityUsage(new Set(usage.map(u => `${u.usage_date}|${u.facility_key}`)));
+        } catch (e: any) {
+            toast({ title: 'Error', description: 'Failed to load activity history', variant: 'destructive' });
+        } finally {
+            setIsLoadingActivity(false);
+        }
+    };
+
+    const toggleActivity = async (date: string, facilityKey: string, facilityName: string) => {
+        if (!activityBooking) return;
+        const mapKey = `${date}|${facilityKey}`;
+        setTogglingActivityKey(mapKey);
+        const wasUsed = activityUsage.has(mapKey);
+
+        // Optimistic toggle
+        setActivityUsage(prev => {
+            const next = new Set(prev);
+            if (wasUsed) next.delete(mapKey); else next.add(mapKey);
+            return next;
+        });
+
+        try {
+            const res = await fetch('/api/chalet/facility-usage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    booking_id: activityBooking.id,
+                    facility_key: facilityKey,
+                    facility_name: facilityName,
+                    usage_date: date,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+        } catch (e: any) {
+            // Revert on failure
+            setActivityUsage(prev => {
+                const next = new Set(prev);
+                if (wasUsed) next.add(mapKey); else next.delete(mapKey);
+                return next;
+            });
+            toast({ title: 'Error', description: e.message || 'Failed to update activity', variant: 'destructive' });
+        } finally {
+            setTogglingActivityKey(null);
+        }
+    };
+
     return (
         <div className="p-6 space-y-6">
             <div className="flex items-center justify-between">
@@ -325,90 +431,182 @@ export default function ChaletBookingsPage() {
                 </Card>
             </div>
 
-            {/* Table */}
-            <Card>
-                <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Booking Ref</TableHead>
-                                    <TableHead>Customer</TableHead>
-                                    <TableHead>Room</TableHead>
-                                    <TableHead>Package</TableHead>
-                                    <TableHead>Occupancy</TableHead>
-                                    <TableHead>Check In</TableHead>
-                                    <TableHead>Check Out</TableHead>
-                                    <TableHead className="text-center">Nights</TableHead>
-                                    <TableHead className="text-right">Grand Total</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading ? (
-                                    Array.from({ length: 5 }).map((_, i) => (
-                                        <TableRow key={i}>
-                                            {Array.from({ length: 11 }).map((_, j) => (
-                                                <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                                            ))}
+            {/* Bookings / Checked-In Guests */}
+            <Tabs defaultValue="all">
+                <TabsList>
+                    <TabsTrigger value="all">All Bookings</TabsTrigger>
+                    <TabsTrigger value="checked-in">Checked-In Guests</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="all" className="mt-4">
+                    <Card>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Booking Ref</TableHead>
+                                            <TableHead>Customer</TableHead>
+                                            <TableHead>Room</TableHead>
+                                            <TableHead>Package</TableHead>
+                                            <TableHead>Occupancy</TableHead>
+                                            <TableHead>Check In</TableHead>
+                                            <TableHead>Check Out</TableHead>
+                                            <TableHead className="text-center">Nights</TableHead>
+                                            <TableHead className="text-right">Grand Total</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
-                                    ))
-                                ) : bookings.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
-                                            No bookings yet. Create your first booking.
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    bookings.map(b => (
-                                        <TableRow key={b.id}>
-                                            <TableCell className="font-mono text-xs font-medium">{b.booking_ref}</TableCell>
-                                            <TableCell>
-                                                <div className="font-medium">{b.customer_name}</div>
-                                                {b.customer_phone && <div className="text-xs text-muted-foreground">{b.customer_phone}</div>}
-                                            </TableCell>
-                                            <TableCell>
-                                                {b.chalet_rooms ? (
-                                                    <span className="font-medium">Chalet {b.chalet_rooms.room_number}</span>
-                                                ) : (
-                                                    <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">Unassigned</Badge>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-sm">{b.chalet_packages?.name || '—'}</TableCell>
-                                            <TableCell className="text-sm">{b.chalet_occupancy_types?.name || '—'}</TableCell>
-                                            <TableCell className="text-sm">{b.check_in_date}</TableCell>
-                                            <TableCell className="text-sm">{b.check_out_date}</TableCell>
-                                            <TableCell className="text-center">{b.nights}</TableCell>
-                                            <TableCell className="text-right font-medium">LKR {formatCurrency(b.grand_total)}</TableCell>
-                                            <TableCell>
-                                                <Badge className={`text-xs border ${statusColors[b.status]}`} variant="outline">
-                                                    {statusLabels[b.status]}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    {!b.room_id && (
-                                                        <Button size="sm" variant="outline" onClick={() => openAssign(b)} title="Assign Room">
-                                                            <BedDouble className="h-3 w-3" />
-                                                        </Button>
-                                                    )}
-                                                    <Button size="sm" variant="outline" onClick={() => openEdit(b)}>
-                                                        <Pencil className="h-3 w-3" />
-                                                    </Button>
-                                                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => confirmDelete(b.id)}>
-                                                        <Trash2 className="h-3 w-3" />
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {loading ? (
+                                            Array.from({ length: 5 }).map((_, i) => (
+                                                <TableRow key={i}>
+                                                    {Array.from({ length: 11 }).map((_, j) => (
+                                                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                                                    ))}
+                                                </TableRow>
+                                            ))
+                                        ) : bookings.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                                                    No bookings yet. Create your first booking.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            bookings.map(b => (
+                                                <TableRow key={b.id}>
+                                                    <TableCell className="font-mono text-xs font-medium">{b.booking_ref}</TableCell>
+                                                    <TableCell>
+                                                        <div className="font-medium">{b.customer_name}</div>
+                                                        {b.customer_phone && <div className="text-xs text-muted-foreground">{b.customer_phone}</div>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {b.chalet_rooms ? (
+                                                            <span className="font-medium">Chalet {b.chalet_rooms.room_number}</span>
+                                                        ) : (
+                                                            <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">Unassigned</Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{b.chalet_packages?.name || '—'}</TableCell>
+                                                    <TableCell className="text-sm">{b.chalet_occupancy_types?.name || '—'}</TableCell>
+                                                    <TableCell className="text-sm">{b.check_in_date}</TableCell>
+                                                    <TableCell className="text-sm">{b.check_out_date}</TableCell>
+                                                    <TableCell className="text-center">{b.nights}</TableCell>
+                                                    <TableCell className="text-right font-medium">LKR {formatCurrency(b.grand_total)}</TableCell>
+                                                    <TableCell>
+                                                        <Badge className={`text-xs border ${statusColors[b.status]}`} variant="outline">
+                                                            {statusLabels[b.status]}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            {!b.room_id && (
+                                                                <Button size="sm" variant="outline" onClick={() => openAssign(b)} title="Assign Room">
+                                                                    <BedDouble className="h-3 w-3" />
+                                                                </Button>
+                                                            )}
+                                                            <Button size="sm" variant="outline" onClick={() => openEdit(b)}>
+                                                                <Pencil className="h-3 w-3" />
+                                                            </Button>
+                                                            <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => confirmDelete(b.id)}>
+                                                                <Trash2 className="h-3 w-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="checked-in" className="mt-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by customer name..."
+                                value={checkedInSearch}
+                                onChange={e => setCheckedInSearch(e.target.value)}
+                                className="pl-9"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Label className="text-sm text-muted-foreground whitespace-nowrap">As of date</Label>
+                            <Input
+                                type="date"
+                                className="w-44"
+                                value={checkedInDate}
+                                onChange={e => setCheckedInDate(e.target.value)}
+                            />
+                        </div>
                     </div>
-                </CardContent>
-            </Card>
+                    <Card>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Customer</TableHead>
+                                            <TableHead>Room</TableHead>
+                                            <TableHead>Package</TableHead>
+                                            <TableHead>Check In</TableHead>
+                                            <TableHead>Check Out</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {loading ? (
+                                            Array.from({ length: 3 }).map((_, i) => (
+                                                <TableRow key={i}>
+                                                    {Array.from({ length: 6 }).map((_, j) => (
+                                                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                                                    ))}
+                                                </TableRow>
+                                            ))
+                                        ) : checkedInGuests.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                    No checked-in guests match your search/date.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            checkedInGuests.map(b => (
+                                                <TableRow key={b.id}>
+                                                    <TableCell>
+                                                        <div className="font-medium">{b.customer_name}</div>
+                                                        {b.customer_phone && <div className="text-xs text-muted-foreground">{b.customer_phone}</div>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {b.chalet_rooms ? (
+                                                            <span className="font-medium">Chalet {b.chalet_rooms.room_number}</span>
+                                                        ) : (
+                                                            <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">Unassigned</Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{b.chalet_packages?.name || '—'}</TableCell>
+                                                    <TableCell className="text-sm">{b.check_in_date}</TableCell>
+                                                    <TableCell className="text-sm">{b.check_out_date}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button size="sm" variant="outline" onClick={() => openActivities(b)}>
+                                                            <ClipboardList className="mr-1.5 h-3 w-3" />
+                                                            Activities
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
 
             {/* Booking Form Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -634,6 +832,76 @@ export default function ChaletBookingsPage() {
                             {deleting ? 'Deleting...' : 'Delete'}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Facility Activities Dialog */}
+            <Dialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen}>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Package Activities</DialogTitle>
+                    </DialogHeader>
+                    {activityBooking && (() => {
+                        const pkg = packages.find(p => p.id === activityBooking.package_id);
+                        const facilities = packageFacilities(pkg);
+                        const dates = stayDates(activityBooking.check_in_date, activityBooking.check_out_date);
+
+                        return (
+                            <div className="space-y-4">
+                                <div className="bg-muted rounded-lg p-3 text-sm">
+                                    <p className="font-medium">{activityBooking.customer_name}</p>
+                                    <p className="text-muted-foreground">
+                                        {activityBooking.booking_ref} · {pkg?.name || 'No package assigned'} · {activityBooking.check_in_date} → {activityBooking.check_out_date}
+                                    </p>
+                                </div>
+
+                                {!pkg ? (
+                                    <p className="text-sm text-muted-foreground italic">No package is assigned to this booking, so there are no facilities to track.</p>
+                                ) : facilities.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground italic">This package has no meals or facilities configured. Add some under Chalet &gt; Rates &amp; Packages.</p>
+                                ) : isLoadingActivity ? (
+                                    <div className="space-y-2">
+                                        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Day</TableHead>
+                                                    {facilities.map(f => (
+                                                        <TableHead key={f.key} className="text-center">{f.name}</TableHead>
+                                                    ))}
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {dates.map((date, idx) => (
+                                                    <TableRow key={date}>
+                                                        <TableCell className="text-sm font-medium whitespace-nowrap">
+                                                            Day {idx + 1}
+                                                            <div className="text-xs text-muted-foreground font-normal">{date}</div>
+                                                        </TableCell>
+                                                        {facilities.map(f => {
+                                                            const mapKey = `${date}|${f.key}`;
+                                                            return (
+                                                                <TableCell key={f.key} className="text-center">
+                                                                    <Checkbox
+                                                                        checked={activityUsage.has(mapKey)}
+                                                                        disabled={togglingActivityKey === mapKey}
+                                                                        onCheckedChange={() => toggleActivity(date, f.key, f.name)}
+                                                                    />
+                                                                </TableCell>
+                                                            );
+                                                        })}
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </DialogContent>
             </Dialog>
         </div>

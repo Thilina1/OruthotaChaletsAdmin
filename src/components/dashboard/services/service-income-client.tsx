@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -49,6 +50,10 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<ServiceIncome | null>(null);
 
+  // Date range filter
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+
   // Form states
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
@@ -63,11 +68,16 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   const [customerSearchResults, setCustomerSearchResults] = useState<Customer[]>([]);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [isLoadingRoom, setIsLoadingRoom] = useState(false);
+  const [roomAutoFilled, setRoomAutoFilled] = useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/admin/service-incomes?service_type=${encodeURIComponent(serviceType)}`);
+      const params = new URLSearchParams({ service_type: serviceType });
+      if (filterFrom) params.set('from', filterFrom);
+      if (filterTo) params.set('to', filterTo);
+      const res = await fetch(`/api/admin/service-incomes?${params.toString()}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setIncomes(data.incomes || []);
@@ -81,7 +91,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
 
   useEffect(() => {
     fetchData();
-  }, [serviceType]);
+  }, [serviceType, filterFrom, filterTo]);
 
   useEffect(() => {
     if (!customerSearchQuery) {
@@ -121,6 +131,29 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
     }
   }, [customerName, paymentStatus]);
 
+  // Selecting a customer from the search dropdown auto-fills Room Number
+  // with whichever room/chalet they're currently checked into, if any.
+  const handleSelectCustomer = async (c: Customer) => {
+    setCustomerName(c.name);
+    setCustomerSearchQuery('');
+    setShowCustomerDropdown(false);
+    setRoomAutoFilled(false);
+    setIsLoadingRoom(true);
+    try {
+      const res = await fetch(`/api/admin/customers?id=${c.id}`);
+      const data = await res.json();
+      const currentRoom = data.customers?.[0]?.current_room;
+      if (currentRoom) {
+        setRoomNumber(currentRoom);
+        setRoomAutoFilled(true);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingRoom(false);
+    }
+  };
+
   const {
     currentPage,
     totalPages,
@@ -134,6 +167,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
     setDate(new Date().toISOString().split('T')[0]);
     setCustomerName('');
     setRoomNumber('');
+    setRoomAutoFilled(false);
     setPaymentStatus('paid');
     setPaymentMethod('cash');
     setLineItems([{ description: '', amount: '' }]);
@@ -227,11 +261,13 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   };
 
   const handlePrint = (income: ServiceIncome) => {
-    setSelectedInvoice(income);
-    // Allow state to set before calling print
-    setTimeout(() => {
+    // Commit the print-area's data to the DOM synchronously before printing —
+    // a plain setState + setTimeout can race with window.print() and produce
+    // a blank/empty printout since the print snapshot is taken too early.
+    flushSync(() => setSelectedInvoice(income));
+    requestAnimationFrame(() => {
       window.print();
-    }, 300);
+    });
   };
 
   return (
@@ -246,6 +282,60 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3 print:hidden">
+        <div className="space-y-1">
+          <Label htmlFor="filterFrom" className="text-xs">From</Label>
+          <Input id="filterFrom" type="date" className="h-9 w-40" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="filterTo" className="text-xs">To</Label>
+          <Input id="filterTo" type="date" className="h-9 w-40" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
+        </div>
+        {(filterFrom || filterTo) && (
+          <Button variant="outline" size="sm" onClick={() => { setFilterFrom(''); setFilterTo(''); }}>
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {/* Summary: Add to Bill vs Cash vs Card, and grand total */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:hidden">
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Add to Bill</p>
+          <p className="text-lg font-semibold">
+            {isLoading ? '—' : `LKR ${incomes.filter(i => i.payment_status === 'add_to_bill').reduce((sum, i) => sum + Number(i.amount || 0), 0).toFixed(2)}`}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {incomes.filter(i => i.payment_status === 'add_to_bill').length} record{incomes.filter(i => i.payment_status === 'add_to_bill').length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Paid (Cash)</p>
+          <p className="text-lg font-semibold">
+            {isLoading ? '—' : `LKR ${incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'cash').reduce((sum, i) => sum + Number(i.amount || 0), 0).toFixed(2)}`}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'cash').length} record{incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'cash').length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Paid (Card)</p>
+          <p className="text-lg font-semibold">
+            {isLoading ? '—' : `LKR ${incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'card').reduce((sum, i) => sum + Number(i.amount || 0), 0).toFixed(2)}`}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'card').length} record{incomes.filter(i => i.payment_status === 'paid' && i.payment_method === 'card').length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="rounded-md border p-3 bg-muted/30">
+          <p className="text-xs text-muted-foreground">Total</p>
+          <p className="text-lg font-semibold">
+            {isLoading ? '—' : `LKR ${incomes.reduce((sum, i) => sum + Number(i.amount || 0), 0).toFixed(2)}`}
+          </p>
+          <p className="text-xs text-muted-foreground">{incomes.length} record{incomes.length !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
+
       <div className="rounded-md border print:hidden">
         <Table>
           <TableHeader>
@@ -253,6 +343,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
               <TableHead>Date</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead>Payment</TableHead>
               <TableHead className="text-right">Amount (LKR)</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -260,11 +351,11 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10">Loading...</TableCell>
+                <TableCell colSpan={6} className="text-center py-10">Loading...</TableCell>
               </TableRow>
             ) : (!paginatedItems || paginatedItems.length === 0) ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No records found.</TableCell>
+                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No records found.</TableCell>
               </TableRow>
             ) : (
               paginatedItems.map((income) => (
@@ -281,6 +372,17 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                     )}
                   </TableCell>
                   <TableCell className="font-medium">{income.description}</TableCell>
+                  <TableCell>
+                    {income.payment_status === 'add_to_bill' ? (
+                      <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                        Add to Bill
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 capitalize">
+                        Paid ({income.payment_method || 'cash'})
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">LKR {income.amount.toFixed(2)}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button variant="outline" size="sm" className="gap-1" onClick={() => handlePrint(income)}>
@@ -423,11 +525,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                             <div 
                               key={c.id} 
                               className="p-2 hover:bg-muted cursor-pointer text-sm border-b last:border-0"
-                              onClick={() => {
-                                  setCustomerName(c.name);
-                                  setCustomerSearchQuery('');
-                                  setShowCustomerDropdown(false);
-                              }}
+                              onClick={() => handleSelectCustomer(c)}
                             >
                               <div className="font-medium">{c.name}</div>
                               <div className="text-xs text-muted-foreground">
@@ -448,8 +546,14 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                       id="roomNumber"
                       placeholder="e.g. 101"
                       value={roomNumber}
-                      onChange={(e) => setRoomNumber(e.target.value)}
+                      onChange={(e) => { setRoomNumber(e.target.value); setRoomAutoFilled(false); }}
                     />
+                    {isLoadingRoom && (
+                      <p className="text-xs text-muted-foreground">Looking up current room...</p>
+                    )}
+                    {!isLoadingRoom && roomAutoFilled && (
+                      <p className="text-xs text-green-600">Auto-filled from guest's current check-in</p>
+                    )}
                   </div>
                 </div>
               </div>

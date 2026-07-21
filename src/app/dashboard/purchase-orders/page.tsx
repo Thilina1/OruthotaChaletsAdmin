@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 import { Button } from '@/components/ui/button';
@@ -207,8 +208,11 @@ export default function PurchaseOrdersPage() {
     };
 
     const handlePrint = (po: PurchaseOrder) => {
-        setViewPO(po);
-        setTimeout(() => window.print(), 300);
+        // Commit the print-area's data to the DOM synchronously before printing —
+        // a plain setState + setTimeout can race with window.print() and produce
+        // a blank/empty printout since the print snapshot is taken too early.
+        flushSync(() => setViewPO(po));
+        requestAnimationFrame(() => window.print());
     };
 
     return (
