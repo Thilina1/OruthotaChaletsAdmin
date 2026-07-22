@@ -133,6 +133,9 @@ export type OrderItem = {
   name: string;
   price: number;
   quantity: number;
+  kitchen_status?: 'pending' | 'preparing' | 'ready' | 'done';
+  prepared_by?: string;
+  prepared_at?: string;
 };
 
 export const INVENTORY_UOM = [

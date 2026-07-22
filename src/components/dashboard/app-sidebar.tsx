@@ -15,7 +15,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles, Hotel } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles, Hotel, ChefHat } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '../icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -23,7 +23,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUserContext } from '@/context/user-context';
 import { SidebarRail } from '../ui/sidebar';
-import type { User, UserRole } from '@/lib/types';
+import type { User } from '@/lib/types';
 import {
   generalMenuItems,
   customerMenuItems,
@@ -31,6 +31,7 @@ import {
   inventoryMenuItems,
   roomBookingMenuItems,
   chaletMenuItems,
+  kitchenMenuItems,
   otherMenue,
   hrmsMenuItems,
   otherMenuItems,
@@ -42,21 +43,14 @@ import {
 const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, user: User | null) => {
   const accessibleItems = items.filter(item => {
     const userRole = user?.role;
-    // Admins default to all access unless specifically restricted to selected permissions
-    if (userRole === 'admin' && !user?.restrict_admin_permissions) return true;
+    // Admins default to all access unless specifically restricted to selected permissions.
+    // Inventory Admins likewise always see everything, regardless of their base role.
+    if ((userRole === 'admin' && !user?.restrict_admin_permissions) || user?.inventory_admin === true) return true;
 
-    // Check if the user has been explicitly granted this path via custom permissions
-    const hasExplicitPermission = hasPathAccess(item.href);
-
-    // If the admin is restricted, we ONLY use explicit permissions (ignoring their default 'admin' role permissions)
-    if (userRole === 'admin' && user?.restrict_admin_permissions) {
-      return hasExplicitPermission;
-    }
-
-    // For other roles, check if the user's role grants them default access to this section
-    const hasRolePermission = userRole ? item.roles.includes(userRole as UserRole) : false;
-
-    return hasExplicitPermission || hasRolePermission;
+    // Everyone else (including restricted admins) only sees a section if it was
+    // explicitly marked/granted for them — no more falling back to the role's
+    // default section list.
+    return hasPathAccess(item.href);
   });
   if (accessibleItems.length === 0) return null;
 
@@ -94,6 +88,7 @@ export default function AppSidebar() {
   const inventorySection = renderMenuItems(inventoryMenuItems, hasPathAccess, pathname, user);
   const roomBookingSection = renderMenuItems(roomBookingMenuItems, hasPathAccess, pathname, user);
   const chaletSection = renderMenuItems(chaletMenuItems, hasPathAccess, pathname, user);
+  const kitchenSection = renderMenuItems(kitchenMenuItems, hasPathAccess, pathname, user);
   const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user);
   const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user);
   const servicesSection = renderMenuItems(servicesMenuItems, hasPathAccess, pathname, user);
@@ -148,6 +143,16 @@ export default function AppSidebar() {
           )}
 
 
+
+          {kitchenSection && (
+            <>
+              <SidebarSeparator className="my-2" />
+              <SidebarGroup>
+                <SidebarGroupLabel className="flex items-center gap-2"><ChefHat className="size-4" />Kitchen</SidebarGroupLabel>
+                <SidebarGroupContent>{kitchenSection}</SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
 
           {otherSection && (
             <>

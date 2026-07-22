@@ -62,6 +62,7 @@ export default function InventoryRequestHistoryPage() {
         setCurrentPage,
     } = usePagination(useMemo(() => {
         return existingRequests
+            .filter(r => Number(r.requested_quantity) > 0)
             .filter(r => requestFilter === 'ALL' || r.status === requestFilter)
             .filter(r => !deptIdParam || r.action_metadata?.requesting_department_id === deptIdParam);
     }, [existingRequests, requestFilter, deptIdParam]), 20);

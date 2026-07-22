@@ -55,6 +55,7 @@ export default function SimpleHistoryPage() {
 
     const filteredRequests = useMemo(() => {
         return existingRequests.filter(r => {
+            if (!(Number(r.requested_quantity) > 0)) return false;
             const matchesDept = !deptIdParam || r.action_metadata?.requesting_department_id === deptIdParam;
             // For non-admins, only show their own requests if no dept filter
             const isOwner = r.requested_by === user?.id;

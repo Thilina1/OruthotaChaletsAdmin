@@ -109,6 +109,7 @@ export function PayrollRun() {
     const [periodEnd, setPeriodEnd] = useState<string>('');
     const [annualPeriods, setAnnualPeriods] = useState<Record<string, { start: string; end: string }>>({});
     const [employees, setEmployees] = useState<ProcessEmployee[]>([]);
+    const [missingSalaryEmployees, setMissingSalaryEmployees] = useState<ProcessEmployee[]>([]);
     const [totalServiceCharge, setTotalServiceCharge] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState<string | null>(null);
@@ -178,14 +179,18 @@ export function PayrollRun() {
             );
             const calcMap = Object.fromEntries(calcs.map(c => [c.userId, c.calc]));
 
-            setEmployees(
-                eligibleUsers.map(user => ({
-                    ...user,
-                    salary: settings.find(s => s.user_id === user.id),
-                    payroll: payrolls.find(p => p.user_id === user.id),
-                    calculation: calcMap[user.id] ?? null,
-                }))
-            );
+            const processed = eligibleUsers.map(user => ({
+                ...user,
+                salary: settings.find(s => s.user_id === user.id),
+                payroll: payrolls.find(p => p.user_id === user.id),
+                calculation: calcMap[user.id] ?? null,
+            }));
+
+            // Employees with no basic salary configured can't be run through
+            // payroll — keep them out of the main table and call them out
+            // separately so it's obvious who still needs Salary Configuration.
+            setEmployees(processed.filter(emp => (emp.salary?.basic_salary ?? 0) > 0));
+            setMissingSalaryEmployees(processed.filter(emp => !((emp.salary?.basic_salary ?? 0) > 0)));
         } catch {
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to load payroll data.' });
         } finally {
@@ -396,6 +401,17 @@ export function PayrollRun() {
                                         <p className="text-xs text-muted-foreground">Total Net Payable</p>
                                         <p className="font-semibold text-green-600">LKR {fmt(totalNetSalary)}</p>
                                     </div>
+                                </div>
+                            )}
+
+                            {missingSalaryEmployees.length > 0 && (
+                                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                                    <p className="font-semibold">
+                                        {missingSalaryEmployees.length} employee{missingSalaryEmployees.length !== 1 ? 's' : ''} missing a basic salary — excluded from payroll below until set in Salary Configuration:
+                                    </p>
+                                    <p className="mt-1">
+                                        {missingSalaryEmployees.map(e => e.name).join(', ')}
+                                    </p>
                                 </div>
                             )}
 

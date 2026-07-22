@@ -22,13 +22,14 @@ function DashboardContent({ children }: { children: ReactNode }) {
 
     const hasAccess = React.useMemo(() => {
         if (!user || loading) return true;
-        if (user.role === 'admin') return true;
+        // Admins and Inventory Admins always have access, regardless of role defaults.
+        if (user.role === 'admin' || user.inventory_admin === true) return true;
 
         if (currentMenuItem) {
-            const hasRoleAccess = currentMenuItem.roles.includes(user.role as any);
-            // Direct permission: user has a permission that is a prefix of the current path
+            // Only an explicitly granted permission counts now — no more falling
+            // back to the route's default role list.
             const hasExplicitAccess = hasPathAccess(pathname);
-            if (hasRoleAccess || hasExplicitAccess) return true;
+            if (hasExplicitAccess) return true;
 
             // Section-sibling access: user has a permission within the same top-level section
             // (e.g., permission on /dashboard/purchase-orders/approvals grants access to

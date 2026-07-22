@@ -15,8 +15,21 @@ import {
     Barcode,
     Tag,
     Layers,
-    AlertCircle
+    AlertCircle,
+    Search,
+    Pencil,
+    X,
+    Boxes
 } from 'lucide-react';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -40,6 +53,12 @@ export default function RegisterItemPage() {
     const [items, setItems] = useState<any[]>([]);
     const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+
+    // Registered items list — inline name editing
+    const [itemSearch, setItemSearch] = useState('');
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [editingName, setEditingName] = useState('');
+    const [isSavingName, setIsSavingName] = useState(false);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -169,6 +188,55 @@ export default function RegisterItemPage() {
             toast({ variant: 'destructive', title: "Error", description: "Failed to create unit." });
         }
     };
+
+    const startEditName = (item: any) => {
+        setEditingItemId(item.id);
+        setEditingName(item.name);
+    };
+
+    const cancelEditName = () => {
+        setEditingItemId(null);
+        setEditingName('');
+    };
+
+    const saveEditName = async (item: any) => {
+        const trimmed = editingName.trim();
+        if (!trimmed || trimmed === item.name) {
+            cancelEditName();
+            return;
+        }
+        setIsSavingName(true);
+        try {
+            const res = await fetch('/api/admin/inventory/items', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: item.id,
+                    name: trimmed,
+                    code: item.code,
+                    description: item.description,
+                    category_id: item.category_id,
+                    unit_id: item.unit_id,
+                    item_size: item.item_size,
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setItems(prev => prev.map(i => i.id === item.id ? { ...i, name: trimmed } : i));
+            toast({ title: 'Updated', description: `Renamed to "${trimmed}".` });
+            cancelEditName();
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to rename item.' });
+        } finally {
+            setIsSavingName(false);
+        }
+    };
+
+    const filteredItemsList = items.filter(i =>
+        i.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
+        i.code?.toLowerCase().includes(itemSearch.toLowerCase())
+    );
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -425,6 +493,105 @@ export default function RegisterItemPage() {
                     </div>
                 </div>
             </form>
+
+            {/* Registered Items */}
+            <Card className="border-none shadow-xl bg-white/50 backdrop-blur-sm">
+                <CardHeader>
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div>
+                            <CardTitle className="text-lg flex items-center gap-2">
+                                <Boxes className="h-5 w-5 text-primary" /> Registered Items
+                            </CardTitle>
+                            <CardDescription>All items added from this page. Click the pencil to rename one.</CardDescription>
+                        </div>
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by name or code..."
+                                value={itemSearch}
+                                onChange={e => setItemSearch(e.target.value)}
+                                className="pl-9 bg-white"
+                            />
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Code</TableHead>
+                                    <TableHead>Category</TableHead>
+                                    <TableHead>Unit</TableHead>
+                                    <TableHead>Brand</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoadingMetadata ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading...</TableCell>
+                                    </TableRow>
+                                ) : filteredItemsList.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                                            {itemSearch ? 'No items match your search.' : 'No items registered yet.'}
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    filteredItemsList.map(item => (
+                                        <TableRow key={item.id}>
+                                            <TableCell className="font-medium">
+                                                {editingItemId === item.id ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <Input
+                                                            value={editingName}
+                                                            onChange={e => setEditingName(e.target.value)}
+                                                            className="h-8 max-w-xs"
+                                                            autoFocus
+                                                            disabled={isSavingName}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') { e.preventDefault(); saveEditName(item); }
+                                                                if (e.key === 'Escape') cancelEditName();
+                                                            }}
+                                                        />
+                                                        <Button size="sm" className="h-8" onClick={() => saveEditName(item)} disabled={isSavingName}>
+                                                            {isSavingName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                                        </Button>
+                                                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={cancelEditName} disabled={isSavingName}>
+                                                            <X className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                ) : (
+                                                    item.name
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="font-mono text-xs text-muted-foreground">{item.code}</TableCell>
+                                            <TableCell className="text-sm">{item.category?.name || '—'}</TableCell>
+                                            <TableCell className="text-sm">{item.unit?.name || '—'}</TableCell>
+                                            <TableCell className="text-sm">{item.brand || '—'}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className={cn(item.status === 'active' ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'border-slate-300 text-slate-500')}>
+                                                    {item.status === 'active' ? 'Active' : 'Inactive'}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {editingItemId !== item.id && (
+                                                    <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => startEditName(item)}>
+                                                        <Pencil className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

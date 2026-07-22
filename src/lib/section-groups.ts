@@ -47,6 +47,14 @@ export const APP_SECTION_GROUPS = [
     ],
   },
   {
+    name: 'Kitchen',
+    sections: [
+      { path: '/dashboard/kitchen/orders', label: 'Kitchen Orders' },
+      { path: '/dashboard/kitchen/inventory-requests', label: 'Request Stock' },
+      { path: '/dashboard/kitchen/stock-usage', label: 'Stock Usage & Damage' },
+    ],
+  },
+  {
     name: 'Rooms & Bookings',
     sections: [
       { path: '/dashboard/room-management', label: 'Room Management' },
@@ -136,6 +144,9 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
   kitchen: [
     '/dashboard/profile',
     '/dashboard',
+    '/dashboard/kitchen/orders',
+    '/dashboard/kitchen/inventory-requests',
+    '/dashboard/kitchen/stock-usage',
     '/dashboard/hrms/leaves',
     '/dashboard/hrms/reports',
     '/dashboard/hrms/attendance',

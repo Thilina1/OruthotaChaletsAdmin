@@ -223,6 +223,14 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
       }).eq('id', order.id);
       if (error) throw error;
 
+      // Payment closes the order, so anything the kitchen hadn't marked done
+      // yet (or never touched) is auto-completed too — it shouldn't linger on
+      // the Kitchen Orders display after the table has already paid and left.
+      await supabase.from('order_items')
+        .update({ kitchen_status: 'done', prepared_at: new Date().toISOString() })
+        .eq('order_id', order.id)
+        .neq('kitchen_status', 'done');
+
       if (order.table_id) {
         await supabase.from('restaurant_tables').update({ status: 'available' }).eq('id', order.table_id);
       }

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle, ChefHat } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -108,6 +108,12 @@ export const chaletMenuItems: MenuItem[] = [
     { href: '/dashboard/chalet/rates', icon: BedDouble, label: 'Room Rates & Packages', roles: ['admin'] },
 ];
 
+export const kitchenMenuItems: MenuItem[] = [
+    { href: '/dashboard/kitchen/orders', icon: UtensilsCrossed, label: 'Kitchen Orders', roles: ['admin', 'kitchen'] },
+    { href: '/dashboard/kitchen/inventory-requests', icon: ChefHat, label: 'Request Stock', roles: ['admin', 'kitchen'] },
+    { href: '/dashboard/kitchen/stock-usage', icon: PackageOpen, label: 'Stock Usage & Damage', roles: ['admin', 'kitchen'] },
+];
+
 export const allMenuItems = [
     ...generalMenuItems,
     ...customerMenuItems,
@@ -115,6 +121,7 @@ export const allMenuItems = [
     ...inventoryMenuItems,
     ...roomBookingMenuItems,
     ...chaletMenuItems,
+    ...kitchenMenuItems,
     ...otherMenue,
     ...servicesMenuItems,
     ...hrmsMenuItems,

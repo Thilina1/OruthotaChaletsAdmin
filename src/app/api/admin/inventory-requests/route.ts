@@ -35,6 +35,7 @@ export async function GET(request: Request) {
                 request_type,
                 item_id,
                 requested_quantity,
+                received_quantity,
                 status,
                 notes,
                 action_metadata,
@@ -439,6 +440,13 @@ export async function PUT(request: Request) {
                 received_quantity: body.received_quantity,
                 item_price: body.item_price
             };
+
+            // Persist the actually-issued quantity on the row itself so the
+            // Approvals & Transfers / History views can show "requested 5,
+            // issued 3" instead of just falling back to requested_quantity.
+            if (body.received_quantity !== undefined) {
+                updatePayload.received_quantity = body.received_quantity;
+            }
 
             // If it's a TRANSFER_REQUEST being "Received" from external, it becomes APPROVED (not completed)
             if (requestData.request_type === 'TRANSFER_REQUEST' && existingMeta.needs_external_purchase) {
