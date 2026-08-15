@@ -20,7 +20,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Mail, User, Calendar, MessageSquare } from 'lucide-react';
+import { Search, Mail, User, Calendar, MessageSquare, Phone } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
@@ -29,6 +29,7 @@ type ContactMessage = {
   id: string;
   name: string | null;
   email: string | null;
+  phone: string | null;
   subject: string | null;
   message: string | null;
   created_at: string;
@@ -50,6 +51,7 @@ export default function InquiriesPage() {
       const { data, error } = await supabase
         .from('contact_messages')
         .select('*')
+        .eq('inquiry_type', 'general')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -71,6 +73,7 @@ export default function InquiriesPage() {
     return (
       inq.name?.toLowerCase().includes(q) ||
       inq.email?.toLowerCase().includes(q) ||
+      inq.phone?.toLowerCase().includes(q) ||
       inq.subject?.toLowerCase().includes(q) ||
       inq.message?.toLowerCase().includes(q)
     );
@@ -96,7 +99,7 @@ export default function InquiriesPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <CardTitle>All Inquiries</CardTitle>
+              <CardTitle>General Inquiries</CardTitle>
               <CardDescription>
                 {isLoading ? 'Loading…' : `${totalItems} inquiry${totalItems !== 1 ? 's' : ''} found`}
               </CardDescription>
@@ -104,7 +107,7 @@ export default function InquiriesPage() {
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, subject…"
+                placeholder="Search by name, email, mobile…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -118,6 +121,7 @@ export default function InquiriesPage() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Mobile Number</TableHead>
                 <TableHead>Subject</TableHead>
                 <TableHead>Message</TableHead>
                 <TableHead>Date</TableHead>
@@ -128,14 +132,14 @@ export default function InquiriesPage() {
               {isLoading ? (
                 [...Array(6)].map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-14 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-14 text-muted-foreground">
                     <MessageSquare className="mx-auto h-8 w-8 mb-2 opacity-30" />
                     {searchQuery ? 'No inquiries match your search.' : 'No inquiries yet.'}
                   </TableCell>
@@ -153,6 +157,16 @@ export default function InquiriesPage() {
                       <div className="flex items-center gap-2">
                         <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="text-sm">{inq.email || '—'}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                        {inq.phone ? (
+                          <a href={`tel:${inq.phone}`} className="text-sm text-primary hover:underline">
+                            {inq.phone}
+                          </a>
+                        ) : <span className="text-sm">—</span>}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -233,6 +247,18 @@ export default function InquiriesPage() {
                   {selectedInquiry.email ? (
                     <a href={`mailto:${selectedInquiry.email}`} className="text-primary hover:underline">
                       {selectedInquiry.email}
+                    </a>
+                  ) : '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Mobile Number</p>
+                <p className="text-sm flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  {selectedInquiry.phone ? (
+                    <a href={`tel:${selectedInquiry.phone}`} className="text-primary hover:underline">
+                      {selectedInquiry.phone}
                     </a>
                   ) : '—'}
                 </p>
