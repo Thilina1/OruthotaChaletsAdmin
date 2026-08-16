@@ -10,6 +10,7 @@ export interface MenuItem {
 }
 
 export const generalMenuItems: MenuItem[] = [
+    { href: '/dashboard/home', icon: LayoutDashboard, label: 'Home', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
 ];

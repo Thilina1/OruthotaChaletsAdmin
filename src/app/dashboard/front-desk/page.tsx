@@ -32,6 +32,16 @@ import { Printer, CheckCircle2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { Reservation, ConsolidatedBill, ChaletBooking } from '@/lib/types';
 
+type ChaletCheckInPass = {
+  booking_ref: string;
+  guest_name: string;
+  email: string | null;
+  room_number: string;
+  qr_code: string;
+  email_sent: boolean;
+  email_reason?: string;
+};
+
 export default function FrontDeskPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('check-in');
@@ -76,6 +86,8 @@ export default function FrontDeskPage() {
   const [address, setAddress] = useState('');
   const [isLoyalty, setIsLoyalty] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [checkInPass, setCheckInPass] = useState<ChaletCheckInPass | null>(null);
+  const [isCheckInPassOpen, setIsCheckInPassOpen] = useState(false);
 
   // Billing State
   const [customers, setCustomers] = useState<any[]>([]);
@@ -99,6 +111,9 @@ export default function FrontDeskPage() {
   const [checkoutPreview, setCheckoutPreview] = useState<ConsolidatedBill | null>(null);
   const [isLoadingCheckoutPreview, setIsLoadingCheckoutPreview] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [historyBill, setHistoryBill] = useState<any | null>(null);
+  const [isHistoryBillOpen, setIsHistoryBillOpen] = useState(false);
+  const [isLoadingHistoryBill, setIsLoadingHistoryBill] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'check-in' || activeTab === 'in-house' || activeTab === 'history') {
@@ -107,10 +122,10 @@ export default function FrontDeskPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'check-out' && customerSearch.length > 1) {
+    if (activeTab === 'check-out') {
       const delayDebounceFn = setTimeout(() => {
         searchCustomers();
-      }, 300);
+      }, customerSearch ? 300 : 0);
       return () => clearTimeout(delayDebounceFn);
     }
   }, [customerSearch, activeTab]);
@@ -146,7 +161,8 @@ export default function FrontDeskPage() {
 
   const searchCustomers = async () => {
     try {
-      const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(customerSearch)}`);
+      const searchParam = customerSearch.trim() ? `&search=${encodeURIComponent(customerSearch.trim())}` : '';
+      const res = await fetch(`/api/admin/front-desk/billing?outstanding=true${searchParam}`);
       const data = await res.json();
       setCustomers(data.customers || []);
     } catch (error) {
@@ -183,30 +199,30 @@ export default function FrontDeskPage() {
     setIsCheckingIn(true);
     try {
       if (selectedChaletBooking) {
-        // Chalet booking check-in — update status to checked_in, and register
-        // the guest in the customers table (and loyalty list, if requested).
-        const [statusRes, registerRes] = await Promise.all([
-          fetch('/api/chalet/bookings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: selectedChaletBooking.id, status: 'checked_in' }),
-          }).then(r => r.json()),
-          fetch('/api/admin/front-desk/check-in', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              customer_name: customerName,
-              phone,
-              email,
-              id_number: idNumber,
-              address,
-              is_loyalty: isLoyalty,
-            }),
-          }).then(r => r.json()),
-        ]);
-        if (statusRes.error) throw new Error(statusRes.error);
-        if (registerRes.error) throw new Error(registerRes.error);
-        toast({ title: 'Checked In', description: `${customerName} has been checked in to Chalet ${selectedChaletBooking.chalet_rooms?.room_number ?? ''}.` });
+        const response = await fetch('/api/admin/front-desk/check-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chalet_booking_id: selectedChaletBooking.id,
+            customer_name: customerName,
+            phone,
+            email,
+            id_number: idNumber,
+            address,
+            is_loyalty: isLoyalty,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Check-in failed');
+
+        setCheckInPass({ ...result.chalet_check_in, email_sent: result.email?.sent === true, email_reason: result.email?.reason });
+        setIsCheckInPassOpen(true);
+        toast({
+          title: 'Checked In',
+          description: result.email?.sent
+            ? `${customerName} was checked in and the confirmation email was sent.`
+            : `${customerName} was checked in. ${result.email?.reason || 'Email was not sent.'}`
+        });
       } else if (selectedReservation) {
         const res = await fetch('/api/admin/front-desk/check-in', {
           method: 'POST',
@@ -248,6 +264,42 @@ export default function FrontDeskPage() {
       setIsLoadingBill(false);
     }
   };
+
+  const handleViewHistoryBill = async (row: ArrivalRow) => {
+    setIsHistoryBillOpen(true);
+    setIsLoadingHistoryBill(true);
+    setHistoryBill(null);
+    try {
+      const response = await fetch(`/api/admin/front-desk/history-bill?type=${row.type}&record_id=${encodeURIComponent(row.item.id)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to load past bill.');
+      setHistoryBill(data.bill);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Could not load bill', description: error.message });
+      setIsHistoryBillOpen(false);
+    } finally {
+      setIsLoadingHistoryBill(false);
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') !== 'check-out') return;
+    setActiveTab('check-out');
+    const customerId = params.get('customer_id');
+    if (!customerId) return;
+    fetch(`/api/admin/customers?id=${encodeURIComponent(customerId)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        const customer = data.customers?.[0];
+        if (customer) {
+          setCustomerSearch(customer.id_number || customer.name || '');
+          setCustomers([customer]);
+          handleSelectCustomerForBill(customer);
+        }
+      })
+      .catch((error) => toast({ variant: 'destructive', title: 'Error', description: error.message }));
+  }, []);
 
   const handleAddOtherCharge = async () => {
     if (!billData || !otherChargeDesc.trim() || !otherChargeAmount) return;
@@ -743,7 +795,7 @@ export default function FrontDeskPage() {
           <TabsContent value="check-out">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="col-span-1 bg-white rounded-lg shadow border p-4">
-                <h2 className="text-lg font-semibold mb-4">Find Checked-In Guest</h2>
+                <h2 className="text-lg font-semibold mb-4">Find Customer Bill</h2>
                 <Input 
                   placeholder="Search by name, ID, or phone..." 
                   value={customerSearch}
@@ -758,9 +810,17 @@ export default function FrontDeskPage() {
                       onClick={() => handleSelectCustomerForBill(c)}
                     >
                       <div className="font-medium">{c.name}</div>
-                      <div className="text-xs text-muted-foreground">{c.phone || c.id_number || 'No contact info'}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {c.id_number ? `ID: ${c.id_number}` : c.phone || c.email || 'No contact info'}
+                      </div>
+                      <div className="mt-2 font-semibold text-primary">LKR {Number(c.outstanding_total || 0).toFixed(2)} due</div>
                     </div>
                   ))}
+                  {customers.length === 0 && (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      {customerSearch ? 'No outstanding customer bills match your search.' : 'No outstanding customer bills.'}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -846,7 +906,16 @@ export default function FrontDeskPage() {
                             <TableBody>
                               {billData.serviceIncomes.map(svc => (
                                 <TableRow key={svc.id}>
-                                  <TableCell>{svc.service_type}: {svc.description} ({new Date(svc.date).toLocaleDateString()})</TableCell>
+                                  <TableCell>
+                                    <div>{svc.service_type}: {svc.description} ({new Date(svc.date).toLocaleDateString()})</div>
+                                    {svc.line_items && svc.line_items.length > 0 && (
+                                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                                        {svc.line_items.map((item, index) => (
+                                          <div key={index}>{item.description}: LKR {Number(item.amount || 0).toFixed(2)}</div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-right">LKR {Number(svc.amount || 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
@@ -1010,6 +1079,7 @@ export default function FrontDeskPage() {
                       <TableHead>Check-out</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Bill</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1026,6 +1096,7 @@ export default function FrontDeskPage() {
                             {row.item.status === 'cancelled' ? 'Cancelled' : 'Checked Out'}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => handleViewHistoryBill(row)} disabled={row.item.status === 'cancelled'}>View Bill</Button></TableCell>
                       </TableRow>
                     ) : (
                       <TableRow key={`chalet-${row.item.id}`}>
@@ -1039,6 +1110,7 @@ export default function FrontDeskPage() {
                             ? `Chalet ${row.item.chalet_rooms.room_number}`
                             : <span className="text-muted-foreground italic">Unassigned</span>}
                         </TableCell>
+                        <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => handleViewHistoryBill(row)} disabled={row.item.status === 'cancelled'}>View Bill</Button></TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right font-medium">LKR {Number(row.item.grand_total || 0).toFixed(2)}</TableCell>
@@ -1056,6 +1128,39 @@ export default function FrontDeskPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={isHistoryBillOpen} onOpenChange={setIsHistoryBillOpen}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Past Bill Details</DialogTitle></DialogHeader>
+          {isLoadingHistoryBill ? (
+            <p className="py-10 text-center text-muted-foreground">Loading past bill…</p>
+          ) : historyBill && (
+            <div className="space-y-5">
+              <div className="flex items-start justify-between border-b pb-4">
+                <div>
+                  <h2 className="text-2xl font-bold">Oruthota Chalets</h2>
+                  <p className="text-sm text-muted-foreground">Bill {historyBill.number}</p>
+                </div>
+                <Badge className="bg-green-100 text-green-800 border-green-200">Paid</Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><p className="text-xs uppercase text-muted-foreground">Guest</p><p className="font-medium">{historyBill.customer?.name || 'Guest'}</p><p className="text-muted-foreground">{historyBill.customer?.id_number || historyBill.customer?.phone || ''}</p></div>
+                <div className="text-right"><p className="text-xs uppercase text-muted-foreground">Stay</p><p>{new Date(historyBill.check_in_date).toLocaleDateString()} – {new Date(historyBill.check_out_date).toLocaleDateString()}</p></div>
+              </div>
+              <div className="divide-y rounded-md border">
+                {historyBill.items.map((item: any, index: number) => (
+                  <div key={index} className="p-3">
+                    <div className="flex justify-between gap-4 text-sm"><span><Badge variant="outline" className="mr-2">{item.category}</Badge>{item.description}</span><span className="whitespace-nowrap font-medium">LKR {Number(item.amount || 0).toFixed(2)}</span></div>
+                    {item.line_items?.length > 0 && <div className="ml-2 mt-2 space-y-1 text-xs text-muted-foreground">{item.line_items.map((line: any, lineIndex: number) => <div key={lineIndex} className="flex justify-between"><span>{line.description}</span><span>LKR {Number(line.amount || 0).toFixed(2)}</span></div>)}</div>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between border-t-2 pt-3 text-xl font-bold"><span>Total Paid</span><span>LKR {Number(historyBill.total || 0).toFixed(2)}</span></div>
+              <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Payment method: {historyBill.payment_method ? String(historyBill.payment_method).replace('_', ' ') : 'Not recorded'}</span><Button onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print Bill</Button></div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Check-In Modal */}
       <Dialog open={isCheckInModalOpen} onOpenChange={setIsCheckInModalOpen}>
@@ -1100,6 +1205,39 @@ export default function FrontDeskPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCheckInPassOpen} onOpenChange={setIsCheckInPassOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Check-In QR Pass</DialogTitle>
+          </DialogHeader>
+          {checkInPass && (
+            <>
+              <div id="print-area" className="rounded-lg border bg-white p-6 text-center text-black">
+                <h2 className="text-2xl font-bold">Oruthota Chalets</h2>
+                <p className="mt-1 text-sm text-gray-500">Guest Check-In Pass</p>
+                <img src={checkInPass.qr_code} alt={`QR code for ${checkInPass.booking_ref}`} className="mx-auto my-5 h-56 w-56" />
+                <p className="font-mono text-xl font-bold tracking-wide">{checkInPass.booking_ref}</p>
+                <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 text-left text-sm">
+                  <div><span className="text-gray-500">Guest</span><p className="font-semibold">{checkInPass.guest_name}</p></div>
+                  <div><span className="text-gray-500">Assigned Room</span><p className="font-semibold">Chalet {checkInPass.room_number}</p></div>
+                </div>
+              </div>
+              <div className="text-sm">
+                {checkInPass.email_sent ? (
+                  <p className="text-green-700">Confirmation sent to {checkInPass.email}.</p>
+                ) : (
+                  <p className="text-amber-700">Email not sent: {checkInPass.email_reason || 'Email delivery is not configured.'}</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsCheckInPassOpen(false)}>Close</Button>
+                <Button onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print QR Pass</Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1357,7 +1495,14 @@ export default function FrontDeskPage() {
               ))}
               {billData.serviceIncomes.map(svc => (
                 <tr key={svc.id} className="border-b border-gray-100">
-                  <td className="py-4 px-2 text-gray-800">{svc.service_type}: {svc.description}</td>
+                  <td className="py-4 px-2 text-gray-800">
+                    <div>{svc.service_type}: {svc.description}</div>
+                    {svc.line_items && svc.line_items.length > 0 && (
+                      <div className="mt-1 text-xs text-gray-500">
+                        {svc.line_items.map((item, index) => <div key={index}>{item.description} — LKR {Number(item.amount || 0).toFixed(2)}</div>)}
+                      </div>
+                    )}
+                  </td>
                   <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(svc.amount || 0).toFixed(2)}</td>
                 </tr>
               ))}

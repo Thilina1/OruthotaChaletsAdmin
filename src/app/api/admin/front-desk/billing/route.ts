@@ -19,6 +19,44 @@ export async function GET(request: Request) {
 
         const { searchParams } = new URL(request.url);
         const customer_id = searchParams.get('customer_id');
+        const outstanding = searchParams.get('outstanding') === 'true';
+
+        if (outstanding) {
+            const search = (searchParams.get('search') || '').trim().toLowerCase();
+            const [customersResult, reservationsResult, chaletResult, ordersResult, servicesResult] = await Promise.all([
+                supabase.from('customers').select('*'),
+                supabase.from('reservations').select('customer_id,total_cost,payment_status').in('status', ['checked-in', 'confirmed']),
+                supabase.from('chalet_bookings').select('customer_name,grand_total,payment_status').in('status', ['checked_in', 'confirmed']),
+                supabase.from('orders').select('customer_id,total_price').in('status', ['open', 'billed']),
+                supabase.from('service_incomes').select('customer_id,amount').eq('payment_status', 'add_to_bill'),
+            ]);
+            const firstError = [customersResult.error, reservationsResult.error, chaletResult.error, ordersResult.error, servicesResult.error].find(Boolean);
+            if (firstError) throw firstError;
+
+            const totals = new Map<string, number>();
+            const add = (id: string | null, amount: unknown) => {
+                if (id) totals.set(id, (totals.get(id) || 0) + Number(amount || 0));
+            };
+            reservationsResult.data?.forEach((item: any) => {
+                if (item.payment_status !== 'paid') add(item.customer_id, item.total_cost);
+            });
+            ordersResult.data?.forEach((item: any) => add(item.customer_id, item.total_price));
+            servicesResult.data?.forEach((item: any) => add(item.customer_id, item.amount));
+
+            const customersByName = new Map((customersResult.data || []).map((customer: any) => [customer.name?.trim().toLowerCase(), customer.id]));
+            chaletResult.data?.forEach((item: any) => {
+                if (item.payment_status !== 'paid') add(customersByName.get(item.customer_name?.trim().toLowerCase()) || null, item.grand_total);
+            });
+
+            const customers = (customersResult.data || [])
+                .filter((customer: any) => (totals.get(customer.id) || 0) > 0)
+                .filter((customer: any) => !search || [customer.name, customer.id_number, customer.phone, customer.email]
+                    .some((value) => String(value || '').toLowerCase().includes(search)))
+                .map((customer: any) => ({ ...customer, outstanding_total: totals.get(customer.id) || 0 }))
+                .sort((a: any, b: any) => b.outstanding_total - a.outstanding_total);
+
+            return NextResponse.json({ customers });
+        }
 
         if (!customer_id) {
             return NextResponse.json({ error: 'Customer ID is required' }, { status: 400 });

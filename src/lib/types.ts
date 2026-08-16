@@ -314,6 +314,18 @@ export type ServiceIncome = {
   payment_status?: 'paid' | 'add_to_bill';
   payment_method?: 'cash' | 'card';
   line_items?: ServiceIncomeItem[];
+  experience_inquiry_id?: string;
+  pricing_breakdown?: {
+    people: number;
+    price_per_person: number | null;
+    base_amount: number;
+    service_charge_rate: number;
+    service_charge: number;
+    tax_rate: number;
+    tax: number;
+    other_charges: { name: string; amount: number }[];
+    total: number;
+  };
   created_at?: string;
   updated_at?: string;
 };

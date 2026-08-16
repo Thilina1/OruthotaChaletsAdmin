@@ -56,7 +56,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.push("/dashboard/profile");
+      router.replace("/dashboard/home");
     }
   }, [user, loading, router]);
 
@@ -92,7 +92,7 @@ export default function LoginPage() {
         title: "Login Successful",
         description: "Redirecting to your dashboard...",
       });
-      router.push("/dashboard/profile");
+      router.replace("/dashboard/home");
     } catch (error: any) {
       console.error("Login Error:", error);
       toast({

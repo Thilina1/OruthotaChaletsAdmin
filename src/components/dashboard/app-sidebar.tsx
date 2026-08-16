@@ -43,6 +43,8 @@ import {
 const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, user: User | null) => {
   const accessibleItems = items.filter(item => {
     const userRole = user?.role;
+    // The permission-aware home screen is available to every signed-in user.
+    if (item.href === '/dashboard/home') return true;
     // Admins default to all access unless specifically restricted to selected permissions.
     // Inventory Admins likewise always see everything, regardless of their base role.
     if ((userRole === 'admin' && !user?.restrict_admin_permissions) || user?.inventory_admin === true) return true;
@@ -100,7 +102,7 @@ export default function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarRail />
       <SidebarHeader>
-        <Link href="/dashboard/profile" className="flex items-center justify-center py-2">
+        <Link href="/dashboard/home" className="flex items-center justify-center py-2">
           <Logo className="h-7 w-28 text-primary" />
         </Link>
       </SidebarHeader>

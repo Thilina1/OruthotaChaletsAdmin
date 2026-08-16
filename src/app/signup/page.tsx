@@ -69,7 +69,7 @@ export default function SignupPage() {
 
     useEffect(() => {
         if (!loading && user) {
-            router.push("/dashboard/profile");
+            router.replace("/dashboard/home");
         }
     }, [user, loading, router]);
 
@@ -95,7 +95,7 @@ export default function SignupPage() {
                 title: "Sign Up Successful",
                 description: "Account created! Redirecting to dashboard...",
             });
-            router.push("/dashboard/profile");
+            router.replace("/dashboard/home");
 
         } catch (error: any) {
             console.error("Sign Up Error:", error);

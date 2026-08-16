@@ -22,6 +22,9 @@ function DashboardContent({ children }: { children: ReactNode }) {
 
     const hasAccess = React.useMemo(() => {
         if (!user || loading) return true;
+        // The dashboard is the authenticated landing page and only displays
+        // links that the current user is allowed to open.
+        if (pathname === '/dashboard/home') return true;
         // Admins and Inventory Admins always have access, regardless of role defaults.
         if (user.role === 'admin' || user.inventory_admin === true) return true;
 

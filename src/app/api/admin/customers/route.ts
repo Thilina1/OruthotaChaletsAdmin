@@ -29,7 +29,7 @@ export async function GET(request: Request) {
         if (id) {
             query = query.eq('id', id);
         } else if (search) {
-            query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,id_number.ilike.%${search}%`);
+            query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%,id_number.ilike.%${search}%`);
         }
 
         const { data, error } = await query;

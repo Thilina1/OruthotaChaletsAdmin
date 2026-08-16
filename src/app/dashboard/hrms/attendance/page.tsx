@@ -7,8 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Clock, History, LogIn, LogOut, Edit } from "lucide-react";
+import { Check, ChevronsUpDown, LogIn, LogOut, Edit, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
 import type { Attendance } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
@@ -232,6 +235,7 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
             <Tabs defaultValue="my-attendance">
                 <TabsList>
                     <TabsTrigger value="my-attendance">My History</TabsTrigger>
+                    <TabsTrigger value="mark-employee">Mark for Employee</TabsTrigger>
                     {userRole === 'admin' && <TabsTrigger value="daily-log">Daily Log (Admin)</TabsTrigger>}
                 </TabsList>
 
@@ -290,6 +294,10 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                             />
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                <TabsContent value="mark-employee" className="space-y-4">
+                    <MarkEmployeeAttendance currentUserId={userId} />
                 </TabsContent>
 
                 {userRole === 'admin' && (
@@ -377,6 +385,147 @@ CREATE POLICY "Users can update own attendance" ON attendance FOR UPDATE USING (
                 />
             )}
         </div>
+    );
+}
+
+function MarkEmployeeAttendance({ currentUserId }: { currentUserId: string | null }) {
+    const [employees, setEmployees] = useState<{ id: string, name: string, email?: string }[]>([]);
+    const [formData, setFormData] = useState({
+        user_id: '',
+        date: new Date().toISOString().split('T')[0],
+        clock_in: '',
+        clock_out: '',
+        status: 'present' as Attendance['status']
+    });
+    const [saving, setSaving] = useState(false);
+    const [employeeSearchOpen, setEmployeeSearchOpen] = useState(false);
+    const { toast } = useToast();
+    const selectedEmployee = employees.find(employee => employee.id === formData.user_id);
+
+    useEffect(() => {
+        fetch('/api/admin/users')
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to load employees');
+                setEmployees((data.users || []).filter((employee: { id: string }) => employee.id !== currentUserId));
+            })
+            .catch(error => toast({ variant: 'destructive', title: 'Error', description: error.message }));
+    }, [currentUserId, toast]);
+
+    const handleSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
+        setSaving(true);
+
+        try {
+            const payload: Record<string, string> = {
+                action: 'employee_mark',
+                user_id: formData.user_id,
+                date: formData.date,
+                status: formData.status
+            };
+
+            if (formData.clock_in && formData.status !== 'absent') {
+                payload.clock_in = new Date(`${formData.date}T${formData.clock_in}`).toISOString();
+            }
+            if (formData.clock_out && formData.status !== 'absent') {
+                payload.clock_out = new Date(`${formData.date}T${formData.clock_out}`).toISOString();
+            }
+
+            const response = await fetch('/api/hrms/attendance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to mark attendance');
+
+            const employee = employees.find(item => item.id === formData.user_id);
+            toast({ title: 'Attendance marked', description: `${employee?.name || 'Employee'} attendance was saved for ${formData.date}.` });
+            setFormData(previous => ({ ...previous, user_id: '', clock_in: '', clock_out: '', status: 'present' }));
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Unable to mark attendance', description: (error as Error).message });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <div className="flex items-center gap-3">
+                    <UserCheck className="h-5 w-5 text-primary" />
+                    <div>
+                        <CardTitle>Mark Attendance for Another Employee</CardTitle>
+                        <CardDescription>Record or update a colleague&apos;s attendance for the selected date.</CardDescription>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="space-y-2 xl:col-span-2">
+                        <label className="text-sm font-medium">Employee</label>
+                        <Popover open={employeeSearchOpen} onOpenChange={setEmployeeSearchOpen}>
+                            <PopoverTrigger asChild>
+                                <Button type="button" variant="outline" role="combobox" aria-expanded={employeeSearchOpen} className="w-full justify-between font-normal">
+                                    <span className={cn('truncate', !selectedEmployee && 'text-muted-foreground')}>
+                                        {selectedEmployee ? `${selectedEmployee.name}${selectedEmployee.email ? ` (${selectedEmployee.email})` : ''}` : 'Search and select an employee'}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                <Command>
+                                    <CommandInput placeholder="Search by name or email..." />
+                                    <CommandList>
+                                        <CommandEmpty>No employee found.</CommandEmpty>
+                                        <CommandGroup>
+                                            {employees.map(employee => (
+                                                <CommandItem
+                                                    key={employee.id}
+                                                    value={`${employee.name} ${employee.email || ''}`}
+                                                    onSelect={() => {
+                                                        setFormData({ ...formData, user_id: employee.id });
+                                                        setEmployeeSearchOpen(false);
+                                                    }}
+                                                >
+                                                    <Check className={cn('mr-2 h-4 w-4', formData.user_id === employee.id ? 'opacity-100' : 'opacity-0')} />
+                                                    <span className="truncate">{employee.name}{employee.email ? ` (${employee.email})` : ''}</span>
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Date</label>
+                        <input type="date" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formData.date} onChange={event => setFormData({ ...formData, date: event.target.value })} required />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Status</label>
+                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formData.status} onChange={event => setFormData({ ...formData, status: event.target.value as Attendance['status'] })}>
+                            <option value="present">Present</option>
+                            <option value="half-day">Half Day</option>
+                            <option value="absent">Absent</option>
+                        </select>
+                    </div>
+                    <div className="flex items-end">
+                        <Button type="submit" className="w-full" disabled={saving || employees.length === 0 || !formData.user_id}>
+                            <UserCheck className="mr-2 h-4 w-4" /> {saving ? 'Saving...' : 'Mark Attendance'}
+                        </Button>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Clock In (optional)</label>
+                        <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formData.clock_in} onChange={event => setFormData({ ...formData, clock_in: event.target.value })} disabled={formData.status === 'absent'} />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Clock Out (optional)</label>
+                        <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formData.clock_out} onChange={event => setFormData({ ...formData, clock_out: event.target.value })} disabled={formData.status === 'absent'} />
+                    </div>
+                </form>
+            </CardContent>
+        </Card>
     );
 }
 

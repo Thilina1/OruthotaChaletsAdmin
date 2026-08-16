@@ -64,6 +64,40 @@ export async function POST(request: Request) {
         let targetUserId = verifiedUser.userId;
         const isAdmin = verifiedUser.role === 'admin';
 
+        if (action === 'employee_mark') {
+            if (!user_id || !date) {
+                return NextResponse.json({ error: 'Employee and date are required.' }, { status: 400 });
+            }
+
+            if (user_id === verifiedUser.userId) {
+                return NextResponse.json({ error: 'Use My Attendance to mark your own attendance.' }, { status: 400 });
+            }
+
+            if (!['present', 'absent', 'half-day'].includes(status || 'present')) {
+                return NextResponse.json({ error: 'Invalid attendance status.' }, { status: 400 });
+            }
+
+            if (clock_in && clock_out && new Date(clock_out) < new Date(clock_in)) {
+                return NextResponse.json({ error: 'Clock out must be after clock in.' }, { status: 400 });
+            }
+
+            const { data: attendance, error } = await supabase
+                .from('attendance')
+                .upsert({
+                    user_id,
+                    date,
+                    clock_in: status === 'absent' ? null : (clock_in || null),
+                    clock_out: status === 'absent' ? null : (clock_out || null),
+                    status: status || 'present',
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'user_id,date' })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return NextResponse.json({ attendance });
+        }
+
         if (action === 'admin_create') {
             if (!isAdmin) {
                 return NextResponse.json({ error: 'Unauthorized: Admins only.' }, { status: 403 });
