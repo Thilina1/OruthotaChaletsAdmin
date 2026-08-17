@@ -60,16 +60,18 @@ export default function HomeDashboardPage() {
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-8">
-            <section className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/15 via-background to-amber-500/10 p-6 shadow-sm sm:p-8 lg:p-10">
+            <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/15 via-background to-amber-500/10 p-4 shadow-sm sm:px-6 sm:py-5">
                 <div className="absolute -right-16 -top-20 size-64 rounded-full bg-primary/10 blur-3xl" />
-                <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="max-w-2xl">
-                        <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20"><LayoutGrid className="size-6" /></div>
-                        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Your workspace</p>
-                        <h1 className="font-headline text-3xl font-bold tracking-tight sm:text-4xl">Welcome back, {firstName}</h1>
-                        <p className="mt-3 max-w-xl text-muted-foreground">Choose a section below to get started. Only the areas available to your account are shown here.</p>
+                <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex max-w-3xl items-center gap-4">
+                        <div className="hidden size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20 sm:flex"><LayoutGrid className="size-5" /></div>
+                        <div>
+                            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Your workspace</p>
+                            <h1 className="font-headline text-xl font-bold tracking-tight sm:text-2xl">Welcome back, {firstName}</h1>
+                            <p className="mt-1 text-sm text-muted-foreground">Choose a section below to get started. Only the areas available to your account are shown here.</p>
+                        </div>
                     </div>
-                    <div className="w-fit rounded-2xl border bg-background/70 px-5 py-3 backdrop-blur-sm"><p className="text-2xl font-bold text-foreground">{sectionCount}</p><p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Available sections</p></div>
+                    <div className="flex w-fit items-center gap-2 rounded-xl border bg-background/70 px-4 py-2 backdrop-blur-sm"><p className="text-xl font-bold text-foreground">{sectionCount}</p><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Available sections</p></div>
                 </div>
             </section>
 
