@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { StoreManagement } from '@/components/dashboard/inventory-management/store-management';
-import { Warehouse, ChevronRight, LayoutGrid, Plus, Trash2, Loader2 } from 'lucide-react';
+import { Warehouse, ChevronRight, LayoutGrid, Plus, Trash2, Loader2, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import type { InventoryWarehouse } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -39,12 +39,13 @@ export default function WarehouseManagementPage() {
     const [newDeptName, setNewDeptName] = useState('');
     const [addingDept, setAddingDept] = useState(false);
     const [deletingDeptId, setDeletingDeptId] = useState<string | null>(null);
+    const [activatingDeptId, setActivatingDeptId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
     const fetchWarehouses = useCallback(async () => {
         setIsLoadingWh(true);
         try {
-            const res = await fetch('/api/admin/inventory/warehouses');
+            const res = await fetch('/api/admin/inventory/warehouses?all=true');
             const data = await res.json();
             if (data.error) throw new Error(data.error);
             setWarehouses(data.warehouses || []);
@@ -110,12 +111,40 @@ export default function WarehouseManagementPage() {
             const data = await safeJson(res);
             if (!res.ok || data.error) throw new Error(data.error || 'Failed to remove department.');
             await fetchInvDepts();
-            toast({ title: "Department Removed", description: "Inventory department deactivated." });
+            await fetchWarehouses();
+            toast({
+                title: "Department Removed",
+                description: data.action === 'deleted'
+                    ? "Unused department and its warehouse were permanently deleted."
+                    : "Department is in use, so it and its warehouse were deactivated.",
+            });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message || "Failed to remove department." });
         } finally {
             setDeletingDeptId(null);
             setConfirmDeleteId(null);
+        }
+    };
+
+    const handleActivateDept = async (id: string) => {
+        setActivatingDeptId(id);
+        try {
+            const res = await fetch('/api/admin/inventory-departments', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status: 'active' }),
+            });
+            const data = await safeJson(res);
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed to reactivate department.');
+            await Promise.all([fetchInvDepts(), fetchWarehouses()]);
+            toast({
+                title: "Department Reactivated",
+                description: "The department and its linked warehouse are active again.",
+            });
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: "Error", description: error.message || "Failed to reactivate department." });
+        } finally {
+            setActivatingDeptId(null);
         }
     };
 
@@ -186,6 +215,19 @@ export default function WarehouseManagementPage() {
                                 {dept.status !== 'active' && (
                                     <Badge variant="outline" className="text-[9px] h-4 text-amber-600 border-amber-300">inactive</Badge>
                                 )}
+                                {dept.status !== 'active' && (
+                                    <button
+                                        onClick={() => handleActivateDept(dept.id)}
+                                        disabled={activatingDeptId === dept.id}
+                                        className="ml-0.5 rounded-full p-0.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-40"
+                                        title="Reactivate department"
+                                    >
+                                        {activatingDeptId === dept.id
+                                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                                            : <RotateCcw className="h-3 w-3" />
+                                        }
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => setConfirmDeleteId(dept.id)}
                                     disabled={deletingDeptId === dept.id}
@@ -222,7 +264,7 @@ export default function WarehouseManagementPage() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Remove Inventory Department?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will deactivate the department. It will no longer appear in the Stock Request Portal. Any linked storage unit will keep its connection.
+                            Unused departments and their linked warehouses are permanently deleted. If inventory or transaction history uses this department, both records will be deactivated instead.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

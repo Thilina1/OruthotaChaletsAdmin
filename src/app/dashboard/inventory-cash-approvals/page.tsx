@@ -20,6 +20,25 @@ import {
     AlertTriangle, CheckCircle2, Clock, Banknote, User,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { CreditLiabilitiesPanel } from '@/components/dashboard/credit-liabilities-panel';
+
+type LinkedPurchaseOrder = {
+    id: string;
+    po_number: string;
+    supplier_name: string | null;
+    payment_type: 'cash' | 'credit';
+    status: string;
+    notes: string | null;
+    created_at: string;
+    purchase_order_items: {
+        id: string;
+        item_name: string;
+        unit: string;
+        quantity: number;
+        unit_price: number | null;
+        total_price: number | null;
+    }[];
+};
 
 type CashRequest = {
     id: string;
@@ -40,12 +59,67 @@ type CashRequest = {
     additional_issued_amount: number | null;
     created_at: string;
     requested_by_user: { id: string; name: string; email: string; department: string | null } | null;
-    purchase_order: { id: string; po_number: string; supplier_name: string | null } | null;
+    purchase_order: LinkedPurchaseOrder | null;
     approved_by_user: { name: string } | null;
 };
 
 const fmt = (n: number | null | undefined) =>
     n != null ? `Rs ${Number(n).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+
+function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
+    const total = po.purchase_order_items.reduce(
+        (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
+        0
+    );
+
+    return (
+        <div className="rounded-lg border bg-slate-50/70 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                <div>
+                    <p className="font-semibold">{po.po_number}</p>
+                    <p className="text-xs text-muted-foreground">{po.supplier_name || 'Supplier not specified'}</p>
+                </div>
+                <div className="flex gap-2">
+                    <Badge variant="secondary" className="capitalize">{po.payment_type || 'credit'} Order</Badge>
+                    <Badge variant="outline" className="capitalize">{po.status.replaceAll('_', ' ')}</Badge>
+                </div>
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Unit Price</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {po.purchase_order_items.map(item => {
+                            const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
+                            return (
+                                <TableRow key={item.id}>
+                                    <TableCell>
+                                        <div className="font-medium text-xs">{item.item_name}</div>
+                                        <div className="text-[10px] text-muted-foreground">{item.unit}</div>
+                                    </TableCell>
+                                    <TableCell className="text-right text-xs">{item.quantity}</TableCell>
+                                    <TableCell className="text-right text-xs">{fmt(item.unit_price)}</TableCell>
+                                    <TableCell className="text-right text-xs font-medium">{fmt(lineTotal)}</TableCell>
+                                </TableRow>
+                            );
+                        })}
+                        <TableRow className="bg-muted/40">
+                            <TableCell colSpan={3} className="text-right text-xs font-semibold">PO Total</TableCell>
+                            <TableCell className="text-right font-bold">{fmt(total)}</TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+            </div>
+            {po.notes && <p className="border-t px-4 py-2 text-xs text-muted-foreground">Notes: {po.notes}</p>}
+        </div>
+    );
+}
 
 export default function InventoryCashApprovalsPage() {
     const { toast } = useToast();
@@ -344,6 +418,16 @@ export default function InventoryCashApprovalsPage() {
                 ))}
             </div>
 
+            <Tabs defaultValue="cash-approvals" className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="cash-approvals" className="gap-2">
+                        Cash Approvals
+                        {pending.length > 0 && <Badge variant="secondary" className="h-5 min-w-5 px-1.5">{pending.length}</Badge>}
+                    </TabsTrigger>
+                    <TabsTrigger value="credit-liabilities">Credit Liabilities</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="cash-approvals">
             <Tabs defaultValue="pending">
                 <TabsList>
                     <TabsTrigger value="pending" className="gap-1">
@@ -501,10 +585,16 @@ export default function InventoryCashApprovalsPage() {
                     </Card>
                 </TabsContent>
             </Tabs>
+                </TabsContent>
+
+                <TabsContent value="credit-liabilities">
+            <CreditLiabilitiesPanel />
+                </TabsContent>
+            </Tabs>
 
             {/* Approve Dialog */}
             <Dialog open={!!approveReq} onOpenChange={open => { if (!open) setApproveReq(null); }}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -515,6 +605,9 @@ export default function InventoryCashApprovalsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
+                        {approveReq?.purchase_order && (
+                            <PurchaseOrderPreview po={approveReq.purchase_order} />
+                        )}
                         <div className="space-y-2">
                             <Label htmlFor="approve-amount">Approved Amount (Rs)</Label>
                             <Input
@@ -551,7 +644,7 @@ export default function InventoryCashApprovalsPage() {
 
             {/* Reject Dialog */}
             <Dialog open={!!rejectReq} onOpenChange={open => { if (!open) setRejectReq(null); }}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <XCircle className="h-5 w-5 text-destructive" />
@@ -561,16 +654,21 @@ export default function InventoryCashApprovalsPage() {
                             {rejectReq?.request_number} — {rejectReq?.purpose}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-2 py-2">
-                        <Label htmlFor="reject-reason">Reason for Rejection</Label>
-                        <Textarea
-                            id="reject-reason"
-                            placeholder="Explain why this request is being rejected…"
-                            value={rejectReason}
-                            onChange={e => setRejectReason(e.target.value)}
-                            rows={3}
-                            autoFocus
-                        />
+                    <div className="space-y-4 py-2">
+                        {rejectReq?.purchase_order && (
+                            <PurchaseOrderPreview po={rejectReq.purchase_order} />
+                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="reject-reason">Reason for Rejection</Label>
+                            <Textarea
+                                id="reject-reason"
+                                placeholder="Explain why this request is being rejected…"
+                                value={rejectReason}
+                                onChange={e => setRejectReason(e.target.value)}
+                                rows={3}
+                                autoFocus
+                            />
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRejectReq(null)} disabled={rejecting}>Cancel</Button>
@@ -584,7 +682,7 @@ export default function InventoryCashApprovalsPage() {
 
             {/* Additional Approve Dialog */}
             <Dialog open={!!addApproveReq} onOpenChange={open => { if (!open) setAddApproveReq(null); }}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -594,19 +692,24 @@ export default function InventoryCashApprovalsPage() {
                             {addApproveReq?.request_number} — Overspend reason: {addApproveReq?.additional_reason}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-2 py-2">
-                        <Label htmlFor="add-approve-amount">Additional Approved Amount (Rs)</Label>
-                        <Input
-                            id="add-approve-amount"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={addApprovedAmount}
-                            onChange={e => setAddApprovedAmount(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Additional requested: {fmt(addApproveReq?.additional_requested_amount)}
-                        </p>
+                    <div className="space-y-4 py-2">
+                        {addApproveReq?.purchase_order && (
+                            <PurchaseOrderPreview po={addApproveReq.purchase_order} />
+                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="add-approve-amount">Additional Approved Amount (Rs)</Label>
+                            <Input
+                                id="add-approve-amount"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={addApprovedAmount}
+                                onChange={e => setAddApprovedAmount(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Additional requested: {fmt(addApproveReq?.additional_requested_amount)}
+                            </p>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setAddApproveReq(null)} disabled={addApproving}>Cancel</Button>

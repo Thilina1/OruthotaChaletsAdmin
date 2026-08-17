@@ -43,10 +43,13 @@ export async function POST(request: Request) {
         if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { supplier_name, notes, items, request_ids } = body;
+        const { supplier_name, notes, payment_type, items, request_ids } = body;
 
         if (!items || items.length === 0) {
             return NextResponse.json({ error: 'At least one item is required.' }, { status: 400 });
+        }
+        if (!['cash', 'credit'].includes(payment_type)) {
+            return NextResponse.json({ error: 'Order type must be cash or credit.' }, { status: 400 });
         }
 
         // Generate PO number: PO-YYYYMMDD-XXX
@@ -65,6 +68,7 @@ export async function POST(request: Request) {
                 po_number,
                 supplier_name: supplier_name || null,
                 notes: notes || null,
+                payment_type,
                 status: 'draft',
                 created_by: (payload as any).userId,
                 created_at: new Date().toISOString(),

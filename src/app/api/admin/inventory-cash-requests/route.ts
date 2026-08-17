@@ -37,7 +37,16 @@ export async function GET(request: Request) {
                 requested_by_user:users!inventory_cash_requests_requested_by_fkey(id, name, email, department),
                 approved_by_user:users!inventory_cash_requests_approved_by_fkey(id, name, email),
                 issued_by_user:users!inventory_cash_requests_issued_by_fkey(id, name, email),
-                purchase_order:purchase_orders(id, po_number, supplier_name)
+                purchase_order:purchase_orders(
+                    id,
+                    po_number,
+                    supplier_name,
+                    payment_type,
+                    status,
+                    notes,
+                    created_at,
+                    purchase_order_items(id, item_name, unit, quantity, unit_price, total_price)
+                )
             `)
             .order('created_at', { ascending: false });
 

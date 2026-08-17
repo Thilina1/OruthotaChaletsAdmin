@@ -14,21 +14,31 @@ import {
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
-import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     Wallet, Plus, Loader2, ShoppingCart, CheckCircle2, Clock,
-    XCircle, AlertTriangle, RefreshCw, Info, Banknote, RotateCcw,
+    XCircle, AlertTriangle, RefreshCw, Info, Banknote, RotateCcw, ChevronsUpDown, Check,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { CreditLiabilitiesPanel } from '@/components/dashboard/credit-liabilities-panel';
 
 type PurchaseOrder = {
     id: string;
     po_number: string;
     supplier_name: string | null;
-    purchase_order_items: { unit_price: number | null; quantity: number }[];
+    payment_type: 'cash' | 'credit';
+    status: string;
+    notes: string | null;
+    created_at: string;
+    purchase_order_items: {
+        id: string;
+        item_name: string;
+        unit: string;
+        unit_price: number | null;
+        total_price: number | null;
+        quantity: number;
+    }[];
 };
 
 type CashRequest = {
@@ -65,6 +75,65 @@ const STATUS_CONFIG: Record<string, { label: string; className: string; icon: Re
 const fmt = (n: number | null | undefined) =>
     n != null ? `Rs ${Number(n).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
 
+function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
+    const total = po.purchase_order_items.reduce(
+        (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
+        0
+    );
+
+    return (
+        <div className="rounded-lg border bg-slate-50/70 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                <div>
+                    <p className="font-semibold">{po.po_number}</p>
+                    <p className="text-xs text-muted-foreground">
+                        {po.supplier_name || 'Supplier not specified'}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <Badge variant="secondary" className="capitalize">{po.payment_type || 'credit'} Order</Badge>
+                    <Badge variant="outline" className="capitalize">{po.status.replaceAll('_', ' ')}</Badge>
+                </div>
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Unit Price</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {po.purchase_order_items.map(item => {
+                            const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
+                            return (
+                                <TableRow key={item.id}>
+                                    <TableCell>
+                                        <div className="font-medium text-xs">{item.item_name}</div>
+                                        <div className="text-[10px] text-muted-foreground">{item.unit}</div>
+                                    </TableCell>
+                                    <TableCell className="text-right text-xs">{item.quantity}</TableCell>
+                                    <TableCell className="text-right text-xs">{fmt(item.unit_price)}</TableCell>
+                                    <TableCell className="text-right text-xs font-medium">{fmt(lineTotal)}</TableCell>
+                                </TableRow>
+                            );
+                        })}
+                        <TableRow className="bg-muted/40">
+                            <TableCell colSpan={3} className="text-right text-xs font-semibold">PO Total</TableCell>
+                            <TableCell className="text-right font-bold">{fmt(total)}</TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+            </div>
+            {po.notes && (
+                <p className="border-t px-4 py-2 text-xs text-muted-foreground">Notes: {po.notes}</p>
+            )}
+        </div>
+    );
+}
+
 export default function InventoryCashRequestsPage() {
     const { user, hasRole } = useUserContext();
     const { toast } = useToast();
@@ -80,6 +149,8 @@ export default function InventoryCashRequestsPage() {
     const [newPurpose, setNewPurpose] = useState('');
     const [newAmount, setNewAmount] = useState('');
     const [newPoId, setNewPoId] = useState('__none__');
+    const [poSelectorOpen, setPoSelectorOpen] = useState(false);
+    const [poSearch, setPoSearch] = useState('');
     const [newNotes, setNewNotes] = useState('');
     const [creating, setCreating] = useState(false);
 
@@ -114,6 +185,39 @@ export default function InventoryCashRequestsPage() {
 
     const poTotal = (po: PurchaseOrder) =>
         po.purchase_order_items.reduce((s, i) => s + (i.unit_price ?? 0) * i.quantity, 0);
+
+    const selectedPO = useMemo(
+        () => newPoId === '__none__' ? null : purchaseOrders.find(po => po.id === newPoId) || null,
+        [newPoId, purchaseOrders]
+    );
+
+    const availablePurchaseOrders = useMemo(() => {
+        const linkedPurchaseOrderIds = new Set(
+            requests
+                .filter(request => request.status !== 'REJECTED')
+                .map(request => request.purchase_order?.id)
+                .filter((id): id is string => !!id)
+        );
+        return purchaseOrders.filter(po =>
+            po.payment_type === 'cash' && !linkedPurchaseOrderIds.has(po.id)
+        );
+    }, [purchaseOrders, requests]);
+
+    const filteredAvailablePurchaseOrders = useMemo(() => {
+        const search = poSearch.trim().toLowerCase();
+        if (!search) return availablePurchaseOrders;
+        return availablePurchaseOrders.filter(po =>
+            po.po_number.toLowerCase().includes(search) ||
+            po.supplier_name?.toLowerCase().includes(search)
+        );
+    }, [availablePurchaseOrders, poSearch]);
+
+    const detailPO = useMemo(
+        () => detailReq?.purchase_order
+            ? purchaseOrders.find(po => po.id === detailReq.purchase_order?.id) || null
+            : null,
+        [detailReq, purchaseOrders]
+    );
 
     const handlePoChange = (poId: string) => {
         setNewPoId(poId);
@@ -254,6 +358,16 @@ export default function InventoryCashRequestsPage() {
                 ))}
             </div>
 
+            <Tabs defaultValue="cash-requests" className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="cash-requests" className="gap-2">
+                        Cash Requests
+                        <Badge variant="secondary" className="h-5 min-w-5 px-1.5">{filteredRequests.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="credit-liabilities">Credit Liabilities</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="cash-requests">
             {/* Requests table */}
             <Card>
                 <CardHeader className="pb-3">
@@ -402,10 +516,22 @@ export default function InventoryCashRequestsPage() {
                     )}
                 </CardContent>
             </Card>
+                </TabsContent>
+
+                <TabsContent value="credit-liabilities">
+            <CreditLiabilitiesPanel />
+                </TabsContent>
+            </Tabs>
 
             {/* Create Dialog */}
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogContent className="max-w-lg">
+            <Dialog open={createOpen} onOpenChange={open => {
+                setCreateOpen(open);
+                if (!open) {
+                    setPoSelectorOpen(false);
+                    setPoSearch('');
+                }
+            }}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Wallet className="h-5 w-5 text-primary" />
@@ -427,20 +553,79 @@ export default function InventoryCashRequestsPage() {
                         </div>
                         <div className="space-y-2">
                             <Label>Link to Purchase Order <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                            <Select value={newPoId} onValueChange={handlePoChange}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select a PO (optional)" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="__none__">No Purchase Order</SelectItem>
-                                    {purchaseOrders.map(po => (
-                                        <SelectItem key={po.id} value={po.id}>
-                                            {po.po_number}{po.supplier_name ? ` — ${po.supplier_name}` : ''} ({fmt(poTotal(po))})
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <div className="relative">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={poSelectorOpen}
+                                    className="w-full justify-between font-normal"
+                                    onClick={() => {
+                                        setPoSelectorOpen(open => !open);
+                                        setPoSearch('');
+                                    }}
+                                >
+                                    {newPoId === '__none__'
+                                        ? 'No Purchase Order'
+                                        : (() => {
+                                            const po = purchaseOrders.find(item => item.id === newPoId);
+                                            return po
+                                                ? `${po.po_number}${po.supplier_name ? ` — ${po.supplier_name}` : ''}`
+                                                : 'Select a PO (optional)';
+                                        })()
+                                    }
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                                {poSelectorOpen && (
+                                    <div className="absolute left-0 right-0 top-full z-[200] mt-1 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                        <Input
+                                            autoFocus
+                                            value={poSearch}
+                                            onChange={event => setPoSearch(event.target.value)}
+                                            placeholder="Search by PO number or supplier..."
+                                            className="mb-1 h-9"
+                                            onKeyDown={event => {
+                                                if (event.key === 'Escape') setPoSelectorOpen(false);
+                                            }}
+                                        />
+                                        <div className="max-h-60 overflow-y-auto">
+                                            <button
+                                                type="button"
+                                                className="flex w-full items-center rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+                                                onClick={() => {
+                                                    handlePoChange('__none__');
+                                                    setPoSelectorOpen(false);
+                                                }}
+                                            >
+                                                <Check className={`mr-2 h-4 w-4 ${newPoId === '__none__' ? 'opacity-100' : 'opacity-0'}`} />
+                                                No Purchase Order
+                                            </button>
+                                            {filteredAvailablePurchaseOrders.length === 0 ? (
+                                                <div className="py-6 text-center text-sm text-muted-foreground">
+                                                    No available purchase order found.
+                                                </div>
+                                            ) : filteredAvailablePurchaseOrders.map(po => (
+                                                <button
+                                                    type="button"
+                                                    key={po.id}
+                                                    className="flex w-full items-center rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+                                                    onClick={() => {
+                                                        handlePoChange(po.id);
+                                                        setPoSelectorOpen(false);
+                                                    }}
+                                                >
+                                                    <Check className={`mr-2 h-4 w-4 shrink-0 ${newPoId === po.id ? 'opacity-100' : 'opacity-0'}`} />
+                                                    <span className="truncate">
+                                                        {po.po_number}{po.supplier_name ? ` — ${po.supplier_name}` : ''} ({fmt(poTotal(po))})
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
+                        {selectedPO && <PurchaseOrderPreview po={selectedPO} />}
                         <div className="space-y-2">
                             <Label htmlFor="cr-amount">Requested Amount (Rs) <span className="text-destructive">*</span></Label>
                             <Input
@@ -479,7 +664,7 @@ export default function InventoryCashRequestsPage() {
 
             {/* Settlement Dialog */}
             <Dialog open={!!settleReq} onOpenChange={open => { if (!open) { setSettleReq(null); setSpentAmount(''); setOverspendReason(''); } }}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Submit Settlement</DialogTitle>
                         <DialogDescription>
@@ -558,6 +743,7 @@ export default function InventoryCashRequestsPage() {
                             <Row label="Purpose" value={detailReq.purpose} />
                             <Row label="Status" value={<Badge className={`text-[11px] border gap-1 ${STATUS_CONFIG[detailReq.status].className}`}>{STATUS_CONFIG[detailReq.status].label}</Badge>} />
                             {detailReq.purchase_order && <Row label="Purchase Order" value={detailReq.purchase_order.po_number} />}
+                            {detailPO && <PurchaseOrderPreview po={detailPO} />}
                             <Row label="Requested" value={fmt(detailReq.requested_amount)} />
                             {detailReq.approved_amount != null && <Row label="Approved" value={fmt(detailReq.approved_amount)} />}
                             {detailReq.issued_amount != null && <Row label="Issued" value={fmt(detailReq.issued_amount)} />}

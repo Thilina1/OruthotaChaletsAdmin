@@ -46,6 +46,7 @@ type PurchaseOrder = {
     po_number: string;
     status: 'draft' | 'pending_approval' | 'approved' | 'sent' | 'received' | 'cancelled';
     supplier_name: string | null;
+    payment_type: 'cash' | 'credit';
     notes: string | null;
     created_at: string;
     created_by_user?: { name: string; email: string };
@@ -279,7 +280,10 @@ export default function PurchaseOrdersPage() {
                                         </TableCell>
                                         <TableCell>{po.supplier_name || <span className="text-muted-foreground italic">—</span>}</TableCell>
                                         <TableCell>
-                                            <Badge variant="outline">{po.purchase_order_items.length} item{po.purchase_order_items.length !== 1 ? 's' : ''}</Badge>
+                                            <div className="flex flex-wrap gap-1">
+                                                <Badge variant="outline">{po.purchase_order_items.length} item{po.purchase_order_items.length !== 1 ? 's' : ''}</Badge>
+                                                <Badge variant="secondary" className="capitalize">{po.payment_type || 'credit'}</Badge>
+                                            </div>
                                         </TableCell>
                                         <TableCell>
                                             <Badge variant="outline" className={cfg.className}>{cfg.label}</Badge>
@@ -353,6 +357,10 @@ export default function PurchaseOrdersPage() {
                                     <Badge variant="outline" className={STATUS_CONFIG[viewPO.status].className}>
                                         {STATUS_CONFIG[viewPO.status].label}
                                     </Badge>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Order Type:</span>{' '}
+                                    <span className="font-medium capitalize">{viewPO.payment_type || 'credit'} Order</span>
                                 </div>
                                 {viewPO.notes && (
                                     <div className="col-span-2">
@@ -545,6 +553,10 @@ export default function PurchaseOrdersPage() {
                             <div>
                                 <p className="font-bold uppercase tracking-wider text-gray-500 mb-1 text-xs">Supplier</p>
                                 <p className="font-semibold">{viewPO.supplier_name || '(To be confirmed)'}</p>
+                            </div>
+                            <div>
+                                <p className="font-bold uppercase tracking-wider text-gray-500 mb-1 text-xs">Order Type</p>
+                                <p className="font-semibold capitalize">{viewPO.payment_type || 'credit'} Order</p>
                             </div>
                             <div>
                                 <p className="font-bold uppercase tracking-wider text-gray-500 mb-1 text-xs">Prepared By</p>

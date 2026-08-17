@@ -53,7 +53,11 @@ export async function PUT(
         const userId = decoded?.userId || decoded?.id || decoded?.sub;
 
         const body = await request.json();
-        const { status, supplier_name, notes, item_prices, items } = body;
+        const { status, supplier_name, notes, payment_type, item_prices, items } = body;
+
+        if (payment_type !== undefined && !['cash', 'credit'].includes(payment_type)) {
+            return NextResponse.json({ error: 'Order type must be cash or credit.' }, { status: 400 });
+        }
 
         // Get current PO state to check if we are transitioning to 'received'
         const { data: currentPO, error: fetchError } = await supabase
@@ -76,6 +80,7 @@ export async function PUT(
         }
         if (supplier_name !== undefined) updatePayload.supplier_name = supplier_name;
         if (notes !== undefined) updatePayload.notes = notes;
+        if (payment_type !== undefined) updatePayload.payment_type = payment_type;
 
         const { data: po, error: poError } = await supabase
             .from('purchase_orders')

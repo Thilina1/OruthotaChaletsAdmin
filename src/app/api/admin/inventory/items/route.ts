@@ -112,7 +112,9 @@ export async function POST(req: Request) {
             expiry_date, 
             supplier,
             item_size,
-            initial_quantity 
+            initial_quantity,
+            brand,
+            status
         } = body;
 
         if (!name || !category_id || !unit_id) {
@@ -175,7 +177,8 @@ export async function POST(req: Request) {
                     category_id, 
                     unit_id, 
                     item_size,
-                    status: 'active' 
+                    brand: brand || null,
+                    status: status === 'inactive' ? 'inactive' : 'active'
                 }])
                 .select()
                 .single();
@@ -292,7 +295,7 @@ export async function PUT(req: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await req.json();
-        const { id, name, code, description, category_id, unit_id, item_size } = body;
+        const { id, name, code, description, category_id, unit_id, item_size, brand } = body;
 
         if (!id || !name || !category_id || !unit_id) {
             return NextResponse.json({ error: 'Missing required fields (id, name, category, unit)' }, { status: 400 });
@@ -300,7 +303,7 @@ export async function PUT(req: Request) {
 
         const { data, error } = await supabase
             .from('inventory_items')
-            .update({ name, code, description, category_id, unit_id, item_size })
+            .update({ name, code, description, category_id, unit_id, item_size, brand: brand || null })
             .eq('id', id)
             .select()
             .single();

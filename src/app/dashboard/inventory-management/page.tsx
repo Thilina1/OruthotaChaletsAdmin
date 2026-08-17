@@ -27,8 +27,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { 
-  PlusCircle, Pencil, Trash2, ArrowRightLeft, AlertTriangle, Search, Filter, Warehouse,
-  ChevronRight, ChevronDown, Edit, MoveRight, Package, Calendar, Truck, Tag, Layers 
+  PlusCircle, AlertTriangle, Search, Filter, Warehouse,
+  ChevronRight, ChevronDown, MoveRight, Package, Calendar, Truck, Tag, Layers
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -310,13 +310,12 @@ export default function InventoryManagementPage() {
                   <TableHead>Item Name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead className="text-right">Total Stock</TableHead>
-                  <TableHead className="w-[150px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
+                    <TableCell colSpan={5} className="h-24 text-center">
                       <div className="flex items-center justify-center gap-2">
                         Loading items...
                       </div>
@@ -324,7 +323,7 @@ export default function InventoryManagementPage() {
                   </TableRow>
                 ) : paginatedItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       No inventory items found.
                     </TableCell>
                   </TableRow>
@@ -355,24 +354,11 @@ export default function InventoryManagementPage() {
                             <span className="text-[9px] text-muted-foreground uppercase">{item.unit?.name}</span>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(item)}>
-                              <Edit className="h-4 w-4 text-primary" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={() => handleOpenTransactionDialog(item)}>
-                              <ArrowRightLeft className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteId(item.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
                       </TableRow>
                       
                       {expandedRows[item.id] && (
                         <TableRow className="bg-slate-50/30">
-                          <TableCell colSpan={6} className="p-0 border-t-0">
+                          <TableCell colSpan={5} className="p-0 border-t-0">
                             <div className="p-4 bg-slate-100/30 flex flex-col gap-3">
                               <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Store-wise Stock Breakdown</h4>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

@@ -22,6 +22,8 @@ async function processIntake(supabase: any, data: any, userId: string) {
         unit_price,
         batch_number,
         supplier,
+        payment_type,
+        grn_number,
         expiry_date,
         notes
     } = data;
@@ -137,6 +139,12 @@ async function processIntake(supabase: any, data: any, userId: string) {
             quantity: Number(quantity),
             new_stock: finalQuantity,
             department_id: warehouse_id, 
+            grn_number: grn_number || null,
+            payment_type: payment_type || null,
+            unit_price: Number(unit_price) || 0,
+            batch_number: batch_number || null,
+            supplier: supplier || null,
+            expiry_date: expiry_date || null,
             remarks: notes || `Stock intake (GRN) for batch ${batch_number || batch_id}`,
             created_by: userId
         }]);
@@ -144,6 +152,67 @@ async function processIntake(supabase: any, data: any, userId: string) {
     if (txError) throw txError;
 
     return { item_id, batch_id, new_quantity: finalQuantity };
+}
+
+export async function GET() {
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth_token')?.value;
+        if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        const decoded = await decodeToken(token);
+        if (!decoded) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+
+        const { data, error } = await supabase
+            .from('inventory_transactions')
+            .select(`
+                id, grn_number, payment_type, purchase_order_id, liability_settled_at, liability_settled_by, quantity, unit_price,
+                batch_number, supplier, expiry_date, remarks, created_at,
+                item:inventory_items(id, name, code),
+                department_id
+            `)
+            .eq('transaction_type', 'receive')
+            .not('grn_number', 'is', null)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const warehouseIds = [...new Set((data ?? []).map((line: any) => line.department_id).filter(Boolean))];
+        const { data: warehouses } = warehouseIds.length
+            ? await supabase.from('inventory_warehouses').select('id, name').in('id', warehouseIds)
+            : { data: [] as any[] };
+        const warehouseMap = new Map((warehouses ?? []).map((warehouse: any) => [warehouse.id, warehouse]));
+
+        const grouped = new Map<string, any>();
+        for (const line of data ?? []) {
+            if (!line.grn_number) continue;
+            if (!grouped.has(line.grn_number)) {
+                grouped.set(line.grn_number, {
+                    grn_number: line.grn_number,
+                    payment_type: line.payment_type,
+                    purchase_order_id: line.purchase_order_id,
+                    liability_settled_at: line.liability_settled_at,
+                    liability_settled_by: line.liability_settled_by,
+                    supplier: line.supplier,
+                    remarks: line.remarks,
+                    created_at: line.created_at,
+                    warehouse: warehouseMap.get(line.department_id) ?? null,
+                    items: [],
+                });
+            }
+            grouped.get(line.grn_number).items.push({
+                id: line.id,
+                item: line.item,
+                quantity: line.quantity,
+                unit_price: line.unit_price,
+                batch_number: line.batch_number,
+                expiry_date: line.expiry_date,
+            });
+        }
+
+        return NextResponse.json({ grns: Array.from(grouped.values()) });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 }
 
 export async function POST(req: Request) {
@@ -160,18 +229,22 @@ export async function POST(req: Request) {
 
         // Support for multiple items
         if (body.items && Array.isArray(body.items)) {
+            const paymentType = body.payment_type === 'cash' ? 'cash' : 'credit';
+            const grnNumber = `GRN-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${Date.now().toString().slice(-6)}`;
             const results = [];
             for (const item of body.items) {
                 const itemData = {
                     ...item,
                     warehouse_id: item.warehouse_id || body.warehouse_id,
                     supplier: item.supplier || body.supplier,
+                    payment_type: paymentType,
+                    grn_number: grnNumber,
                     notes: item.notes || body.notes
                 };
                 const result = await processIntake(supabase, itemData, userId);
                 results.push(result);
             }
-            return NextResponse.json({ success: true, processed_count: results.length, results }, { status: 200 });
+            return NextResponse.json({ success: true, grn_number: grnNumber, processed_count: results.length, results }, { status: 200 });
         }
 
         const result = await processIntake(supabase, body, userId);

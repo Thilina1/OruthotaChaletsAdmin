@@ -38,6 +38,7 @@ type PurchaseOrder = {
     po_number: string;
     status: 'draft' | 'pending_approval' | 'approved' | 'sent' | 'received' | 'cancelled';
     supplier_name: string | null;
+    payment_type: 'cash' | 'credit';
     notes: string | null;
     created_at: string;
     approved_at?: string;
@@ -103,6 +104,37 @@ export default function POApprovalsPage() {
             
             setViewPO(null);
             fetchOrders();
+        } catch (err: any) {
+            toast({ variant: 'destructive', title: 'Error', description: err.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handlePaymentTypeChange = async (po: PurchaseOrder, paymentType: 'cash' | 'credit') => {
+        if (po.payment_type === paymentType) return;
+
+        setIsSubmitting(true);
+        try {
+            const res = await fetch(`/api/admin/purchase-orders/${po.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ payment_type: paymentType }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed to update order type.');
+
+            setPurchaseOrders(current => current.map(order =>
+                order.id === po.id ? { ...order, payment_type: paymentType } : order
+            ));
+            setViewPO(current => current?.id === po.id
+                ? { ...current, payment_type: paymentType }
+                : current
+            );
+            toast({
+                title: 'Order Type Updated',
+                description: `${po.po_number} is now marked as a ${paymentType} order.`,
+            });
         } catch (err: any) {
             toast({ variant: 'destructive', title: 'Error', description: err.message });
         } finally {
@@ -176,7 +208,10 @@ export default function POApprovalsPage() {
                                             </TableCell>
                                             <TableCell>{po.supplier_name || <span className="text-muted-foreground italic">—</span>}</TableCell>
                                             <TableCell>
-                                                <Badge variant="outline">{po.purchase_order_items.length} item(s)</Badge>
+                                                <div className="flex flex-wrap gap-1">
+                                                    <Badge variant="outline">{po.purchase_order_items.length} item(s)</Badge>
+                                                    <Badge variant="secondary" className="capitalize">{po.payment_type || 'credit'}</Badge>
+                                                </div>
                                             </TableCell>
                                             <TableCell>{po.created_by_user?.name || '—'}</TableCell>
                                             <TableCell className="text-right">
@@ -289,6 +324,27 @@ export default function POApprovalsPage() {
                                 <div>
                                     <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Supplier</span> 
                                     <span className="font-medium text-base">{viewPO.supplier_name || 'Not Specified'}</span>
+                                </div>
+                                <div>
+                                    <label
+                                        htmlFor="approval-payment-type"
+                                        className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold"
+                                    >
+                                        Order Type
+                                    </label>
+                                    <select
+                                        id="approval-payment-type"
+                                        className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                                        value={viewPO.payment_type || 'credit'}
+                                        disabled={isSubmitting}
+                                        onChange={event => void handlePaymentTypeChange(
+                                            viewPO,
+                                            event.target.value as 'cash' | 'credit'
+                                        )}
+                                    >
+                                        <option value="credit">Credit Order</option>
+                                        <option value="cash">Cash Order</option>
+                                    </select>
                                 </div>
                                 {viewPO.approved_by_user && (
                                     <div>

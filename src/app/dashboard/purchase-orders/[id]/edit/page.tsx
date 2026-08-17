@@ -112,6 +112,7 @@ export default function EditPurchaseOrderPage({
                     initialData={{
                         supplier_name: poData.supplier_name,
                         notes: poData.notes,
+                        payment_type: poData.payment_type || 'credit',
                         items: initialItems
                     }}
                     inventoryItems={inventoryItems}

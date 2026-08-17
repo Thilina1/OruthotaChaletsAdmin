@@ -62,6 +62,7 @@ export function GRNMultiForm({
 
     const [supplierName, setSupplierName] = useState('');
     const [notes, setNotes] = useState('');
+    const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('credit');
 
     // Line Items State
     const [lineItems, setLineItems] = useState<GRNItemRecord[]>([
@@ -132,9 +133,19 @@ export function GRNMultiForm({
             return;
         }
 
+        if (validItems.some(item => item.unit_price === '' || Number(item.unit_price) < 0)) {
+            toast({
+                variant: 'destructive',
+                title: 'Item Price Required',
+                description: 'Enter a valid unit price for every GRN item so the liability value can be recorded.',
+            });
+            return;
+        }
+
         onSubmit({
             warehouse_id: warehouseId,
             supplier: supplierName || undefined,
+            payment_type: paymentType,
             notes: notes || undefined,
             items: validItems.map(l => ({
                 item_id: l.item_id || null,
@@ -169,7 +180,7 @@ export function GRNMultiForm({
                     <h2 className="text-xl font-headline font-bold text-primary italic">Goods Received Note Header</h2>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div className="space-y-2">
                         <Label className="text-sm font-semibold">Target Warehouse <span className="text-destructive">*</span></Label>
                         <Select onValueChange={setWarehouseId} value={warehouseId}>
@@ -193,6 +204,19 @@ export function GRNMultiForm({
                             onValueChange={setSupplierName}
                             placeholder="Select or type supplier..."
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold">Payment Type <span className="text-destructive">*</span></Label>
+                        <Select value={paymentType} onValueChange={(value: 'cash' | 'credit') => setPaymentType(value)}>
+                            <SelectTrigger className="bg-white">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="credit">Credit GRN</SelectItem>
+                                <SelectItem value="cash">Cash GRN</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="space-y-2">
@@ -258,7 +282,7 @@ export function GRNMultiForm({
                                 </div>
 
                                 <div className="md:col-span-2 space-y-1.5">
-                                    <Label className="text-xs font-bold text-muted-foreground tracking-wider uppercase">Unit Price</Label>
+                                    <Label className="text-xs font-bold text-muted-foreground tracking-wider uppercase">Unit Price <span className="text-destructive">*</span></Label>
                                     <Input
                                         type="number"
                                         placeholder="LKR"

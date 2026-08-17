@@ -21,6 +21,9 @@ import { Badge } from '@/components/ui/badge';
 import { ShoppingCart, PackageCheck, Send, Clock, Loader2, ClipboardList, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 
+const formatMoney = (amount: number | null | undefined) =>
+  amount == null ? '—' : `LKR ${Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export default function GRNPage() {
   const { toast } = useToast();
   const [items, setItems] = useState<any[]>([]);
@@ -65,11 +68,20 @@ export default function GRNPage() {
   const fetchPurchaseOrders = async () => {
     setIsPOLoading(true);
     try {
-      const res = await fetch('/api/admin/purchase-orders');
-      const data = await res.json();
+      const [res, cashRes] = await Promise.all([
+        fetch('/api/admin/purchase-orders'),
+        fetch('/api/admin/inventory-cash-requests?view=all')
+      ]);
+      const [data, cashData] = await Promise.all([res.json(), cashRes.json()]);
       if (data.error) throw new Error(data.error);
       
-      const allPOs = data.purchase_orders ?? [];
+      const cashRequests = cashData.requests ?? [];
+      const allPOs = (data.purchase_orders ?? []).map((po: any) => ({
+        ...po,
+        cash_request: po.payment_type === 'cash'
+          ? cashRequests.find((request: any) => request.purchase_order_id === po.id && request.status !== 'REJECTED') ?? null
+          : null,
+      }));
       
       // Filter for approved or sent POs (Pending)
       const pending = allPOs.filter((po: any) => 
@@ -168,6 +180,7 @@ export default function GRNPage() {
                     <th className="px-6 py-4">PO Number</th>
                     <th className="px-6 py-4">Received At</th>
                     <th className="px-6 py-4">Supplier</th>
+                    <th className="px-6 py-4">Payment Type</th>
                     <th className="px-6 py-4">Items</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
@@ -176,13 +189,13 @@ export default function GRNPage() {
                 <tbody className="divide-y">
                   {isPOLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center">
+                      <td colSpan={7} className="px-6 py-10 text-center">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
                       </td>
                     </tr>
                   ) : receivedPOs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground italic">
+                      <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground italic">
                         No received purchase orders yet.
                       </td>
                     </tr>
@@ -195,6 +208,22 @@ export default function GRNPage() {
                            <div className="text-[10px] text-muted-foreground">{format(new Date(po.updated_at), 'p')}</div>
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-600">{po.supplier_name || '—'}</td>
+                        <td className="px-6 py-4">
+                           <Badge variant="outline" className={cn(
+                             "whitespace-nowrap font-bold capitalize",
+                             po.payment_type === 'cash'
+                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                               : "bg-amber-50 text-amber-700 border-amber-200"
+                           )}>
+                             {po.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                           </Badge>
+                           {po.payment_type === 'cash' && (
+                             <div className="mt-1 space-y-0.5 text-[10px] leading-tight">
+                               <div className="font-bold text-slate-600">Approved: {formatMoney(po.cash_request?.approved_amount)}</div>
+                               <div className="capitalize text-slate-400">{po.cash_request?.status?.toLowerCase().replaceAll('_', ' ') || 'No cash request'}</div>
+                             </div>
+                           )}
+                        </td>
                         <td className="px-6 py-4">
                            <Badge variant="outline" className="bg-white text-slate-500 border-slate-200">
                              {po.purchase_order_items.length} items
@@ -241,6 +270,7 @@ export default function GRNPage() {
                     <th className="px-6 py-4">PO Number</th>
                     <th className="px-6 py-4">Date</th>
                     <th className="px-6 py-4">Supplier</th>
+                    <th className="px-6 py-4">Payment Type</th>
                     <th className="px-6 py-4">Items</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
@@ -249,13 +279,13 @@ export default function GRNPage() {
                 <tbody className="divide-y">
                   {isPOLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center">
+                      <td colSpan={7} className="px-6 py-10 text-center">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
                       </td>
                     </tr>
                   ) : purchaseOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                      <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
                         <PackageCheck className="h-10 w-10 mx-auto mb-3 opacity-20" />
                         <p>No pending purchase orders to receive.</p>
                       </td>
@@ -269,6 +299,22 @@ export default function GRNPage() {
                            <div className="text-[10px] text-muted-foreground">{format(new Date(po.created_at), 'p')}</div>
                         </td>
                         <td className="px-6 py-4 font-medium">{po.supplier_name || '—'}</td>
+                        <td className="px-6 py-4">
+                           <Badge variant="outline" className={cn(
+                             "whitespace-nowrap font-bold",
+                             po.payment_type === 'cash'
+                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                               : "bg-amber-50 text-amber-700 border-amber-200"
+                           )}>
+                             {po.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                           </Badge>
+                           {po.payment_type === 'cash' && (
+                             <div className="mt-1 space-y-0.5 text-[10px] leading-tight">
+                               <div className="font-bold text-slate-600">Approved: {formatMoney(po.cash_request?.approved_amount)}</div>
+                               <div className="capitalize text-slate-400">{po.cash_request?.status?.toLowerCase().replaceAll('_', ' ') || 'No cash request'}</div>
+                             </div>
+                           )}
+                        </td>
                         <td className="px-6 py-4">
                            <Badge variant="outline" className="bg-slate-50">{po.purchase_order_items.length} items</Badge>
                         </td>
@@ -319,7 +365,7 @@ export default function GRNPage() {
             {viewingPO && (
                 <div className="p-8 space-y-8">
                     {/* Summary Boxes */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Supplier</p>
                             <p className="font-bold text-slate-800">{viewingPO.supplier_name || 'Generic Supplier'}</p>
@@ -332,6 +378,34 @@ export default function GRNPage() {
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Items</p>
                             <p className="font-bold text-slate-800">{viewingPO.purchase_order_items.length} Distinct Products</p>
                         </div>
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Payment Type</p>
+                            <Badge variant="outline" className={cn(
+                                "font-bold",
+                                viewingPO.payment_type === 'cash'
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : "bg-amber-50 text-amber-700 border-amber-200"
+                            )}>
+                                {viewingPO.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                            </Badge>
+                            {viewingPO.payment_type === 'cash' && (
+                                <div className="mt-2 space-y-1 text-xs">
+                                    <p><span className="text-slate-400">Approved:</span> <span className="font-bold text-slate-700">{formatMoney(viewingPO.cash_request?.approved_amount)}</span></p>
+                                    <p className="capitalize text-slate-500">{viewingPO.cash_request?.status?.toLowerCase().replaceAll('_', ' ') || 'No cash request'}</p>
+                                    {viewingPO.cash_request?.approved_by_user?.name && <p className="text-slate-500">By {viewingPO.cash_request.approved_by_user.name}</p>}
+                                    {viewingPO.cash_request?.approved_at && <p className="text-slate-400">{format(new Date(viewingPO.cash_request.approved_at), 'PP p')}</p>}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-1">GRN Total Value</p>
+                            <p className="font-black text-blue-700">
+                                {formatMoney(viewingPO.purchase_order_items.reduce((total: number, item: any) => {
+                                    const quantity = Number(item.received_quantity ?? item.quantity ?? 0);
+                                    return total + (Number(item.unit_price ?? 0) * quantity);
+                                }, 0))}
+                            </p>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -341,10 +415,12 @@ export default function GRNPage() {
                                 <thead className="bg-slate-50/80 text-[10px] uppercase font-bold text-slate-400 border-b">
                                     <tr>
                                         <th className="px-6 py-4">Product Details</th>
+                                        <th className="px-6 py-4 text-center">PO Type</th>
                                         <th className="px-6 py-4 text-center">Qty Received</th>
                                         <th className="px-6 py-4 text-center">Batch #</th>
                                         <th className="px-6 py-4 text-center">Expiry</th>
                                         <th className="px-6 py-4 text-right">Unit Price</th>
+                                        <th className="px-6 py-4 text-right">Line Total</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
@@ -357,6 +433,21 @@ export default function GRNPage() {
                                                     {item.item_size && <Badge variant="outline" className="text-[9px] h-4 px-1 border-slate-200">{item.item_size}</Badge>}
                                                 </div>
                                             </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <Badge variant="outline" className={cn(
+                                                    "whitespace-nowrap text-[10px] font-bold",
+                                                    viewingPO.payment_type === 'cash'
+                                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                        : "bg-amber-50 text-amber-700 border-amber-200"
+                                                )}>
+                                                    {viewingPO.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                                                </Badge>
+                                                {viewingPO.payment_type === 'cash' && (
+                                                    <div className="mt-1 whitespace-nowrap text-[9px] font-bold text-slate-500">
+                                                        Approved {formatMoney(viewingPO.cash_request?.approved_amount)}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4 text-center font-black text-emerald-600">
                                                 {item.received_quantity || item.quantity}
                                                 <span className="text-[10px] text-slate-400 ml-1 font-bold">{item.unit}</span>
@@ -368,11 +459,29 @@ export default function GRNPage() {
                                                 {item.expiry_date ? format(new Date(item.expiry_date), 'PP') : '—'}
                                             </td>
                                             <td className="px-6 py-4 text-right font-bold text-slate-800">
-                                                {item.unit_price ? `LKR ${item.unit_price.toLocaleString()}` : '—'}
+                                                {formatMoney(item.unit_price)}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-black text-blue-700">
+                                                {formatMoney(
+                                                    item.unit_price == null
+                                                        ? null
+                                                        : Number(item.unit_price) * Number(item.received_quantity ?? item.quantity ?? 0)
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
+                                <tfoot className="border-t bg-slate-50">
+                                    <tr>
+                                        <td colSpan={6} className="px-6 py-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">GRN Total</td>
+                                        <td className="px-6 py-4 text-right font-black text-blue-700">
+                                            {formatMoney(viewingPO.purchase_order_items.reduce((total: number, item: any) => {
+                                                const quantity = Number(item.received_quantity ?? item.quantity ?? 0);
+                                                return total + (Number(item.unit_price ?? 0) * quantity);
+                                            }, 0))}
+                                        </td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     </div>

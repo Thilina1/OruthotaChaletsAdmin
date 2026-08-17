@@ -44,6 +44,9 @@ import { format } from 'date-fns';
 import { cn } from "@/lib/utils";
 import Link from 'next/link';
 
+const formatMoney = (amount: number | null | undefined) =>
+    amount == null ? '—' : `LKR ${Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export default function ReceiveGRNPage() {
     const router = useRouter();
     const params = useParams();
@@ -110,18 +113,26 @@ export default function ReceiveGRNPage() {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const [poRes, itemsRes] = await Promise.all([
+            const [poRes, itemsRes, cashRes] = await Promise.all([
                 fetch(`/api/admin/purchase-orders`),
-                fetch('/api/admin/inventory/items')
+                fetch('/api/admin/inventory/items'),
+                fetch('/api/admin/inventory-cash-requests?view=all')
             ]);
 
             const poData = await poRes.json();
             const itemsData = await itemsRes.json();
+            const cashData = await cashRes.json();
 
             if (poData.error) throw new Error(poData.error);
             if (itemsData.error) throw new Error(itemsData.error);
 
-            const po = (poData.purchase_orders || []).find((p: any) => p.id === poId);
+            const rawPO = (poData.purchase_orders || []).find((p: any) => p.id === poId);
+            const po = rawPO ? {
+                ...rawPO,
+                cash_request: rawPO.payment_type === 'cash'
+                    ? (cashData.requests ?? []).find((request: any) => request.purchase_order_id === rawPO.id && request.status !== 'REJECTED') ?? null
+                    : null,
+            } : null;
             if (!po) throw new Error("Purchase Order not found.");
 
             setPurchaseOrder(po);
@@ -129,8 +140,18 @@ export default function ReceiveGRNPage() {
             setReceivedItems([...po.purchase_order_items]);
             
             const initialQtys: Record<string, string> = {};
-            po.purchase_order_items.forEach((i: any) => initialQtys[i.id] = String(i.quantity));
+            const initialPrices: Record<string, string> = {};
+            const initialTotals: Record<string, string> = {};
+            po.purchase_order_items.forEach((i: any) => {
+                initialQtys[i.id] = String(i.quantity);
+                if (i.unit_price != null) {
+                    initialPrices[i.id] = String(i.unit_price);
+                    initialTotals[i.id] = (Number(i.unit_price) * Number(i.quantity ?? 0)).toFixed(2);
+                }
+            });
             setReceivedQuantities(initialQtys);
+            setItemPrices(initialPrices);
+            setItemTotalPrices(initialTotals);
 
         } catch (error: any) {
             console.error("Error fetching data:", error);
@@ -271,7 +292,19 @@ export default function ReceiveGRNPage() {
                         </div>
                         Receive Goods
                     </h1>
-                    <p className="text-slate-500 font-medium">Fulfilling Purchase Order <span className="text-primary font-bold">#{purchaseOrder?.po_number}</span></p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-slate-500 font-medium">Fulfilling Purchase Order <span className="text-primary font-bold">#{purchaseOrder?.po_number}</span></p>
+                        {purchaseOrder && (
+                            <Badge variant="outline" className={cn(
+                                "font-bold",
+                                purchaseOrder.payment_type === 'cash'
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : "bg-amber-50 text-amber-700 border-amber-200"
+                            )}>
+                                {purchaseOrder.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                            </Badge>
+                        )}
+                    </div>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="outline" className="rounded-xl font-bold h-12 px-6" onClick={() => router.back()}>
@@ -310,6 +343,41 @@ export default function ReceiveGRNPage() {
                                     <span className="text-slate-500 font-medium">Items</span>
                                     <span className="font-bold">{purchaseOrder?.purchase_order_items.length}</span>
                                 </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-slate-500 font-medium">Payment Type</span>
+                                    <Badge variant="outline" className={cn(
+                                        "font-bold",
+                                        purchaseOrder?.payment_type === 'cash'
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : "bg-amber-50 text-amber-700 border-amber-200"
+                                    )}>
+                                        {purchaseOrder?.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                                    </Badge>
+                                </div>
+                                {purchaseOrder?.payment_type === 'cash' && (
+                                    <>
+                                        <div className="flex justify-between items-center text-sm">
+                                            <span className="text-slate-500 font-medium">Cash Approval</span>
+                                            <span className="font-bold capitalize">{purchaseOrder.cash_request?.status?.toLowerCase().replaceAll('_', ' ') || 'No cash request'}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-sm">
+                                            <span className="text-slate-500 font-medium">Approved Amount</span>
+                                            <span className="font-bold text-emerald-700">{formatMoney(purchaseOrder.cash_request?.approved_amount)}</span>
+                                        </div>
+                                        {purchaseOrder.cash_request?.approved_by_user?.name && (
+                                            <div className="flex justify-between items-center gap-3 text-sm">
+                                                <span className="text-slate-500 font-medium">Approved By</span>
+                                                <span className="text-right font-bold">{purchaseOrder.cash_request.approved_by_user.name}</span>
+                                            </div>
+                                        )}
+                                        {purchaseOrder.cash_request?.approved_at && (
+                                            <div className="flex justify-between items-center gap-3 text-sm">
+                                                <span className="text-slate-500 font-medium">Approved At</span>
+                                                <span className="text-right font-bold">{format(new Date(purchaseOrder.cash_request.approved_at), 'PP p')}</span>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-slate-500 font-medium">Order Date</span>
                                     <span className="font-bold">{format(new Date(purchaseOrder?.created_at), 'PP')}</span>
@@ -432,6 +500,19 @@ export default function ReceiveGRNPage() {
                                                 <div className="space-y-1">
                                                     <div className="flex items-center gap-2">
                                                         <h4 className="font-black text-lg text-slate-800 leading-tight">{item.item_name}</h4>
+                                                        <Badge variant="outline" className={cn(
+                                                            "whitespace-nowrap text-[9px] font-bold",
+                                                            purchaseOrder?.payment_type === 'cash'
+                                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                                : "bg-amber-50 text-amber-700 border-amber-200"
+                                                        )}>
+                                                            {purchaseOrder?.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
+                                                        </Badge>
+                                                        {purchaseOrder?.payment_type === 'cash' && (
+                                                            <span className="whitespace-nowrap text-[9px] font-bold text-emerald-700">
+                                                                Approved {formatMoney(purchaseOrder.cash_request?.approved_amount)}
+                                                            </span>
+                                                        )}
                                                         {item.is_extra && (
                                                             <Badge className="bg-amber-500 text-white border-none font-black text-[8px] uppercase tracking-tighter h-4">EXTRA</Badge>
                                                         )}

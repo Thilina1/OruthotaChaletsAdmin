@@ -4,7 +4,12 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, X, Loader2 } from 'lucide-react';
+import { Plus, X, Loader2, ChevronsUpDown, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+    Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
 
 export type POItemRecord = {
     id?: string;
@@ -21,6 +26,7 @@ export type POItemRecord = {
 type InventoryItem = { 
     id: string; 
     name: string; 
+    code?: string;
     unit?: { id: string; name: string } | string; 
     brand?: string; 
     supplier?: string; 
@@ -31,6 +37,7 @@ interface POFormProps {
     initialData?: {
         supplier_name?: string;
         notes?: string;
+        payment_type?: 'cash' | 'credit';
         items?: POItemRecord[];
     };
     inventoryItems: InventoryItem[];
@@ -50,6 +57,8 @@ export function POForm({
 }: POFormProps) {
     const [supplierName, setSupplierName] = useState(initialData?.supplier_name || '');
     const [notes, setNotes] = useState(initialData?.notes || '');
+    const [paymentType, setPaymentType] = useState<'cash' | 'credit'>(initialData?.payment_type || 'credit');
+    const [openItemSelector, setOpenItemSelector] = useState<number | null>(null);
     const [lineItems, setLineItems] = useState<POItemRecord[]>(
         initialData?.items && initialData.items.length > 0 
             ? initialData.items 
@@ -85,6 +94,7 @@ export function POForm({
         onSubmit({
             supplier_name: supplierName || undefined,
             notes: notes || undefined,
+            payment_type: paymentType,
             items: validItems.map(l => ({
                 id: l.id,
                 item_id: l.item_id || null,
@@ -112,7 +122,7 @@ export function POForm({
     return (
         <form onSubmit={handleSubmit} className="space-y-8">
             {/* General Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                     <Label className="text-sm font-semibold">Supplier Name <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
                     <Input className="mt-1" placeholder="e.g. ABC Suppliers" value={supplierName} onChange={e => setSupplierName(e.target.value)} />
@@ -120,6 +130,18 @@ export function POForm({
                 <div>
                     <Label className="text-sm font-semibold">Notes <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
                     <Input className="mt-1" placeholder="Any additional delivery instructions..." value={notes} onChange={e => setNotes(e.target.value)} />
+                </div>
+                <div>
+                    <Label className="text-sm font-semibold">Order Type</Label>
+                    <select
+                        className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={paymentType}
+                        onChange={e => setPaymentType(e.target.value as 'cash' | 'credit')}
+                        required
+                    >
+                        <option value="credit">Credit Order</option>
+                        <option value="cash">Cash Order</option>
+                    </select>
                 </div>
             </div>
 
@@ -147,22 +169,65 @@ export function POForm({
                                 </Button>
                             )}
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                                <div className="md:col-span-5 space-y-1">
+                                <div className="md:col-span-6 space-y-1">
                                     <Label className="text-xs text-muted-foreground">Item Selection</Label>
                                     <div className="flex gap-2">
-                                        <select
-                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                            value={line.item_id}
-                                            onChange={e => updateLine(idx, 'item_id', e.target.value)}
+                                        <Popover
+                                            open={openItemSelector === idx}
+                                            onOpenChange={open => setOpenItemSelector(open ? idx : null)}
                                         >
-                                            <option value="">Select item from inventory…</option>
-                                            {inventoryItems.map(it => {
-                                                const unitName = typeof it.unit === 'string' ? it.unit : (it.unit?.name ?? 'units');
-                                                return (
-                                                    <option key={it.id} value={it.id}>{it.name} ({unitName})</option>
-                                                );
-                                            })}
-                                        </select>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={openItemSelector === idx}
+                                                    className="h-10 w-full justify-between bg-background font-normal"
+                                                >
+                                                    {line.item_id ? (() => {
+                                                        const selected = inventoryItems.find(item => item.id === line.item_id);
+                                                        if (!selected) return 'Select item from inventory…';
+                                                        const unitName = typeof selected.unit === 'string'
+                                                            ? selected.unit
+                                                            : (selected.unit?.name ?? 'units');
+                                                        return `${selected.name} (${unitName})${selected.code ? ` — ${selected.code}` : ''}`;
+                                                    })() : 'Select item from inventory…'}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Type item name, SKU, or brand..." />
+                                                    <CommandList>
+                                                        <CommandEmpty>No inventory item found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {inventoryItems.map(item => {
+                                                                const unitName = typeof item.unit === 'string'
+                                                                    ? item.unit
+                                                                    : (item.unit?.name ?? 'units');
+                                                                const label = `${item.name} (${unitName})${item.code ? ` — ${item.code}` : ''}`;
+                                                                return (
+                                                                    <CommandItem
+                                                                        key={item.id}
+                                                                        value={`${item.name} ${item.code || ''} ${item.brand || ''} ${unitName}`}
+                                                                        onSelect={() => {
+                                                                            updateLine(idx, 'item_id', item.id);
+                                                                            setOpenItemSelector(null);
+                                                                        }}
+                                                                    >
+                                                                        <Check className={cn(
+                                                                            'mr-2 h-4 w-4',
+                                                                            line.item_id === item.id ? 'opacity-100' : 'opacity-0'
+                                                                        )} />
+                                                                        <span className="truncate">{label}</span>
+                                                                    </CommandItem>
+                                                                );
+                                                            })}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                         {!line.item_id && (
                                             <Input
                                                 className="w-full"
@@ -197,7 +262,7 @@ export function POForm({
                                     />
                                 </div>
 
-                                <div className="md:col-span-3 space-y-1">
+                                <div className="md:col-span-2 space-y-1">
                                     <Label className="text-xs text-muted-foreground">Subtotal</Label>
                                     <div className="h-10 flex items-center px-3 bg-muted/50 rounded-md text-sm font-mono font-semibold">
                                         {line.quantity && line.unit_price 

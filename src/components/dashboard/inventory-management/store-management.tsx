@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Warehouse as WarehouseIcon, Link2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, Loader2, Warehouse as WarehouseIcon, Link2 } from 'lucide-react';
 import type { InventoryWarehouse } from '@/lib/types';
 import {
     Select,
@@ -35,32 +35,8 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [newName, setNewName] = useState('');
     const [newDescription, setNewDescription] = useState('');
-    // HR department name chosen for new warehouse
+    // Inventory department name chosen for new warehouse
     const [newDeptName, setNewDeptName] = useState('');
-
-    // HR department names from job_titles (same source as User Management)
-    const [hrDepts, setHrDepts] = useState<string[]>([]);
-
-    // Per-warehouse: selected HR dept name
-    const [linkingName, setLinkingName] = useState<Record<string, string>>({});
-    const [savingLink, setSavingLink] = useState<string | null>(null);
-
-    // Fetch only HR departments on mount — invDepts comes from the parent (always fresh)
-    useEffect(() => {
-        fetch('/api/admin/job-titles').then(r => r.json()).then(jobData => {
-            const names: string[] = Object.keys(jobData.titles || {}).sort();
-            setHrDepts(names);
-        }).catch(() => {});
-    }, []);
-
-    // Initialise linkingName from current warehouse.department?.name
-    useEffect(() => {
-        const initial: Record<string, string> = {};
-        for (const wh of warehouses) {
-            initial[wh.id] = wh.department?.name || '';
-        }
-        setLinkingName(initial);
-    }, [warehouses]);
 
     // name → inventory_dept UUID lookup
     const invDeptByName = useMemo(() => {
@@ -71,7 +47,27 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
         return map;
     }, [invDepts]);
 
-    // Resolve an HR dept name to an inventory_departments UUID.
+    const invDeptNames = useMemo(
+        () => invDepts.map(dept => dept.name).sort((a, b) => a.localeCompare(b)),
+        [invDepts]
+    );
+
+    const activeWarehouses = useMemo(
+        () => warehouses.filter(warehouse => warehouse.status === 'active' && warehouse.is_active),
+        [warehouses]
+    );
+
+    const selectedDepartment = newDeptName
+        ? invDeptByName[newDeptName.toLowerCase()]
+        : undefined;
+    const existingDepartmentWarehouse = selectedDepartment
+        ? warehouses.find(warehouse =>
+            warehouse.department_id === selectedDepartment.id ||
+            warehouse.name.toLowerCase() === selectedDepartment.name.toLowerCase()
+        )
+        : undefined;
+
+    // Resolve an inventory department name to its UUID.
     // Uses the parent-supplied invDepts list (always fresh after onUpdate).
     // Only creates a new inventory_dept if genuinely missing.
     const resolveInvDeptId = async (name: string): Promise<string | null> => {
@@ -98,22 +94,37 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
         try {
             const department_id = newDeptName ? await resolveInvDeptId(newDeptName) : undefined;
 
+            if (existingDepartmentWarehouse?.status === 'active' && existingDepartmentWarehouse.is_active) {
+                throw new Error(`A store for "${newDeptName}" is already active.`);
+            }
+
+            const isReactivating = !!existingDepartmentWarehouse;
+            const shouldActivate = !!department_id;
             const res = await fetch('/api/admin/inventory/warehouses', {
-                method: 'POST',
+                method: isReactivating ? 'PATCH' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    ...(isReactivating ? { id: existingDepartmentWarehouse.id } : {}),
                     name: newName.trim(),
                     description: newDescription.trim(),
                     department_id,
                     type: 'DEPARTMENT',
-                    is_active: true,
+                    status: shouldActivate ? 'active' : 'inactive',
+                    is_active: shouldActivate,
                 }),
             });
 
             const data = await safeJson(res);
             if (data.error) throw new Error(data.error);
 
-            toast({ title: "Store Created", description: `Successfully added "${newName}" to your stores.` });
+            toast({
+                title: isReactivating ? "Store Reactivated" : "Store Created",
+                description: isReactivating
+                    ? `Successfully reactivated "${newName}".`
+                    : shouldActivate
+                        ? `Successfully added and activated "${newName}".`
+                        : `Successfully saved "${newName}" as an inactive store.`,
+            });
             setNewName('');
             setNewDescription('');
             setNewDeptName('');
@@ -125,52 +136,10 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
         }
     };
 
-
-    const handleLinkDepartment = async (warehouseId: string) => {
-        setSavingLink(warehouseId);
-        try {
-            const selectedName = linkingName[warehouseId] || '';
-            const department_id = selectedName ? await resolveInvDeptId(selectedName) : null;
-
-            // If another warehouse already holds this department_id, clear it first
-            // (unique constraint on inventory_warehouses.department_id)
-            if (department_id) {
-                const conflict = warehouses.find(wh => wh.id !== warehouseId && wh.department_id === department_id);
-                if (conflict) {
-                    await fetch('/api/admin/inventory/warehouses', {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: conflict.id, department_id: null }),
-                    });
-                }
-            }
-
-            const res = await fetch('/api/admin/inventory/warehouses', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: warehouseId, department_id }),
-            });
-            const data = await safeJson(res);
-            if (data.error) throw new Error(data.error);
-
-            toast({
-                title: "Department Linked",
-                description: selectedName
-                    ? `Storage unit linked to "${selectedName}".`
-                    : "Department link cleared.",
-            });
-            onUpdate();
-        } catch (error: any) {
-            toast({ variant: 'destructive', title: "Error", description: error.message || "Failed to save link." });
-        } finally {
-            setSavingLink(null);
-        }
-    };
-
     return (
         <div className="space-y-6 pt-2">
             {/* Create form */}
-            <form onSubmit={handleCreate} className="space-y-4 p-6 rounded-xl border bg-gradient-to-br from-primary/5 to-transparent">
+            <form onSubmit={handleCreate} className="hidden space-y-4 p-6 rounded-xl border bg-gradient-to-br from-primary/5 to-transparent">
                 <div className="flex items-center gap-2 mb-2">
                     <WarehouseIcon className="h-4 w-4 text-primary" />
                     <h3 className="text-sm font-bold uppercase tracking-wider text-primary">Provision New Store</h3>
@@ -183,7 +152,8 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                             placeholder="e.g., Main Stores, Wine Cellar"
                             value={newName}
                             onChange={(e) => setNewName(e.target.value)}
-                            className="bg-white/50"
+                            readOnly={!!newDeptName}
+                            className={newDeptName ? "bg-slate-100 cursor-not-allowed" : "bg-white/50"}
                             required
                         />
                     </div>
@@ -206,15 +176,27 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                             onValueChange={(val) => {
                                 const name = val === NONE ? '' : val;
                                 setNewDeptName(name);
-                                if (name) setNewName(name);
+                                if (!name) {
+                                    setNewName('');
+                                    setNewDescription('');
+                                    return;
+                                }
+
+                                const department = invDeptByName[name.toLowerCase()];
+                                const existingWarehouse = warehouses.find(warehouse =>
+                                    warehouse.department_id === department?.id ||
+                                    warehouse.name.toLowerCase() === name.toLowerCase()
+                                );
+                                setNewName(existingWarehouse?.name || name);
+                                setNewDescription(existingWarehouse?.description || '');
                             }}
                         >
                             <SelectTrigger className="bg-white/50">
-                                <SelectValue placeholder="Select HR department" />
+                                <SelectValue placeholder="Select inventory department" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value={NONE}>No department</SelectItem>
-                                {hrDepts.map(name => (
+                                {invDeptNames.map(name => (
                                     <SelectItem key={name} value={name}>{name}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -226,9 +208,30 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                         Store Name must match the linked department name. Please set Store Name to &ldquo;{newDeptName}&rdquo;.
                     </p>
                 )}
-                <Button type="submit" disabled={isSubmitting || !newName.trim() || (!!newDeptName && newName.trim() !== newDeptName)} className="w-full h-11 font-bold">
+                {existingDepartmentWarehouse && !(existingDepartmentWarehouse.status === 'active' && existingDepartmentWarehouse.is_active) && (
+                    <p className="text-xs text-amber-700 font-medium">
+                        An inactive store already exists for this department. Its saved details were loaded and it will be reactivated.
+                    </p>
+                )}
+                {existingDepartmentWarehouse?.status === 'active' && existingDepartmentWarehouse.is_active && (
+                    <p className="text-xs text-destructive font-medium">
+                        This department already has an active store.
+                    </p>
+                )}
+                <Button
+                    type="submit"
+                    disabled={
+                        isSubmitting ||
+                        !newName.trim() ||
+                        (!!newDeptName && newName.trim() !== newDeptName) ||
+                        (existingDepartmentWarehouse?.status === 'active' && existingDepartmentWarehouse.is_active)
+                    }
+                    className="w-full h-11 font-bold"
+                >
                     {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                    Initialize Warehouse Location
+                    {existingDepartmentWarehouse && !(existingDepartmentWarehouse.status === 'active' && existingDepartmentWarehouse.is_active)
+                        ? 'Reactivate Warehouse Location'
+                        : 'Initialize Warehouse Location'}
                 </Button>
             </form>
 
@@ -236,18 +239,16 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
             <div className="space-y-3">
                 <div className="flex items-center justify-between px-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Storage Units</h3>
-                    <Badge variant="secondary" className="text-[10px]">{warehouses.length} Total</Badge>
+                    <Badge variant="secondary" className="text-[10px]">{activeWarehouses.length} Total</Badge>
                 </div>
                 <div className="grid grid-cols-1 gap-3">
-                    {warehouses.length === 0 ? (
+                    {activeWarehouses.length === 0 ? (
                         <div className="p-8 text-center border border-dashed rounded-lg text-sm text-muted-foreground">
                             No active stores found.
                         </div>
                     ) : (
-                        warehouses.map((warehouse) => {
-                            const currentName = linkingName[warehouse.id] ?? warehouse.department?.name ?? '';
+                        activeWarehouses.map((warehouse) => {
                             const savedName = warehouse.department?.name ?? '';
-                            const isDirty = currentName !== savedName;
 
                             return (
                                 <div key={warehouse.id} className="p-4 bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow space-y-3">
@@ -263,7 +264,7 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                                                     {warehouse.is_main && (
                                                         <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-4">Main Store</Badge>
                                                     )}
-                                                    {savedName && !isDirty && (
+                                                    {savedName && (
                                                         <Badge variant="outline" className="text-[9px] h-4 text-primary border-primary/30 gap-1">
                                                             <Link2 className="h-2.5 w-2.5" />
                                                             {savedName}
@@ -291,40 +292,8 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                                         <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide w-32 shrink-0">
                                             Linked Department
                                         </span>
-                                        <div className="flex-1 flex items-center gap-2">
-                                            <Select
-                                                value={currentName || NONE}
-                                                onValueChange={(val) =>
-                                                    setLinkingName(prev => ({ ...prev, [warehouse.id]: val === NONE ? '' : val }))
-                                                }
-                                            >
-                                                <SelectTrigger className="h-8 text-xs font-medium bg-slate-50 border-slate-200 flex-1">
-                                                    <SelectValue placeholder="Not linked to any department" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value={NONE}>Not linked</SelectItem>
-                                                    {hrDepts.map(name => (
-                                                        <SelectItem key={name} value={name} className="text-xs">
-                                                            {name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <Button
-                                                size="sm"
-                                                variant={isDirty ? 'default' : 'outline'}
-                                                className="h-8 text-xs font-bold px-3 shrink-0"
-                                                onClick={() => handleLinkDepartment(warehouse.id)}
-                                                disabled={savingLink === warehouse.id || !isDirty}
-                                            >
-                                                {savingLink === warehouse.id ? (
-                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                ) : isDirty ? (
-                                                    <><CheckCircle2 className="h-3 w-3 mr-1" />Save</>
-                                                ) : (
-                                                    <><AlertCircle className="h-3 w-3 mr-1 text-muted-foreground" />Saved</>
-                                                )}
-                                            </Button>
+                                        <div className="flex-1 h-8 px-3 flex items-center rounded-md bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700">
+                                            {savedName || 'Not linked'}
                                         </div>
                                     </div>
                                 </div>

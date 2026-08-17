@@ -69,6 +69,39 @@ export async function POST(req: Request) {
     }
 }
 
+export async function PATCH(req: Request) {
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth_token')?.value;
+
+        if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        const user = await verifyToken(token);
+        if (!user || user.role !== 'admin') {
+            return NextResponse.json({ error: 'Admins only' }, { status: 403 });
+        }
+
+        const { id, status } = await req.json();
+        if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+        if (status !== 'active') {
+            return NextResponse.json({ error: 'Only department reactivation is supported' }, { status: 400 });
+        }
+
+        const { data, error } = await supabase
+            .from('inventory_departments')
+            .update({ status: 'active' })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // The department sync trigger reactivates its linked warehouse.
+        return NextResponse.json({ department: data, action: 'activated' }, { status: 200 });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
 export async function DELETE(request: Request) {
     try {
         const cookieStore = await cookies();
@@ -82,8 +115,57 @@ export async function DELETE(request: Request) {
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-        // 1. Perform soft delete (deactivate)
-        // Note: Stock check removed as hotel_inventory_items table was deleted.
+        const { data: linkedWarehouses, error: warehouseError } = await supabase
+            .from('inventory_warehouses')
+            .select('id')
+            .eq('department_id', id);
+
+        if (warehouseError) throw warehouseError;
+
+        const warehouseIds = (linkedWarehouses || []).map(warehouse => warehouse.id);
+        const referenceIds = Array.from(new Set([id, ...warehouseIds]));
+
+        const usageChecks = [
+            ...warehouseIds.map(warehouseId =>
+                supabase.from('inventory_stock').select('id').eq('warehouse_id', warehouseId).limit(1)
+            ),
+            supabase.from('inventory_transactions').select('id').in('department_id', referenceIds).limit(1),
+            supabase.from('inventory_transactions').select('id').in('from_department_id', referenceIds).limit(1),
+            supabase.from('inventory_transactions').select('id').in('to_department_id', referenceIds).limit(1),
+        ];
+
+        const usageResults = await Promise.all(usageChecks);
+        const usageError = usageResults.find(result => result.error)?.error;
+        if (usageError) throw usageError;
+
+        const isUsed = usageResults.some(result => (result.data?.length || 0) > 0);
+
+        if (!isUsed) {
+            const { error: deleteError } = await supabase
+                .from('inventory_departments')
+                .delete()
+                .eq('id', id);
+
+            if (!deleteError) {
+                // ON DELETE CASCADE normally removes these rows. Delete by the
+                // captured IDs as well so cleanup is guaranteed if the live
+                // database constraint differs from the migration definition.
+                if (warehouseIds.length > 0) {
+                    const { error: warehouseDeleteError } = await supabase
+                        .from('inventory_warehouses')
+                        .delete()
+                        .in('id', warehouseIds);
+
+                    if (warehouseDeleteError) throw warehouseDeleteError;
+                }
+
+                return NextResponse.json({ success: true, action: 'deleted' }, { status: 200 });
+            }
+
+            // An unknown dependent foreign key means the department is still in use.
+            if (deleteError.code !== '23503') throw deleteError;
+        }
+
         const { error: updateError } = await supabase
             .from('inventory_departments')
             .update({ status: 'inactive' })
@@ -91,7 +173,8 @@ export async function DELETE(request: Request) {
 
         if (updateError) throw updateError;
 
-        return NextResponse.json({ success: true }, { status: 200 });
+        // The department sync trigger deactivates its linked warehouse as well.
+        return NextResponse.json({ success: true, action: 'deactivated' }, { status: 200 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
