@@ -34,8 +34,8 @@ export const restaurantMenuItems: MenuItem[] = [
 export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management/warehouses', icon: Warehouse, label: 'Manage Store', roles: ['admin'] },
     { href: '/dashboard/inventory-management/add-item', icon: PackagePlus, label: 'Add New Item', roles: ['admin'] },
-    { href: '/dashboard/inventory-requests', icon: Boxes, label: 'Inventory Requests', roles: ['admin'] },
-    { href: '/dashboard/inventory-requests/history', icon: History, label: 'Inventory Approvals', roles: ['admin'] },
+    { href: '/dashboard/inventory-requests', icon: Boxes, label: 'MRN Requests', roles: ['admin'] },
+    { href: '/dashboard/inventory-requests/history', icon: History, label: 'MRN Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-cash-requests', icon: Wallet, label: 'Cash Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-cash-approvals', icon: CheckSquare, label: 'Cash Approvals', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },

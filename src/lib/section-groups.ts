@@ -31,8 +31,8 @@ export const APP_SECTION_GROUPS = [
     sections: [
       { path: '/dashboard/inventory-management/warehouses', label: 'Manage Store' },
       { path: '/dashboard/inventory-management/add-item', label: 'Add New Item' },
-      { path: '/dashboard/inventory-requests', label: 'Inventory Requests' },
-      { path: '/dashboard/inventory-requests/history', label: 'Inventory Approvals' },
+      { path: '/dashboard/inventory-requests', label: 'MRN Requests' },
+      { path: '/dashboard/inventory-requests/history', label: 'MRN Approvals' },
       { path: '/dashboard/inventory-cash-requests', label: 'Cash Requests' },
       { path: '/dashboard/inventory-cash-approvals', label: 'Cash Approvals' },
       { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },

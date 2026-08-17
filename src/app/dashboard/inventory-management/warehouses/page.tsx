@@ -182,7 +182,7 @@ export default function WarehouseManagementPage() {
                     <Badge variant="secondary" className="text-[10px]">{invDepts.length} total</Badge>
                 </div>
                 <p className="text-sm text-muted-foreground -mt-2">
-                    Departments available in the Stock Request Portal. Link each one to a Storage Unit below.
+                    Departments available in MRN Requests. Link each one to a Storage Unit below.
                 </p>
 
                 <div className="flex gap-3">

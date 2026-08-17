@@ -389,7 +389,7 @@ export async function PUT(request: Request) {
                 userData.permissions.includes('/dashboard/inventory-requests');
 
             if (!hasPermission) {
-                return NextResponse.json({ error: 'Forbidden. You do not have permission to update inventory requests.' }, { status: 403 });
+                return NextResponse.json({ error: 'Forbidden. You do not have permission to update MRN requests.' }, { status: 403 });
             }
         }
 

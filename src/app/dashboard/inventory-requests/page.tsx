@@ -5,8 +5,8 @@ import StockRequestPortal from '@/components/dashboard/inventory/stock-request-p
 export default function NewInventoryRequestPage() {
     return (
         <StockRequestPortal
-            title="Stock Request Portal"
-            descriptionText="Request items from the Main Store or view your department's inventory status."
+            title="MRN Requests"
+            descriptionText="Create a Material Requisition Note (MRN) for items from the Main Store or view your department's inventory status."
         />
     );
 }

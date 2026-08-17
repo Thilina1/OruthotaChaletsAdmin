@@ -182,7 +182,7 @@ export default function InventoryRequestHistoryPage() {
         return (
             <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-muted-foreground font-medium animate-pulse">Loading Inventory Approvals & Transfers...</p>
+                <p className="text-muted-foreground font-medium animate-pulse">Loading MRN Approvals & Transfers...</p>
             </div>
         );
     }
@@ -203,12 +203,12 @@ export default function InventoryRequestHistoryPage() {
                             Back
                         </Button>
                         <Badge variant="outline" className="bg-primary/10 border-primary/20 text-primary px-4 py-1 rounded-full font-black text-[10px] uppercase tracking-widest">
-                            Inventory Approvals & Transfers
+                            MRN Approvals & Transfers
                         </Badge>
                     </div>
-                    <h1 className="text-3xl font-black mb-2 tracking-tight">Inventory Approvals & Transfers</h1>
+                    <h1 className="text-3xl font-black mb-2 tracking-tight">MRN Approvals & Transfers</h1>
                     <p className="text-lg text-slate-400 max-w-2xl font-medium leading-tight">
-                        Track and manage all stock requests across departments.
+                        Track and manage all Material Requisition Note requests across departments.
                     </p>
                 </div>
             </div>

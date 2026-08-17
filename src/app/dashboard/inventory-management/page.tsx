@@ -168,7 +168,7 @@ export default function InventoryManagementPage() {
 
       toast({
         title: "Request Submitted",
-        description: "Your inventory request has been sent for approval.",
+        description: "Your MRN request has been sent for approval.",
       });
 
       setIsRequestDialogOpen(false);
@@ -238,7 +238,7 @@ export default function InventoryManagementPage() {
             </Button>
           </Link>
           <Button onClick={() => setIsRequestDialogOpen(true)} variant="outline">
-            Request Products
+            Create MRN Request
           </Button>
         </div>
       </div>
@@ -471,7 +471,7 @@ export default function InventoryManagementPage() {
           onInteractOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>Request Inventory Products</DialogTitle>
+            <DialogTitle>Create MRN Request</DialogTitle>
           </DialogHeader>
           <InventoryRequestForm
             items={items as any}

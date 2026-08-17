@@ -88,12 +88,12 @@ export default function SimpleHistoryPage() {
                             Back
                         </Button>
                         <Badge variant="outline" className="bg-primary/10 border-primary/20 text-primary px-4 py-1 rounded-full font-black text-[10px] uppercase tracking-widest">
-                            Stock Request History
+                            MRN Request History
                         </Badge>
                     </div>
-                    <h1 className="text-5xl font-black mb-4 tracking-tight">Request History</h1>
+                    <h1 className="text-5xl font-black mb-4 tracking-tight">MRN Request History</h1>
                     <p className="text-xl text-slate-400 max-w-2xl font-medium leading-relaxed">
-                        View the status of your department's stock requests.
+                        View the status of your department's Material Requisition Note requests.
                     </p>
                 </div>
             </div>
