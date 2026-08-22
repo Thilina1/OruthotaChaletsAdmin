@@ -365,7 +365,7 @@ function StockOverviewContent() {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-6 shrink-0 w-full sm:auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-50">
+                    <div className="flex items-center gap-6 shrink-0 w-full sm:w-auto sm:ml-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-50">
                       <div className="flex flex-col items-center sm:items-end gap-1">
                         {item.batches && item.batches.length > 0 && (
                           <span className={cn("text-[10px] font-bold px-1", 
@@ -387,8 +387,8 @@ function StockOverviewContent() {
                         </Badge>
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <div className="text-right min-w-[60px]">
+                      <div className="flex items-center gap-4 ml-auto sm:pl-8">
+                        <div className="text-right min-w-[76px] sm:pr-1">
                           <div className="text-xl font-black text-slate-900 leading-none">
                             {item.local_stock}
                           </div>

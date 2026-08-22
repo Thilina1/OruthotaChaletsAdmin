@@ -135,12 +135,12 @@ export default function WaiterDashboard() {
 
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div className="space-y-2">
-                           <label className="text-[10px] uppercase tracking-widest text-white/40 font-black ml-4">Email Address</label>
+                           <label className="text-[10px] uppercase tracking-widest text-white/40 font-black ml-4">Email or Employee Number</label>
                            <div className="relative">
                               <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-white/30" />
                               <Input 
-                                 type="email" 
-                                 placeholder="waiter@resort.com"
+                                 type="text"
+                                 placeholder="waiter@resort.com or 0001"
                                  className="h-14 pl-12 bg-white/5 border-white/10 text-white rounded-2xl focus:ring-primary/40 focus:border-primary"
                                  value={loginData.email}
                                  onChange={(e) => setLoginData({...loginData, email: e.target.value})}

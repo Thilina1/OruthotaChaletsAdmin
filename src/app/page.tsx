@@ -35,7 +35,7 @@ import { Logo } from "@/components/icons";
 import Link from "next/link";
 
 const formSchema = z.object({
-  email: z.string().email({ message: "Invalid email address." }),
+  email: z.string().min(1, { message: "Email or employee number is required." }),
   password: z.string().min(1, { message: "Password is required." }),
 });
 
@@ -159,12 +159,12 @@ export default function LoginPage() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Email Address</FormLabel>
+                    <FormLabel className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Email or Employee Number</FormLabel>
                     <FormControl>
                       <div className="relative">
                         <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground transition-colors group-focus-within:text-primary" />
                         <Input
-                          placeholder="e.g. admin@example.com"
+                          placeholder="e.g. admin@example.com or 0001"
                           {...field}
                           className="h-12 pl-12 bg-muted/50 border-transparent focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all rounded-xl"
                         />

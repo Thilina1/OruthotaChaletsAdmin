@@ -19,11 +19,14 @@ type Liability = {
 const money = (value: number | null | undefined) =>
     value == null ? '—' : `Rs ${Number(value).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const ROWS_PER_PAGE = 20;
+
 export function CreditLiabilitiesPanel() {
     const [liabilities, setLiabilities] = useState<Liability[]>([]);
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState<Liability | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'outstanding' | 'settled'>('outstanding');
+    const [currentPage, setCurrentPage] = useState(1);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -72,6 +75,16 @@ export function CreditLiabilitiesPanel() {
         if (statusFilter === 'settled') return settled;
         return liabilities;
     }, [liabilities, outstanding, settled, statusFilter]);
+    const totalPages = Math.max(1, Math.ceil(displayedLiabilities.length / ROWS_PER_PAGE));
+    const paginatedLiabilities = useMemo(() => {
+        const start = (currentPage - 1) * ROWS_PER_PAGE;
+        return displayedLiabilities.slice(start, start + ROWS_PER_PAGE);
+    }, [displayedLiabilities, currentPage]);
+
+    useEffect(() => { setCurrentPage(1); }, [statusFilter]);
+    useEffect(() => {
+        if (currentPage > totalPages) setCurrentPage(totalPages);
+    }, [currentPage, totalPages]);
 
     return (
         <>
@@ -98,7 +111,7 @@ export function CreditLiabilitiesPanel() {
                     {loading ? <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div> : liabilities.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No credit liabilities found.</div> : displayedLiabilities.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No {statusFilter} credit liabilities found.</div> : (
                         <div className="overflow-x-auto"><Table><TableHeader><TableRow>
                             <TableHead>Source</TableHead><TableHead>Reference</TableHead><TableHead>Related PO</TableHead><TableHead>Supplier</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Status</TableHead><TableHead>Settled On</TableHead><TableHead className="text-right">Details</TableHead>
-                        </TableRow></TableHeader><TableBody>{displayedLiabilities.map(item => (
+                        </TableRow></TableHeader><TableBody>{paginatedLiabilities.map(item => (
                             <TableRow key={item.id}>
                                 <TableCell><Badge variant="outline" className="text-[10px]">{item.kind === 'po' ? 'Credit PO' : 'Direct Credit GRN'}</Badge></TableCell>
                                 <TableCell className="font-mono text-xs font-bold">{item.reference}</TableCell><TableCell className="font-mono text-xs">{item.relatedPO || '—'}</TableCell>
@@ -107,7 +120,16 @@ export function CreditLiabilitiesPanel() {
                                 <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{item.settledAt ? format(new Date(item.settledAt), 'dd MMM yyyy, HH:mm') : '—'}</TableCell>
                                 <TableCell className="text-right"><Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => setSelected(item)}><Eye className="h-3 w-3" /> View</Button></TableCell>
                             </TableRow>
-                        ))}</TableBody></Table></div>
+                        ))}</TableBody></Table>
+                            <div className="flex flex-col gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                                <span>Showing {(currentPage - 1) * ROWS_PER_PAGE + 1}–{Math.min(currentPage * ROWS_PER_PAGE, displayedLiabilities.length)} of {displayedLiabilities.length} liabilities</span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" size="sm" className="h-8 text-xs" disabled={currentPage === 1} onClick={() => setCurrentPage(page => Math.max(1, page - 1))}>Previous</Button>
+                                    <span className="min-w-20 text-center font-medium">Page {currentPage} of {totalPages}</span>
+                                    <Button variant="outline" size="sm" className="h-8 text-xs" disabled={currentPage === totalPages} onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}>Next</Button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
             </Card>

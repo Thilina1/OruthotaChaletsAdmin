@@ -8,6 +8,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  employee_number?: string;
   role: UserRole;
   created_at?: string;
   phone_number?: string;
@@ -133,6 +134,8 @@ export type OrderItem = {
   name: string;
   price: number;
   quantity: number;
+  prepared_quantity?: number;
+  served_quantity?: number;
   kitchen_status?: 'pending' | 'preparing' | 'ready' | 'done';
   prepared_by?: string;
   prepared_at?: string;

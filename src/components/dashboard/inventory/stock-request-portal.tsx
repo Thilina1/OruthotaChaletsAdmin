@@ -54,9 +54,12 @@ interface StockRequestPortalProps {
     /** Locks the Active Department picker to the department whose name matches
      * this (case-insensitive), even for admins. Omit for the generic, any-department portal. */
     lockedDepartmentName?: string;
+    requestSections?: readonly string[];
 }
 
-export default function StockRequestPortal({ title, descriptionText, badgeLabel = 'Inventory Management', lockedDepartmentName }: StockRequestPortalProps) {
+const ITEMS_PER_PAGE = 20;
+
+export default function StockRequestPortal({ title, descriptionText, badgeLabel = 'Inventory Management', lockedDepartmentName, requestSections }: StockRequestPortalProps) {
     const router = useRouter();
     const { toast } = useToast();
     const { user, hasRole } = useUserContext();
@@ -87,6 +90,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     const [selectedDeptId, setSelectedDeptId] = useState<string>('');
     const [inventoryItems, setInventoryItems] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
 
     // Request Creation State
     const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -94,6 +98,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     const [requestQuantity, setRequestQuantity] = useState('');
     const [requestNotes, setRequestNotes] = useState('');
     const [sourceDeptId, setSourceDeptId] = useState<string>('');
+    const [selectedRequestSection, setSelectedRequestSection] = useState(requestSections?.[0] || '');
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -191,6 +196,20 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
         }).filter((item): item is any => item !== null);
     }, [inventoryItems, searchQuery, selectedDeptId]);
 
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+    const paginatedItems = useMemo(() => {
+        const start = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredItems.slice(start, start + ITEMS_PER_PAGE);
+    }, [filteredItems, currentPage]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, selectedDeptId]);
+
+    useEffect(() => {
+        if (currentPage > totalPages) setCurrentPage(totalPages);
+    }, [currentPage, totalPages]);
+
     const handleOpenRequest = (item: any) => {
         setSelectedItem(item);
         setRequestQuantity('');
@@ -217,7 +236,8 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                     requesting_department_id: selectedDeptId,
                     requesting_department_name: selectedDeptName,
                     source_warehouse_id: sourceDeptId,
-                    source_warehouse_name: sourceDept?.name || 'Store'
+                    source_warehouse_name: sourceDept?.name || 'Store',
+                    ...(selectedRequestSection ? { request_section: selectedRequestSection } : {}),
                 }
             };
 
@@ -318,6 +338,24 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                             </span>
                         </div>
                     )}
+                    {requestSections && requestSections.length > 0 && (
+                        <div className="space-y-2 pt-3">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Kitchen Request Section</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {requestSections.map(section => (
+                                    <Button
+                                        key={section}
+                                        type="button"
+                                        variant={selectedRequestSection === section ? 'default' : 'outline'}
+                                        className="h-9 text-xs font-bold"
+                                        onClick={() => setSelectedRequestSection(section)}
+                                    >
+                                        {section}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div className="lg:col-span-2 space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Find Items</label>
@@ -342,7 +380,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                     </Badge>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    <Table>
+                    <Table className="text-xs">
                         <TableHeader className="bg-slate-50/50">
                             <TableRow className="hover:bg-transparent border-slate-100">
                                 <TableHead className="py-6 pl-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Item Details</TableHead>
@@ -353,22 +391,22 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filteredItems.map((item) => (
+                            {paginatedItems.map((item) => (
                                 <React.Fragment key={item.id}>
                                     <TableRow
                                         className="group bg-slate-50/50 hover:bg-slate-100/60 transition-colors border-slate-100 cursor-pointer"
                                         onClick={() => toggleRowExpand(item.id)}
                                     >
-                                        <TableCell className="py-5 pl-8" colSpan={3}>
+                                        <TableCell className="py-3 pl-6" colSpan={3}>
                                             <div className="flex items-center gap-3">
                                                 <div className="text-slate-400 shrink-0">
                                                     {expandedRows[item.id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                                 </div>
-                                                <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-primary/5 group-hover:border-primary/20 transition-all shrink-0">
-                                                    <Package className="h-6 w-6 text-slate-300 group-hover:text-primary transition-colors" />
+                                                <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-primary/5 group-hover:border-primary/20 transition-all shrink-0">
+                                                    <Package className="h-4 w-4 text-slate-300 group-hover:text-primary transition-colors" />
                                                 </div>
                                                 <div className="flex flex-col">
-                                                    <span className="font-black text-slate-800 text-lg tracking-tight">{item.name}</span>
+                                                    <span className="font-black text-slate-800 text-sm tracking-tight">{item.name}</span>
                                                     <div className="flex items-center gap-2 mt-0.5">
                                                         <Badge variant="outline" className="font-black text-[10px] uppercase tracking-widest bg-slate-50 text-slate-400 border-slate-200">
                                                             {item.code}
@@ -380,7 +418,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col">
-                                                <span className={cn("text-2xl font-black", item.local_stock > 0 ? "text-slate-800" : "text-slate-300")}>{item.local_stock}</span>
+                                                <span className={cn("text-base font-black", item.local_stock > 0 ? "text-slate-800" : "text-slate-300")}>{item.local_stock}</span>
                                                 <span className={cn("text-[10px] font-black uppercase tracking-widest", item.local_stock > 0 ? "text-emerald-500" : "text-slate-400")}>
                                                     {item.local_stock > 0 ? 'In Stock' : 'Out of Stock'}
                                                 </span>
@@ -388,7 +426,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                         </TableCell>
                                         <TableCell className="text-right pr-8">
                                             <Button
-                                                className="rounded-2xl font-black text-xs h-12 px-8 gap-2 shadow-lg shadow-primary/10 hover:shadow-primary/20 transition-all"
+                                                className="rounded-xl font-black text-[11px] h-9 px-4 gap-2 shadow-sm shadow-primary/10 hover:shadow-primary/20 transition-all"
                                                 onClick={(e) => { e.stopPropagation(); handleOpenRequest(item); }}
                                             >
                                                 <Send className="h-4 w-4" />
@@ -446,6 +484,36 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                             )}
                         </TableBody>
                     </Table>
+                    {filteredItems.length > 0 && (
+                        <div className="flex flex-col gap-3 border-t border-slate-100 px-6 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                            <span>
+                                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredItems.length)} of {filteredItems.length} items
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    disabled={currentPage === 1}
+                                    onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+                                >
+                                    Previous
+                                </Button>
+                                <span className="min-w-20 text-center font-semibold text-slate-600">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    disabled={currentPage === totalPages}
+                                    onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+                                >
+                                    Next
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -475,6 +543,11 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Requesting Item</p>
                                     <h4 className="text-xl font-black text-slate-800 leading-tight">{selectedItem.name}</h4>
                                     <p className="text-xs font-bold text-slate-500 mt-1">{selectedItem.code} • {selectedItem.unit?.name}</p>
+                                    {selectedRequestSection && (
+                                        <Badge variant="outline" className="mt-2 border-primary/30 bg-primary/5 text-[10px] text-primary">
+                                            {selectedRequestSection}
+                                        </Badge>
+                                    )}
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">In Stock</p>

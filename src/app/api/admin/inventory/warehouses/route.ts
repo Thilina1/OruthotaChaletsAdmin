@@ -120,6 +120,24 @@ export async function PATCH(req: Request) {
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
+        if (updates.is_main === true) {
+            const { data: existingMain, error: mainLookupError } = await supabase
+                .from('inventory_warehouses')
+                .select('id, name')
+                .eq('is_main', true)
+                .neq('id', id)
+                .limit(1)
+                .maybeSingle();
+
+            if (mainLookupError) throw mainLookupError;
+            if (existingMain) {
+                return NextResponse.json(
+                    { error: `“${existingMain.name}” is already the Main Store. Unmark it before selecting another one.` },
+                    { status: 409 }
+                );
+            }
+        }
+
         const { data, error } = await supabase
             .from('inventory_warehouses')
             .update({

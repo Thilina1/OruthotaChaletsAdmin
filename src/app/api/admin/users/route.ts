@@ -10,8 +10,21 @@ const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { searchParams } = new URL(request.url);
+        const id = searchParams.get('id');
+
+        if (id) {
+            const { data: user, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', id)
+                .single();
+            if (error) throw error;
+            return NextResponse.json({ user });
+        }
+
         const { data: users, error } = await supabase
             .from('users')
             .select('*')

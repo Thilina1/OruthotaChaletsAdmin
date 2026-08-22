@@ -9,6 +9,7 @@ export default function KitchenInventoryRequestPage() {
             descriptionText="Request items from the Main Store for the Kitchen."
             badgeLabel="Kitchen"
             lockedDepartmentName="kitchen"
+            requestSections={['Staff', 'Function', 'A la carte', 'Room guest']}
         />
     );
 }

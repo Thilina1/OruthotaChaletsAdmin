@@ -15,11 +15,22 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface StoreManagementProps {
     warehouses: InventoryWarehouse[];
     invDepts: { id: string; name: string }[];
-    onUpdate: () => void;
+    onUpdate: () => Promise<void>;
 }
 
 const NONE = '__none__';
@@ -35,6 +46,8 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [newName, setNewName] = useState('');
     const [newDescription, setNewDescription] = useState('');
+    const [updatingMainId, setUpdatingMainId] = useState<string | null>(null);
+    const [pendingMainRemoval, setPendingMainRemoval] = useState<InventoryWarehouse | null>(null);
     // Inventory department name chosen for new warehouse
     const [newDeptName, setNewDeptName] = useState('');
 
@@ -56,6 +69,7 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
         () => warehouses.filter(warehouse => warehouse.status === 'active' && warehouse.is_active),
         [warehouses]
     );
+    const mainWarehouse = activeWarehouses.find(warehouse => warehouse.is_main);
 
     const selectedDepartment = newDeptName
         ? invDeptByName[newDeptName.toLowerCase()]
@@ -128,11 +142,40 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
             setNewName('');
             setNewDescription('');
             setNewDeptName('');
-            onUpdate();
+            await onUpdate();
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message || "Failed to create store." });
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleMainStoreChange = async (warehouse: InventoryWarehouse, checked: boolean) => {
+        setUpdatingMainId(warehouse.id);
+        try {
+            const res = await fetch('/api/admin/inventory/warehouses', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: warehouse.id, is_main: checked }),
+            });
+            const data = await safeJson(res);
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed to update the main store.');
+
+            await onUpdate();
+            toast({
+                title: checked ? 'Main Store Selected' : 'Main Store Unmarked',
+                description: checked
+                    ? `“${warehouse.name}” is now the Main Store.`
+                    : `“${warehouse.name}” is no longer the Main Store.`,
+            });
+        } catch (error: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.message || 'Failed to update the main store.',
+            });
+        } finally {
+            setUpdatingMainId(null);
         }
     };
 
@@ -277,6 +320,35 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-3">
+                                            <label
+                                                className={`flex items-center gap-2 text-xs font-semibold ${
+                                                    !warehouse.is_main && mainWarehouse
+                                                        ? 'text-slate-400 cursor-not-allowed'
+                                                        : 'text-slate-700 cursor-pointer'
+                                                }`}
+                                                title={!warehouse.is_main && mainWarehouse
+                                                    ? `Unmark “${mainWarehouse.name}” before selecting another Main Store.`
+                                                    : 'Mark this storage unit as the Main Store'
+                                                }
+                                            >
+                                                {updatingMainId === warehouse.id ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    <Checkbox
+                                                        checked={warehouse.is_main}
+                                                        disabled={!!updatingMainId || (!warehouse.is_main && !!mainWarehouse)}
+                                                        onCheckedChange={(checked) => {
+                                                            if (checked === true) {
+                                                                handleMainStoreChange(warehouse, true);
+                                                            } else {
+                                                                setPendingMainRemoval(warehouse);
+                                                            }
+                                                        }}
+                                                        aria-label={`Set ${warehouse.name} as Main Store`}
+                                                    />
+                                                )}
+                                                Main Store
+                                            </label>
                                             <div className="text-right hidden sm:block mr-2">
                                                 <div className="text-[10px] font-bold text-muted-foreground uppercase">Status</div>
                                                 <div className={`text-xs font-bold ${warehouse.is_active ? 'text-emerald-600' : 'text-slate-400'}`}>
@@ -302,6 +374,40 @@ export function StoreManagement({ warehouses, invDepts, onUpdate }: StoreManagem
                     )}
                 </div>
             </div>
+
+            <AlertDialog
+                open={!!pendingMainRemoval}
+                onOpenChange={(open) => !open && setPendingMainRemoval(null)}
+            >
+                <AlertDialogContent className="rounded-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove Main Store designation?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {pendingMainRemoval
+                                ? `“${pendingMainRemoval.name}” will no longer be the Main Store. Some inventory operations require a Main Store, so select another one afterward.`
+                                : 'This storage unit will no longer be the Main Store.'
+                            }
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                if (!pendingMainRemoval) return;
+                                const warehouse = pendingMainRemoval;
+                                setPendingMainRemoval(null);
+                                handleMainStoreChange(warehouse, false);
+                            }}
+                        >
+                            Remove Main Store
+                        </AlertDialogAction>
+                        <AlertDialogCancel className="bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:text-white">
+                            Keep as Main Store
+                        </AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
         </div>
     );

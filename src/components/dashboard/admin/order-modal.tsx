@@ -56,6 +56,13 @@ import { useUserContext } from '@/context/user-context';
 type ChargeEntry = { id: string; name: string; type: 'percentage' | 'fixed'; value: number; enabled: boolean };
 type BillingCfg = { vat: { enabled: boolean; rate: number }; service_charges: ChargeEntry[]; other_charges: ChargeEntry[] };
 
+const KITCHEN_STATUS: Record<string, { label: string; className: string }> = {
+  pending: { label: 'Waiting for kitchen', className: 'border-slate-300 bg-slate-50 text-slate-600' },
+  preparing: { label: 'Preparing', className: 'border-amber-300 bg-amber-50 text-amber-700' },
+  ready: { label: 'Prepared · Ready', className: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+  done: { label: 'Served / Done', className: 'border-blue-300 bg-blue-50 text-blue-700' },
+};
+
 interface OrderModalProps {
   table: TableType;
   isOpen: boolean;
@@ -82,6 +89,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [customerMobile, setCustomerMobile] = useState('');
   const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
+  const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
 
   // Fetch logic
   const fetchData = useCallback(async () => {
@@ -227,7 +235,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     const channel = supabase.channel(`admin-order-${openOrder.id}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'order_items', filter: `order_id=eq.${openOrder.id}` },
-        () => { fetchData(); }
+        (payload: any) => {
+          if (payload.eventType === 'UPDATE' && payload.new?.id) {
+            setOrderItems(current => current.map(item => item.id === payload.new.id
+              ? { ...item, ...payload.new }
+              : item));
+            return;
+          }
+          // Inserts and deletes change the list shape and still need a full refresh.
+          fetchData();
+        }
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${openOrder.id}` },
@@ -308,6 +325,22 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     await supabase.from('orders').update({ customer_mobile: customerMobile }).eq('id', openOrder.id);
   };
 
+  const handlePresentedToggle = async (item: OrderItem) => {
+    const isPresented = (item.served_quantity ?? 0) >= item.quantity;
+    const nextServed = isPresented ? 0 : item.quantity;
+
+    setUpdatingPresentedItemId(item.id);
+    try {
+      const { error } = await supabase.from('order_items').update({ served_quantity: nextServed }).eq('id', item.id);
+      if (error) throw error;
+      setOrderItems(current => current.map(existing => existing.id === item.id ? { ...existing, served_quantity: nextServed } : existing));
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Update Failed', description: error?.message || 'Could not update presentation status.' });
+    } finally {
+      setUpdatingPresentedItemId(null);
+    }
+  };
+
   const handleAddItemsToBill = async () => {
     if (!table || !currentUser || Object.keys(localOrder).length === 0) return;
 
@@ -352,7 +385,13 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             .eq('price', itemPrice);
 
           if (existingItems && existingItems.length > 0) {
-            await supabase.from('order_items').update({ quantity: existingItems[0].quantity + quantityToAdd }).eq('id', existingItems[0].id);
+            const existingItem = existingItems[0];
+            const quantityUpdate: Record<string, any> = { quantity: existingItem.quantity + quantityToAdd };
+            if (menuItem.stock_type === 'Non-Inventoried' && ['ready', 'done'].includes(existingItem.kitchen_status)) {
+              quantityUpdate.kitchen_status = 'preparing';
+              quantityUpdate.prepared_at = null;
+            }
+            await supabase.from('order_items').update(quantityUpdate).eq('id', existingItem.id);
           } else {
             await supabase.from('order_items').insert([{
               order_id: currentOrderId,
@@ -439,7 +478,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
 
     try {
-      await supabase.from('order_items').update({ quantity: newQuantity }).eq('id', item.id);
+      const quantityUpdate: Record<string, any> = { quantity: newQuantity };
+      if (menuItem?.stock_type === 'Non-Inventoried') {
+        quantityUpdate.prepared_quantity = Math.min(item.prepared_quantity ?? 0, newQuantity);
+        quantityUpdate.served_quantity = Math.min(item.served_quantity ?? 0, newQuantity);
+        if (delta > 0 && ['ready', 'done'].includes(item.kitchen_status || 'pending')) {
+          quantityUpdate.kitchen_status = 'preparing';
+          quantityUpdate.prepared_at = null;
+        }
+      }
+      await supabase.from('order_items').update(quantityUpdate).eq('id', item.id);
 
       if (menuItem && menuItem.stock_type === 'Inventoried') {
         const adjustment = delta;
@@ -566,38 +614,38 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[90vh] flex flex-col overflow-hidden p-0">
+      <DialogContent className="max-w-6xl h-[90vh] flex flex-col overflow-hidden p-0">
         <DialogHeader className="flex-shrink-0 p-6 pb-0">
           <DialogTitle>Table {table?.table_number} - Order</DialogTitle>
         </DialogHeader>
 
         {/* Grid container: using min-h-0 & flex-1 to allow children to size correctly */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 items-start flex-1 min-h-0 p-6 pt-2">
+        <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6 items-start flex-1 min-h-0 p-6 pt-2">
           {/* Menu Card */}
-          <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle>Menu</CardTitle>
-              <CardDescription>Select items to add to the order.</CardDescription>
+          <Card className="lg:col-span-3 h-full flex flex-col overflow-hidden">
+            <CardHeader className="flex-shrink-0 p-4 pb-3">
+              <CardTitle className="text-base">Menu</CardTitle>
+              <CardDescription className="text-xs">Select items to add to the order.</CardDescription>
 
-              <div className="flex gap-2 items-center flex-wrap mt-3">
+              <div className="flex gap-2 items-center flex-wrap mt-2">
                 <div className="relative flex-grow min-w-[200px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input
                     placeholder="Search menu..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 w-full"
+                    className="h-8 pl-8 w-full text-xs"
                   />
                 </div>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline">{selectedCategory || 'All Categories'}</Button>
+                    <Button variant="outline" size="sm" className="h-8 max-w-[180px] truncate px-3 text-xs">{selectedCategory || 'All Categories'}</Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onSelect={() => setSelectedCategory(null)}>All Categories</DropdownMenuItem>
+                  <DropdownMenuContent className="max-h-64 overflow-y-auto text-xs">
+                    <DropdownMenuItem className="py-1.5 text-xs" onSelect={() => setSelectedCategory(null)}>All Categories</DropdownMenuItem>
                     {menuCategories.map((cat) => (
-                      <DropdownMenuItem key={cat} onSelect={() => setSelectedCategory(cat)}>{cat}</DropdownMenuItem>
+                      <DropdownMenuItem className="py-1.5 text-xs" key={cat} onSelect={() => setSelectedCategory(cat)}>{cat}</DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -606,7 +654,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden">
+            <CardContent className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
               {/* ScrollArea must fill the remaining height */}
               <ScrollArea className="h-full pr-4">
                 <div className="space-y-2">
@@ -620,26 +668,26 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                       const effectiveStock = (item as any).restaurant_stock ?? item.stock ?? 0;
                       const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
                       return (
-                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted">
-                          <div className="flex items-center gap-4">
-                            <div className="relative w-16 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
+                        <div key={item.id} className="flex items-center justify-between gap-3 p-1.5 rounded-lg hover:bg-muted">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="relative w-12 h-12 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
                               {fallbackImage ? (
                                 <Image src={fallbackImage.imageUrl} alt={item.name} fill className="object-cover" />
                               ) : (
-                                <Utensils className="h-8 w-8 text-muted-foreground" />
+                                <Utensils className="h-5 w-5 text-muted-foreground" />
                               )}
                             </div>
 
                             <div>
-                              <p className="font-semibold">{item.name}</p>
+                              <p className="truncate text-sm font-semibold">{item.name}</p>
                               {item.stock_type === 'Inventoried' ? (() => {
                                 const batches: any[] = (item as any).available_batches ?? [];
                                 const prices = [...new Set(batches.map((b: any) => b.selling_price).filter((p: any) => p != null && p > 0))] as number[];
-                                if (prices.length === 0) return <p className="text-sm text-muted-foreground">Price by batch</p>;
+                                if (prices.length === 0) return <p className="text-xs text-muted-foreground">Price by batch</p>;
                                 const min = Math.min(...prices); const max = Math.max(...prices);
-                                return <p className="text-sm text-muted-foreground">LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</p>;
+                                return <p className="text-xs text-muted-foreground">LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</p>;
                               })() : (
-                                <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
+                                <p className="text-xs text-muted-foreground">LKR {item.price.toFixed(2)}</p>
                               )}
                               {item.stock_type === 'Inventoried' && (
                                 <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>Stock: {effectiveStock - currentCountInCart}</p>
@@ -647,8 +695,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             </div>
                           </div>
 
-                          <Button size="sm" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add
+                          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock}>
+                            <PlusCircle className="mr-1 h-3.5 w-3.5" /> Add
                           </Button>
                         </div>
                       );
@@ -662,7 +710,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
           </Card>
 
           {/* Current Bill Card */}
-          <Card className="h-full flex flex-col overflow-hidden sticky top-0">
+          <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden sticky top-0">
             <CardHeader className="flex-shrink-0">
               <CardTitle className="flex items-center">
                 <ShoppingCart className="mr-2" /> Current Bill
@@ -701,30 +749,47 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     {isLoading ? (
                       <Skeleton className="h-16 w-full" />
                     ) : orderItems && orderItems.length > 0 ? (
-                      orderItems.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center text-sm bg-secondary/20 p-2 rounded-md">
-                          <div className="flex-1">
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
-                          </div>
-                          {isBilled ? (
-                            <span className="text-sm font-medium ml-2">× {item.quantity}</span>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
-                                <MinusCircle className="h-3 w-3" />
-                              </Button>
-                              <span className="w-4 text-center font-bold">{item.quantity}</span>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
-                                <PlusCircle className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}>
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                      orderItems.map((item) => {
+                        const menuItem = menuItems.find(menu => menu.id === item.menu_item_id);
+                        const kitchenStatus = KITCHEN_STATUS[item.kitchen_status || 'pending'];
+                        const needsKitchenPreparation = menuItem?.stock_type === 'Non-Inventoried';
+                        const preparedQuantity = item.kitchen_status === 'ready' || item.kitchen_status === 'done'
+                          ? item.quantity
+                          : Math.min(item.quantity, item.prepared_quantity ?? 0);
+                        const isFullyPrepared = needsKitchenPreparation && preparedQuantity >= item.quantity;
+                        const isPresented = (item.served_quantity ?? 0) >= item.quantity;
+
+                        return (
+                          <div key={item.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${isFullyPrepared ? 'bg-emerald-50 border-emerald-200' : 'bg-secondary/20 border-transparent'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className={`font-medium flex items-center gap-1.5 ${isFullyPrepared ? 'text-emerald-800' : ''}`}>
+                                {isFullyPrepared && <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                {item.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                {needsKitchenPreparation && kitchenStatus && (
+                                  <Badge variant="outline" className={`h-5 text-[10px] ${kitchenStatus.className}`}>
+                                    {isFullyPrepared && <CheckCircle className="mr-1 h-3 w-3" />}
+                                    {preparedQuantity}/{item.quantity}
+                                  </Badge>
+                                )}
+                                <Button type="button" size="sm" variant="outline" className={`h-6 w-6 p-0 ${isPresented ? 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white' : 'border-slate-300 text-slate-400'}`} disabled={updatingPresentedItemId === item.id} onClick={() => handlePresentedToggle(item)} title={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-label={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-pressed={isPresented}><CheckCircle className="h-3.5 w-3.5" /></Button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      ))
+                            {isBilled ? (
+                              <span className="text-sm font-medium ml-2">× {item.quantity}</span>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}><MinusCircle className="h-3 w-3" /></Button>
+                                <span className="w-4 text-center font-bold">{item.quantity}</span>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}><PlusCircle className="h-3 w-3" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}><Trash2 className="h-3 w-3" /></Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     ) : (
                       <p className="text-sm text-muted-foreground pt-1">No items in the current order.</p>
                     )}

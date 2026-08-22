@@ -39,6 +39,7 @@ import {
   Trash2,
   Clock,
   RefreshCw,
+  Unlock,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -55,6 +56,13 @@ import { useUserContext } from '@/context/user-context';
 
 type ChargeEntry = { id: string; name: string; type: 'percentage' | 'fixed'; value: number; enabled: boolean };
 type BillingCfg = { vat: { enabled: boolean; rate: number }; service_charges: ChargeEntry[]; other_charges: ChargeEntry[] };
+
+const KITCHEN_STATUS: Record<string, { label: string; className: string }> = {
+  pending: { label: 'Waiting for kitchen', className: 'border-slate-300 bg-slate-50 text-slate-600' },
+  preparing: { label: 'Preparing', className: 'border-amber-300 bg-amber-50 text-amber-700' },
+  ready: { label: 'Prepared · Ready', className: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+  done: { label: 'Served / Done', className: 'border-blue-300 bg-blue-50 text-blue-700' },
+};
 
 interface OrderModalProps {
   table: TableType;
@@ -80,9 +88,20 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [customerMobile, setCustomerMobile] = useState('');
   const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
+  const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
+  const [isReleasingTable, setIsReleasingTable] = useState(false);
 
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const isTableLocked = Boolean(openOrder?.waiter_id && openOrder.waiter_id !== currentUser?.id);
+
+  const showTableLockedMessage = () => {
+    toast({
+      variant: 'destructive',
+      title: 'Table Assigned to Another Waiter',
+      description: `${openOrder?.waiter_name || 'Another waiter'} is currently handling this table.`,
+    });
+  };
 
   // Fetch logic
   const fetchData = useCallback(async () => {
@@ -261,7 +280,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     const channel = supabase.channel(`order-waiter-${openOrder.id}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'order_items', filter: `order_id=eq.${openOrder.id}` },
-        () => { fetchData(); }
+        (payload: any) => {
+          if (payload.eventType === 'UPDATE' && payload.new?.id) {
+            setOrderItems(current => current.map(item => item.id === payload.new.id
+              ? { ...item, ...payload.new }
+              : item));
+            return;
+          }
+          // Inserts and deletes change the list shape and still need a full refresh.
+          fetchData();
+        }
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${openOrder.id}` },
@@ -285,6 +313,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [batchSelectionItem, setBatchSelectionItem] = useState<any | null>(null);
 
   const handleAddItemClick = (menuItem: any) => {
+    if (isTableLocked) return showTableLockedMessage();
     const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
     
     if (itemInLocalMenu && itemInLocalMenu.stock_type === 'Inventoried' && itemInLocalMenu.linked_inventory_item_id) {
@@ -300,6 +329,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleAddConfirmedItem = (menuItem: any, batchId: string | null) => {
+    if (isTableLocked) return showTableLockedMessage();
     const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
     const isLinked = !!itemInLocalMenu?.linked_inventory_item_id;
     let effectiveStock = 0;
@@ -337,6 +367,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleRemoveItem = (orderKey: string) => {
+    if (isTableLocked) return showTableLockedMessage();
     setLocalOrder((prev) => {
       const newCount = (prev[orderKey] || 0) - 1;
       if (newCount <= 0) {
@@ -348,6 +379,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleAddItemsToBill = async () => {
+    if (isTableLocked) return showTableLockedMessage();
     if (!table || !currentUser || Object.keys(localOrder).length === 0) return;
 
     let currentOrderId = openOrder?.id;
@@ -392,9 +424,14 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
           if (existingItems && existingItems.length > 0) {
             const existingItem = existingItems[0];
-            await supabase.from('order_items').update({
-              quantity: existingItem.quantity + quantityToAdd
-            }).eq('id', existingItem.id);
+            const quantityUpdate: Record<string, any> = {
+              quantity: existingItem.quantity + quantityToAdd,
+            };
+            if (menuItem.stock_type === 'Non-Inventoried' && ['ready', 'done'].includes(existingItem.kitchen_status)) {
+              quantityUpdate.kitchen_status = 'preparing';
+              quantityUpdate.prepared_at = null;
+            }
+            await supabase.from('order_items').update(quantityUpdate).eq('id', existingItem.id);
           } else {
             await supabase.from('order_items').insert([{
               order_id: currentOrderId,
@@ -475,6 +512,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleUpdateOrderItemQuantity = async (item: OrderItem, delta: number) => {
+    if (isTableLocked) return showTableLockedMessage();
     if (delta === 0) return;
     const newQuantity = item.quantity + delta;
     if (newQuantity < 1) {
@@ -498,7 +536,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
     try {
       // Update quantity in DB
-      await supabase.from('order_items').update({ quantity: newQuantity }).eq('id', item.id);
+      const quantityUpdate: Record<string, any> = { quantity: newQuantity };
+      if (menuItem?.stock_type === 'Non-Inventoried') {
+        quantityUpdate.prepared_quantity = Math.min(item.prepared_quantity ?? 0, newQuantity);
+        quantityUpdate.served_quantity = Math.min(item.served_quantity ?? 0, newQuantity);
+        if (delta > 0 && ['ready', 'done'].includes(item.kitchen_status || 'pending')) {
+          quantityUpdate.kitchen_status = 'preparing';
+          quantityUpdate.prepared_at = null;
+        }
+      }
+      await supabase.from('order_items').update(quantityUpdate).eq('id', item.id);
 
       // Adjust stock
       if (menuItem && menuItem.stock_type === 'Inventoried') {
@@ -551,6 +598,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleRemoveOrderItem = async (item: OrderItem) => {
+    if (isTableLocked) return showTableLockedMessage();
     try {
       const menuItem = menuItems.find(m => m.id === item.menu_item_id);
       
@@ -607,11 +655,36 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleSaveCustomerMobile = async () => {
+    if (isTableLocked) return;
     if (!openOrder?.id || !customerMobile) return;
     await supabase.from('orders').update({ customer_mobile: customerMobile }).eq('id', openOrder.id);
   };
 
+  const handlePresentedToggle = async (item: OrderItem) => {
+    if (isTableLocked) return showTableLockedMessage();
+    const isPresented = (item.served_quantity ?? 0) >= item.quantity;
+    const nextServed = isPresented ? 0 : item.quantity;
+
+    setUpdatingPresentedItemId(item.id);
+    try {
+      const { error } = await supabase
+        .from('order_items')
+        .update({ served_quantity: nextServed })
+        .eq('id', item.id);
+      if (error) throw error;
+
+      setOrderItems(current => current.map(existing => existing.id === item.id
+        ? { ...existing, served_quantity: nextServed }
+        : existing));
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Update Failed', description: error?.message || 'Could not update presentation status.' });
+    } finally {
+      setUpdatingPresentedItemId(null);
+    }
+  };
+
   const handleProcessPayment = async () => {
+    if (isTableLocked) return showTableLockedMessage();
     if (!openOrder || !table) {
       toast({ variant: 'destructive', title: 'Cannot Process Payment', description: 'There is no open order for this table.' });
       return;
@@ -635,6 +708,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
   };
 
+  const handleReleaseTable = async () => {
+    if (!openOrder || openOrder.waiter_id !== currentUser?.id) return;
+
+    setIsReleasingTable(true);
+    try {
+      const response = await fetch('/api/waiter/release-table', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table_id: table.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not release table');
+
+      setLocalOrder({});
+      toast({ title: 'Table Released', description: `Table ${table.table_number} can now be handled by another waiter.` });
+      await fetchData();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Release Failed', description: error.message });
+    } finally {
+      setIsReleasingTable(false);
+    }
+  };
+
   const isBilled = openOrder?.status === 'billed';
 
   const totalLocalprice = Object.entries(localOrder).reduce((acc, [orderKey, quantity]) => {
@@ -649,38 +745,40 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[90vh] flex flex-col overflow-hidden p-0">
+      <DialogContent className="max-w-6xl h-[90vh] flex flex-col overflow-hidden p-0">
         <DialogHeader className="flex-shrink-0 p-6 pb-0">
           <DialogTitle>Table {table?.table_number} - Order</DialogTitle>
         </DialogHeader>
 
         {/* Grid container: using min-h-0 & flex-1 to allow children to size correctly */}
-        <div className={`grid gap-8 items-start flex-1 min-h-0 p-6 pt-2 ${isBilled ? 'grid-cols-1 max-w-md mx-auto w-full' : 'md:grid-cols-2 lg:grid-cols-3'}`}>
+        <div className={`grid gap-6 items-start flex-1 min-h-0 p-6 pt-2 ${isBilled ? 'grid-cols-1 max-w-xl mx-auto w-full' : 'md:grid-cols-2 lg:grid-cols-5'}`}>
           {/* Menu Card — hidden when bill is sent to payment */}
-          {!isBilled && <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle>Menu</CardTitle>
-              <CardDescription>Select items to add to the order.</CardDescription>
+          {!isBilled && <Card className="lg:col-span-3 h-full flex flex-col overflow-hidden">
+            <CardHeader className="flex-shrink-0 p-4 pb-3">
+              <CardTitle className="text-base">Menu</CardTitle>
+              <CardDescription className="text-xs">Select items to add to the order.</CardDescription>
 
-              <div className="flex gap-2 items-center flex-wrap mt-3">
+              <div className="flex gap-2 items-center flex-wrap mt-2">
                 <div className="relative flex-grow min-w-[200px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input
                     placeholder="Search menu..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 w-full"
+                    className="h-8 pl-8 w-full text-xs"
                   />
                 </div>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline">{selectedCategory || 'All Categories'}</Button>
+                    <Button variant="outline" size="sm" className="h-8 max-w-[180px] truncate px-3 text-xs">
+                      {selectedCategory || 'All Categories'}
+                    </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onSelect={() => setSelectedCategory(null)}>All Categories</DropdownMenuItem>
+                  <DropdownMenuContent className="max-h-64 overflow-y-auto text-xs">
+                    <DropdownMenuItem className="py-1.5 text-xs" onSelect={() => setSelectedCategory(null)}>All Categories</DropdownMenuItem>
                     {menuCategories.map((cat) => (
-                      <DropdownMenuItem key={cat} onSelect={() => setSelectedCategory(cat)}>{cat}</DropdownMenuItem>
+                      <DropdownMenuItem className="py-1.5 text-xs" key={cat} onSelect={() => setSelectedCategory(cat)}>{cat}</DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -689,7 +787,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden">
+            <CardContent className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
               {/* ScrollArea must fill the remaining height */}
               <ScrollArea className="h-full pr-4">
                 <div className="space-y-2">
@@ -706,26 +804,26 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                         : (item.stock ?? 0);
                       const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
                       return (
-                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted">
-                          <div className="flex items-center gap-4">
-                            <div className="relative w-16 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
+                        <div key={item.id} className="flex items-center justify-between gap-3 p-1.5 rounded-lg hover:bg-muted">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="relative w-12 h-12 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
                               {fallbackImage ? (
                                 <Image src={fallbackImage.imageUrl} alt={item.name} fill className="object-cover" />
                               ) : (
-                                <Utensils className="h-8 w-8 text-muted-foreground" />
+                                <Utensils className="h-5 w-5 text-muted-foreground" />
                               )}
                             </div>
 
                             <div>
-                              <p className="font-semibold">{item.name}</p>
+                              <p className="truncate text-sm font-semibold">{item.name}</p>
                               {item.stock_type === 'Inventoried' ? (() => {
                                 const batches: any[] = (item as any).available_batches ?? [];
                                 const prices = [...new Set(batches.map((b: any) => b.selling_price).filter((p: any) => p != null && p > 0))] as number[];
-                                if (prices.length === 0) return <p className="text-sm text-muted-foreground">Price by batch</p>;
+                                if (prices.length === 0) return <p className="text-xs text-muted-foreground">Price by batch</p>;
                                 const min = Math.min(...prices); const max = Math.max(...prices);
-                                return <p className="text-sm text-muted-foreground">LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</p>;
+                                return <p className="text-xs text-muted-foreground">LKR {min === max ? min.toFixed(2) : `${min.toFixed(2)} – ${max.toFixed(2)}`}</p>;
                               })() : (
-                                <p className="text-sm text-muted-foreground">LKR {item.price.toFixed(2)}</p>
+                                <p className="text-xs text-muted-foreground">LKR {item.price.toFixed(2)}</p>
                               )}
                               {item.stock_type === 'Inventoried' && (
                                 <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>
@@ -735,8 +833,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             </div>
                           </div>
 
-                          <Button size="sm" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add
+                          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock || isTableLocked}>
+                            <PlusCircle className="mr-1 h-3.5 w-3.5" /> Add
                           </Button>
                         </div>
                       );
@@ -750,13 +848,33 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
           </Card>}
 
           {/* Current Bill Card */}
-          <Card className="h-full flex flex-col overflow-hidden sticky top-0">
+          <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden sticky top-0">
             <CardHeader className="flex-shrink-0">
-              <CardTitle className="flex items-center">
-                <ShoppingCart className="mr-2" /> Current Bill
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="flex items-center">
+                  <ShoppingCart className="mr-2" /> Current Bill
+                </CardTitle>
+                {openOrder?.waiter_id === currentUser?.id && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={isReleasingTable}
+                    onClick={handleReleaseTable}
+                  >
+                    <Unlock className="mr-1.5 h-3.5 w-3.5" />
+                    {isReleasingTable ? 'Releasing…' : 'Release Table'}
+                  </Button>
+                )}
+              </div>
               {table && <Badge className="capitalize w-fit">{table.status}</Badge>}
               {openOrder?.waiter_name && <p className="text-sm text-muted-foreground pt-1">Waiter: {openOrder.waiter_name}</p>}
+              {isTableLocked && (
+                <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  View only — {openOrder?.waiter_name || 'another waiter'} is handling this table.
+                </div>
+              )}
             </CardHeader>
 
             <CardContent className="flex-1 min-h-0 overflow-hidden">
@@ -771,6 +889,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                       value={customerMobile}
                       onChange={(e) => setCustomerMobile(e.target.value)}
                       onBlur={handleSaveCustomerMobile}
+                      disabled={isTableLocked}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -789,30 +908,72 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     {isLoading ? (
                       <Skeleton className="h-16 w-full" />
                     ) : orderItems && orderItems.length > 0 ? (
-                      orderItems.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center text-sm bg-secondary/20 p-2 rounded-md">
-                          <div className="flex-1">
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
-                          </div>
-                          {isBilled ? (
-                            <span className="text-sm font-medium ml-2">× {item.quantity}</span>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
-                                <MinusCircle className="h-3 w-3" />
-                              </Button>
-                              <span className="w-4 text-center font-bold">{item.quantity}</span>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
-                                <PlusCircle className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}>
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                      orderItems.map((item) => {
+                        const menuItem = menuItems.find(menu => menu.id === item.menu_item_id);
+                        const kitchenStatus = KITCHEN_STATUS[item.kitchen_status || 'pending'];
+                        const needsKitchenPreparation = menuItem?.stock_type === 'Non-Inventoried';
+                        const preparedQuantity = item.kitchen_status === 'ready' || item.kitchen_status === 'done'
+                          ? item.quantity
+                          : Math.min(item.quantity, item.prepared_quantity ?? 0);
+                        const isFullyPrepared = needsKitchenPreparation && preparedQuantity >= item.quantity;
+                        const isPresented = (item.served_quantity ?? 0) >= item.quantity;
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={`flex justify-between items-center text-sm p-2 rounded-md border ${
+                              isFullyPrepared
+                                ? 'bg-emerald-50 border-emerald-200'
+                                : 'bg-secondary/20 border-transparent'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className={`font-medium flex items-center gap-1.5 ${isFullyPrepared ? 'text-emerald-800' : ''}`}>
+                                {isFullyPrepared && <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                {item.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                {needsKitchenPreparation && kitchenStatus && (
+                                  <Badge variant="outline" className={`h-5 text-[10px] ${kitchenStatus.className}`}>
+                                    {isFullyPrepared && <CheckCircle className="mr-1 h-3 w-3" />}
+                                    {preparedQuantity}/{item.quantity}
+                                  </Badge>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className={`h-6 w-6 p-0 ${isPresented ? 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white' : 'border-slate-300 text-slate-400'}`}
+                                  disabled={updatingPresentedItemId === item.id || isTableLocked}
+                                  onClick={() => handlePresentedToggle(item)}
+                                  title={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'}
+                                  aria-label={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'}
+                                  aria-pressed={isPresented}
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      ))
+                            {isBilled ? (
+                              <span className="text-sm font-medium ml-2">× {item.quantity}</span>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
+                                  <MinusCircle className="h-3 w-3" />
+                                </Button>
+                                <span className="w-4 text-center font-bold">{item.quantity}</span>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
+                                  <PlusCircle className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" disabled={isTableLocked} onClick={() => handleRemoveOrderItem(item)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     ) : (
                       <p className="text-sm text-muted-foreground pt-1">No items in the current order.</p>
                     )}
@@ -837,10 +998,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                                 <div><p>{item.name}{batchLabel} x {quantity}</p></div>
                                 <div className="flex items-center gap-2">
                                   <p>LKR {(price * quantity).toFixed(2)}</p>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleAddConfirmedItem(item, batchId || null)}>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleAddConfirmedItem(item, batchId || null)}>
                                     <PlusCircle className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveItem(orderKey)}>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleRemoveItem(orderKey)}>
                                     <MinusCircle className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -864,10 +1025,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     <span>Total Bill:</span>
                     <span>LKR {totalBill.toFixed(2)}</span>
                   </div>
-                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0}>
+                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0 || isTableLocked}>
                     Add Items to Bill
                   </Button>
-                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder}>
+                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder || isTableLocked}>
                     <CheckCircle className="mr-2" /> Send to Payment
                   </Button>
                 </>
@@ -967,7 +1128,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                       <p className="text-xs font-medium mt-1">Stock: {b.quantity - inCart}</p>
                       <p className="text-xs text-primary font-semibold">Selling Price: LKR {(b.selling_price || batchSelectionItem.price).toFixed(2)}</p>
                     </div>
-                    <Button size="sm" onClick={() => handleAddConfirmedItem(batchSelectionItem, b.id)} disabled={outOfStock}>
+                    <Button size="sm" onClick={() => handleAddConfirmedItem(batchSelectionItem, b.id)} disabled={outOfStock || isTableLocked}>
                       Add to Order
                     </Button>
                   </div>

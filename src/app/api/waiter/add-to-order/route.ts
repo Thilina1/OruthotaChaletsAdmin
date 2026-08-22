@@ -75,6 +75,25 @@ export async function POST(request: Request) {
     // ── STEP 1: Ensure order exists ──────────────────────────────────────────
     let currentOrderId: string = order_id;
 
+    // Always resolve ownership from the database instead of trusting the
+    // order ID or table status supplied by the browser.
+    const { data: activeOrder } = await supabase
+      .from('orders')
+      .select('id, waiter_id, waiter_name')
+      .eq('table_id', table_id)
+      .in('status', ['open', 'billed'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeOrder?.waiter_id && activeOrder.waiter_id !== user.userId) {
+      return NextResponse.json({
+        error: `This table is currently handled by ${activeOrder.waiter_name || 'another waiter'}`,
+      }, { status: 409 });
+    }
+
+    if (activeOrder) currentOrderId = activeOrder.id;
+
     if (!currentOrderId) {
       const { data: newOrder, error: createError } = await supabase
         .from('orders')

@@ -75,6 +75,8 @@ const STATUS_CONFIG: Record<string, { label: string; className: string; icon: Re
 const fmt = (n: number | null | undefined) =>
     n != null ? `Rs ${Number(n).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
 
+const ROWS_PER_PAGE = 20;
+
 function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
     const total = po.purchase_order_items.reduce(
         (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
@@ -143,6 +145,7 @@ export default function InventoryCashRequestsPage() {
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
     const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('all');
     const [loading, setLoading] = useState(true);
+    const [requestsPage, setRequestsPage] = useState(1);
 
     // Create dialog
     const [createOpen, setCreateOpen] = useState(false);
@@ -313,6 +316,17 @@ export default function InventoryCashRequestsPage() {
         });
     }, [requests, dateFilter]);
 
+    const requestsTotalPages = Math.max(1, Math.ceil(filteredRequests.length / ROWS_PER_PAGE));
+    const paginatedRequests = useMemo(() => {
+        const start = (requestsPage - 1) * ROWS_PER_PAGE;
+        return filteredRequests.slice(start, start + ROWS_PER_PAGE);
+    }, [filteredRequests, requestsPage]);
+
+    useEffect(() => { setRequestsPage(1); }, [dateFilter]);
+    useEffect(() => {
+        if (requestsPage > requestsTotalPages) setRequestsPage(requestsTotalPages);
+    }, [requestsPage, requestsTotalPages]);
+
     const spentNum = Number(spentAmount);
     const totalIssuedForSettle = settleReq
         ? (settleReq.issued_amount || 0) + (settleReq.additional_issued_amount || 0)
@@ -402,7 +416,7 @@ export default function InventoryCashRequestsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredRequests.map(req => {
+                                    {paginatedRequests.map(req => {
                                         const sc = STATUS_CONFIG[req.status];
                                         return (
                                             <TableRow key={req.id}>
@@ -512,6 +526,16 @@ export default function InventoryCashRequestsPage() {
                                     })}
                                 </TableBody>
                             </Table>
+                            <div className="flex flex-col gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                                <span>
+                                    Showing {(requestsPage - 1) * ROWS_PER_PAGE + 1}–{Math.min(requestsPage * ROWS_PER_PAGE, filteredRequests.length)} of {filteredRequests.length} requests
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" size="sm" className="h-8 text-xs" disabled={requestsPage === 1} onClick={() => setRequestsPage(page => Math.max(1, page - 1))}>Previous</Button>
+                                    <span className="min-w-20 text-center font-medium">Page {requestsPage} of {requestsTotalPages}</span>
+                                    <Button variant="outline" size="sm" className="h-8 text-xs" disabled={requestsPage === requestsTotalPages} onClick={() => setRequestsPage(page => Math.min(requestsTotalPages, page + 1))}>Next</Button>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </CardContent>

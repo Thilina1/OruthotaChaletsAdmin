@@ -31,10 +31,12 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parse, isValid } from 'date-fns';
 import { APP_SECTION_GROUPS } from '@/lib/section-groups';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
   email: z.string().email({ message: 'Please enter a valid email.' }),
+  employee_number: z.string().optional(),
   role: z.string().min(1, 'Please select a role'),
   phone_number: z.string().optional(),
   address: z.string().optional(),
@@ -85,6 +87,7 @@ interface UserFormProps {
 
 export function UserForm({ user, onSubmit }: UserFormProps) {
   const [showPassword, setShowPassword] = useState(!user);
+  const [activeTab, setActiveTab] = useState('details');
   const [leaveSchemes, setLeaveSchemes] = useState<LeaveScheme[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [workingCalendars, setWorkingCalendars] = useState<WorkingCalendar[]>([]);
@@ -126,6 +129,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
     defaultValues: {
       name: user?.name || '',
       email: user ? user.email : '',
+      employee_number: user?.employee_number || '',
       role: user?.role || 'waiter',
       phone_number: user?.phone_number || '',
       address: user?.address || '',
@@ -160,6 +164,7 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
     form.reset({
       name: user?.name || '',
       email: user ? user.email : '',
+      employee_number: user?.employee_number || '',
       role: user?.role || 'waiter',
       phone_number: user?.phone_number || '',
       address: user?.address || '',
@@ -219,9 +224,57 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
     });
   };
 
+  const handleInvalid = (errors: Record<string, unknown>) => {
+    const fieldNames = Object.keys(errors);
+    if (fieldNames.some((field) => ['leave_scheme_id', 'working_calendar_id', 'basic_salary', 'service_charge_applicable', 'service_charge_rate', 'allowances'].includes(field))) {
+      setActiveTab('payroll');
+    } else if (fieldNames.some((field) => ['updatePassword', 'password', 'confirmPassword'].includes(field))) {
+      setActiveTab('security');
+    } else if (fieldNames.some((field) => ['permissions', 'restrict_admin_permissions', 'inventory_admin'].includes(field))) {
+      setActiveTab('permissions');
+    } else {
+      setActiveTab('details');
+    }
+  };
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+      <form
+        onSubmit={form.handleSubmit(handleSubmit, handleInvalid)}
+        className="flex min-h-[650px] flex-col"
+      >
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex-1">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:grid-cols-4">
+            <TabsTrigger value="details">Employee Details</TabsTrigger>
+            <TabsTrigger value="payroll">Employment &amp; Payroll</TabsTrigger>
+            <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="details" className="mt-5 space-y-4">
+        <FormField
+          control={form.control}
+          name="employee_number"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Employee Number</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Automatically assigned when saved"
+                  {...field}
+                  value={field.value || ''}
+                  readOnly
+                  disabled={!user}
+                  className="font-mono"
+                />
+              </FormControl>
+              <p className="text-xs text-muted-foreground">
+                This unique login number is generated automatically and cannot be edited.
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <FormField
           control={form.control}
           name="name"
@@ -462,35 +515,6 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
 
         <FormField
           control={form.control}
-          name="leave_scheme_id"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Leave Scheme</FormLabel>
-              <Select
-                onValueChange={field.onChange}
-                value={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a leave scheme" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="none">— No scheme —</SelectItem>
-                  {leaveSchemes.map(scheme => (
-                    <SelectItem key={scheme.id} value={scheme.id}>
-                      {scheme.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
           name="reporting_manager_id"
           render={({ field }) => (
             <FormItem>
@@ -517,31 +541,63 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="working_calendar_id"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Working Calendar</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a working calendar" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="none">— No calendar —</SelectItem>
-                  {workingCalendars.map(cal => (
-                    <SelectItem key={cal.id} value={cal.id}>
-                      {cal.name} ({cal.year})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+          </TabsContent>
+
+          <TabsContent value="payroll" className="mt-5 space-y-4">
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="leave_scheme_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Leave Scheme</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a leave scheme" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">— No scheme —</SelectItem>
+                    {leaveSchemes.map(scheme => (
+                      <SelectItem key={scheme.id} value={scheme.id}>
+                        {scheme.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="working_calendar_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Working Calendar</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a working calendar" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">— No calendar —</SelectItem>
+                    {workingCalendars.map(cal => (
+                      <SelectItem key={cal.id} value={cal.id}>
+                        {cal.name} ({cal.year})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         {/* Salary & Allowances */}
         <div className="space-y-3 pt-4 border-t">
@@ -737,6 +793,10 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           </div>
         </div>
 
+          </TabsContent>
+
+          <TabsContent value="security" className="mt-5 space-y-4">
+
         {user && (
           <FormField
             control={form.control}
@@ -796,6 +856,16 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
             />
           </div>
         )}
+
+          {!user && (
+            <p className="text-xs text-muted-foreground">
+              Set the password the employee will use for their first sign in.
+            </p>
+          )}
+
+          </TabsContent>
+
+          <TabsContent value="permissions" className="mt-5 space-y-4">
 
         <div className="space-y-3 pt-4 border-t">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -906,9 +976,14 @@ export function UserForm({ user, onSubmit }: UserFormProps) {
           />
         </div>
 
-        <Button type="submit" className="w-full">
-          {user ? 'Update User' : 'Create User'}
-        </Button>
+          </TabsContent>
+        </Tabs>
+
+        <div className="mt-8 border-t pt-6">
+          <Button type="submit" className="w-full md:ml-auto md:block md:w-auto md:min-w-44">
+            {user ? 'Update User' : 'Create User'}
+          </Button>
+        </div>
       </form>
     </Form>
   );

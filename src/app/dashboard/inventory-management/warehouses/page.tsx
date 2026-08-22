@@ -45,7 +45,7 @@ export default function WarehouseManagementPage() {
     const fetchWarehouses = useCallback(async () => {
         setIsLoadingWh(true);
         try {
-            const res = await fetch('/api/admin/inventory/warehouses?all=true');
+            const res = await fetch('/api/admin/inventory/warehouses?all=true', { cache: 'no-store' });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
             setWarehouses(data.warehouses || []);
@@ -59,7 +59,7 @@ export default function WarehouseManagementPage() {
     const fetchInvDepts = useCallback(async () => {
         setIsLoadingDepts(true);
         try {
-            const res = await fetch('/api/admin/inventory-departments?all=true');
+            const res = await fetch('/api/admin/inventory-departments?all=true', { cache: 'no-store' });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
             setInvDepts(data.departments || []);
@@ -94,7 +94,9 @@ export default function WarehouseManagementPage() {
             const data = await safeJson(res);
             if (!res.ok || data.error) throw new Error(data.error || 'Failed to create department.');
             setNewDeptName('');
-            await fetchInvDepts();
+            // Creating a department also creates its linked warehouse via the
+            // database trigger, so refresh both lists before completing.
+            await Promise.all([fetchInvDepts(), fetchWarehouses()]);
             toast({ title: "Department Created", description: `"${name}" added to inventory departments.` });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message || "Failed to create department." });
@@ -148,9 +150,8 @@ export default function WarehouseManagementPage() {
         }
     };
 
-    const handleUpdate = () => {
-        fetchWarehouses();
-        fetchInvDepts();
+    const handleUpdate = async () => {
+        await Promise.all([fetchWarehouses(), fetchInvDepts()]);
     };
 
     return (

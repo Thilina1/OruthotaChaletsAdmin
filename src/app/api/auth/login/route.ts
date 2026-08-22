@@ -10,18 +10,21 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 
 export async function POST(request: Request) {
     try {
-        const { email, password } = await request.json();
+        const { email, identifier, password } = await request.json();
+        const loginIdentifier = String(identifier || email || '').trim();
 
-        if (!email || !password) {
-            return NextResponse.json({ error: 'Missing email or password' }, { status: 400 });
+        if (!loginIdentifier || !password) {
+            return NextResponse.json({ error: 'Missing email/employee number or password' }, { status: 400 });
         }
 
-        // Fetch user
-        const { data: user, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('email', email)
-            .single();
+        const employeeNumber = /^\d{1,5}$/.test(loginIdentifier)
+            ? loginIdentifier.padStart(4, '0')
+            : null;
+        let userQuery = supabase.from('users').select('*');
+        userQuery = employeeNumber
+            ? userQuery.eq('employee_number', employeeNumber)
+            : userQuery.ilike('email', loginIdentifier);
+        const { data: user, error } = await userQuery.single();
 
         if (error || !user) {
             return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
