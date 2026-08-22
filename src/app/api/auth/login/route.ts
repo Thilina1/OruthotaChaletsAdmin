@@ -19,7 +19,9 @@ export async function POST(request: Request) {
 
         const employeeNumber = /^\d{1,5}$/.test(loginIdentifier)
             ? loginIdentifier.padStart(4, '0')
-            : null;
+            : /^T\d{4,}$/i.test(loginIdentifier)
+                ? loginIdentifier.toUpperCase()
+                : null;
         let userQuery = supabase.from('users').select('*');
         userQuery = employeeNumber
             ? userQuery.eq('employee_number', employeeNumber)

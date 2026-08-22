@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { useSupabaseCollection } from '@/hooks/use-supabase-collection';
 import type { User, WorkingCalendar } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,16 +12,29 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { EmployeeCalendarDialog } from '@/components/dashboard/hrms/employee-calendar-dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+
+type EmployeeWithSalaryStatus = User & { has_salary?: boolean };
 
 export default function EmployeeManagementPage() {
     const [calendarEmployee, setCalendarEmployee] = useState<User | null>(null);
     const [calendars, setCalendars] = useState<WorkingCalendar[]>([]);
+    const [users, setUsers] = useState<EmployeeWithSalaryStatus[]>([]);
+    const [areUsersLoading, setAreUsersLoading] = useState(true);
+    const [salaryFilter, setSalaryFilter] = useState<'all' | 'assigned'>('all');
 
     useEffect(() => {
-        fetch('/api/hrms/working-calendars')
-            .then(r => r.json())
-            .then(d => setCalendars(d.calendars ?? []))
-            .catch(() => {});
+        Promise.all([
+            fetch('/api/hrms/working-calendars').then(r => r.json()),
+            fetch('/api/admin/users?includeSalaryStatus=true').then(r => r.json()),
+        ])
+            .then(([calendarData, userData]) => {
+                setCalendars(calendarData.calendars ?? []);
+                setUsers(userData.users ?? []);
+            })
+            .catch(() => {})
+            .finally(() => setAreUsersLoading(false));
     }, []);
 
     const calendarMap = useMemo(
@@ -30,12 +42,12 @@ export default function EmployeeManagementPage() {
         [calendars]
     );
 
-    const { data: users, loading: areUsersLoading } = useSupabaseCollection<User>('users');
-
     const sortedUsers = useMemo(() => {
-        if (!users) return [];
-        return [...users].sort((a, b) => a.name.localeCompare(b.name));
-    }, [users]);
+        const visibleUsers = salaryFilter === 'assigned'
+            ? users.filter(user => user.has_salary)
+            : users;
+        return [...visibleUsers].sort((a, b) => a.name.localeCompare(b.name));
+    }, [salaryFilter, users]);
 
     const { currentPage, totalPages, totalItems, paginatedItems, itemsPerPage, setCurrentPage } =
         usePagination(sortedUsers, 20);
@@ -85,10 +97,32 @@ export default function EmployeeManagementPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>All Employees</CardTitle>
-                    <CardDescription>
-                        Manage staff profiles. Use the <strong>Calendar</strong> button to add or remove holidays per employee without affecting the shared calendar.
-                    </CardDescription>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <CardTitle>All Employees</CardTitle>
+                            <CardDescription>
+                                Manage staff profiles. Use the <strong>Calendar</strong> button to add or remove holidays per employee without affecting the shared calendar.
+                            </CardDescription>
+                        </div>
+                        <RadioGroup
+                            value={salaryFilter}
+                            onValueChange={value => {
+                                setSalaryFilter(value as 'all' | 'assigned');
+                                setCurrentPage(1);
+                            }}
+                            className="flex shrink-0 flex-wrap gap-4 rounded-md border bg-muted/30 px-4 py-3"
+                            aria-label="Employee salary filter"
+                        >
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="all" id="salary-filter-all" />
+                                <Label htmlFor="salary-filter-all">Show all</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="assigned" id="salary-filter-assigned" />
+                                <Label htmlFor="salary-filter-assigned">Hide without salary</Label>
+                            </div>
+                        </RadioGroup>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Table>

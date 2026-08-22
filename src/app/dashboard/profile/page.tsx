@@ -21,6 +21,7 @@ import {
   BookOpen,
   CheckCircle2,
   UserCheck,
+  Hash,
 } from 'lucide-react';
 import { useUserContext } from '@/context/user-context';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -119,6 +120,7 @@ export default function ProfilePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
+                <InfoRow icon={Hash} label="Employee Number" value={user.employee_number || 'Not assigned'} />
                 <InfoRow icon={Briefcase} label="Designation / Job Title" value={user.job_title || user.role} />
 
                 {/* Reporting Manager */}

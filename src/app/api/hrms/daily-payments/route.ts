@@ -10,12 +10,22 @@ export async function GET(request: Request) {
     try {
         const { data: workers, error } = await supabase
             .from('casual_workers')
-            .select('*')
+            .select('*, system_user:users!user_id(email)')
             .eq('is_active', true)
             .order('name');
 
         if (error) throw error;
-        if (!workers || workers.length === 0) return NextResponse.json({ workers: [] });
+        let scheduledWorkers = workers || [];
+        if (date && scheduledWorkers.length) {
+            const { data: assignments, error: assignmentError } = await supabase
+                .from('casual_worker_assignments')
+                .select('worker_id')
+                .eq('work_date', date);
+            if (assignmentError) throw assignmentError;
+            const assignedIds = new Set((assignments || []).map(item => item.worker_id));
+            scheduledWorkers = scheduledWorkers.filter(worker => assignedIds.has(worker.id));
+        }
+        if (scheduledWorkers.length === 0) return NextResponse.json({ workers: [] });
 
         let payments: any[] = [];
         if (date) {
@@ -23,11 +33,11 @@ export async function GET(request: Request) {
                 .from('daily_payments')
                 .select('*')
                 .eq('date', date)
-                .in('worker_id', workers.map(w => w.id));
+                .in('worker_id', scheduledWorkers.map(w => w.id));
             payments = p || [];
         }
 
-        const merged = workers.map(w => ({
+        const merged = scheduledWorkers.map(w => ({
             ...w,
             payment: payments.find(p => p.worker_id === w.id) || null,
         }));

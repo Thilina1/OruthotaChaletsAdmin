@@ -30,6 +30,12 @@ const getPageTitle = (pathname: string) => {
       return 'Profile';
     case '/dashboard/user-management':
       return 'User Management';
+    case '/dashboard/hrms/dashboard':
+      return 'HRMS Dashboard';
+    case '/dashboard/accounting/daily-workers-finance':
+      return 'Daily Workers Finance';
+    case '/dashboard/hrms/daily-workers/requests':
+      return 'Daily Worker Money Requests';
     case '/dashboard/menu-management':
       return 'Menu Management';
     case '/dashboard/table-management':

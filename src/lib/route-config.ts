@@ -10,9 +10,8 @@ export interface MenuItem {
 }
 
 export const generalMenuItems: MenuItem[] = [
-    { href: '/dashboard/home', icon: LayoutDashboard, label: 'Home', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
-    { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment'] },
-    { href: '/dashboard/user-management', icon: Users, label: 'User Management', roles: ['admin'] },
+    { href: '/dashboard/home', icon: LayoutDashboard, label: 'Home', roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'] },
+    { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment', 'temporary'] },
 ];
 
 export const customerMenuItems: MenuItem[] = [
@@ -59,13 +58,15 @@ export const roomBookingMenuItems: MenuItem[] = [
 ];
 
 export const otherMenue: MenuItem[] = [
-    { href: '/dashboard/accounting', icon: BookOpen, label: 'Accounting', roles: ['admin'] },
+    { href: '/dashboard/accounting/daily-workers-finance', icon: Banknote, label: 'Daily Workers Finance', roles: ['admin', 'payment'] },
     { href: '/dashboard/accounting/inventory-cash', icon: Banknote, label: 'Inventory Cash', roles: ['admin', 'payment'] },
+    { href: '/dashboard/accounting', icon: BookOpen, label: 'Accounting', roles: ['admin'] },
     { href: '/dashboard/expenses', icon: Zap, label: 'Expenses', roles: ['admin'] },
     { href: '/dashboard/other-incomes', icon: Zap, label: 'Other Incomes', roles: ['admin'] },
 ];
 
 export const hrmsMenuItems: MenuItem[] = [
+    { href: '/dashboard/hrms/dashboard', icon: LayoutDashboard, label: 'HRMS Dashboard', roles: ['admin'] },
     { href: '/dashboard/hrms/employees', icon: Briefcase, label: 'Employees', roles: ['admin'] },
     { href: '/dashboard/hrms/leaves', icon: Calendar, label: 'Leaves', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/leave-schemes', icon: Layers, label: 'Leave Schemes', roles: ['admin'] },
@@ -79,7 +80,8 @@ export const hrmsMenuItems: MenuItem[] = [
     { href: '/dashboard/hrms/payslip', icon: Banknote, label: 'My Payslips', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/allowance-types', icon: Coins, label: 'Allowance Types', roles: ['admin'] },
     { href: '/dashboard/hrms/job-titles', icon: Briefcase, label: 'Job Titles', roles: ['admin'] },
-    { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'] },
+    { href: '/dashboard/hrms/daily-workers/requests', icon: Banknote, label: 'Daily Worker Requests', roles: ['admin'] },
     { href: '/dashboard/hrms/daily-workers', icon: HardHat, label: 'Daily Workers', roles: ['admin'] },
     { href: '/dashboard/hrms/ot', icon: AlarmClock, label: 'My OT Requests', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/manager-ot-approvals', icon: CheckSquare, label: 'Manager OT Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },

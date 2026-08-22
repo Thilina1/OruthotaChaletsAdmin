@@ -48,6 +48,7 @@ export async function GET() {
         id: dbUser.id,
         email: dbUser.email,
         name: dbUser.name,
+        employee_number: dbUser.employee_number,
         role: dbUser.role,
         permissions: dbUser.permissions || [],
         department: dbUser.department,

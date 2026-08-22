@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard,
-  Users,
   ClipboardList,
   Settings,
   ChefHat,
@@ -78,12 +77,6 @@ const navItems: NavItem[] = [
     icon: PackagePlus,
     roles: ['admin'],
     isSubItem: true,
-  },
-  {
-    href: '/dashboard/user-management',
-    label: 'User Management',
-    icon: Users,
-    roles: ['admin'],
   },
   {
     href: '/dashboard/settings',

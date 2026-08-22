@@ -3,7 +3,6 @@ export const APP_SECTION_GROUPS = [
     name: 'General',
     sections: [
       { path: '/dashboard/profile', label: 'Profile' },
-      { path: '/dashboard/user-management', label: 'User Management' },
     ],
   },
   {
@@ -77,6 +76,7 @@ export const APP_SECTION_GROUPS = [
     name: 'Financial',
     sections: [
       { path: '/dashboard/accounting', label: 'Accounting' },
+      { path: '/dashboard/accounting/daily-workers-finance', label: 'Daily Workers Finance' },
       { path: '/dashboard/accounting/inventory-cash', label: 'Inventory Cash' },
       { path: '/dashboard/expenses', label: 'Expenses' },
       { path: '/dashboard/other-incomes', label: 'Other Incomes' },
@@ -94,6 +94,7 @@ export const APP_SECTION_GROUPS = [
   {
     name: 'HRMS',
     sections: [
+      { path: '/dashboard/hrms/dashboard', label: 'HRMS Dashboard' },
       { path: '/dashboard/hrms/employees', label: 'Employees' },
       { path: '/dashboard/hrms/leaves', label: 'Leaves' },
       { path: '/dashboard/hrms/leave-schemes', label: 'Leave Schemes' },
@@ -109,6 +110,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/hrms/job-titles', label: 'Job Titles' },
       { path: '/dashboard/hrms/attendance', label: 'Attendance' },
       { path: '/dashboard/hrms/daily-workers', label: 'Daily Workers' },
+      { path: '/dashboard/hrms/daily-workers/requests', label: 'Daily Worker Requests' },
       { path: '/dashboard/hrms/ot', label: 'My OT Requests' },
       { path: '/dashboard/hrms/manager-ot-approvals', label: 'Manager OT Approvals' },
       { path: '/dashboard/hrms/ot-approvals', label: 'OT Approvals' },
@@ -159,10 +161,15 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
     '/dashboard',
     '/dashboard/billing',
     '/dashboard/reports',
+    '/dashboard/accounting/daily-workers-finance',
     '/dashboard/hrms/leaves',
     '/dashboard/hrms/reports',
     '/dashboard/hrms/attendance',
     '/dashboard/hrms/ot',
     '/dashboard/hrms/manager-ot-approvals',
+  ],
+  temporary: [
+    '/dashboard/profile',
+    '/dashboard/hrms/attendance',
   ],
 };

@@ -40,7 +40,7 @@ body {
     --destructive-foreground: 0 0% 98%;
 
     --border: 40 20% 80%;
-    --input: 40 30% 95% / 0.7;
+    --input: 40 20% 68%;
     --ring: 140 50% 30%;
     /* Forest Green */
 
@@ -92,7 +92,7 @@ body {
     --destructive-foreground: 0 0% 98%;
 
     --border: 40 20% 25%;
-    --input: 40 20% 20% / 0.6;
+    --input: 40 15% 42%;
     --ring: 140 50% 40%;
 
     --sidebar-background: 20 15% 5%;

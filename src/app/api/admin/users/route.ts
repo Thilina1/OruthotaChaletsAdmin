@@ -14,6 +14,7 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
+        const includeSalaryStatus = searchParams.get('includeSalaryStatus') === 'true';
 
         if (id) {
             const { data: user, error } = await supabase
@@ -27,10 +28,17 @@ export async function GET(request: Request) {
 
         const { data: users, error } = await supabase
             .from('users')
-            .select('*')
+            .select(includeSalaryStatus ? '*, salary_details(id)' : '*')
             .order('name');
 
         if (error) throw error;
+        if (includeSalaryStatus) {
+            const usersWithSalaryStatus = (users || []).map(({ salary_details, ...user }: any) => ({
+                ...user,
+                has_salary: Array.isArray(salary_details) ? salary_details.length > 0 : Boolean(salary_details),
+            }));
+            return NextResponse.json({ users: usersWithSalaryStatus });
+        }
         return NextResponse.json({ users });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

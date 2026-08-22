@@ -110,7 +110,7 @@ export default function AppSidebar() {
 
             <SidebarContent>
                 <SidebarMenu>
-                    {/* General — Profile, User Management */}
+                    {/* General */}
                     {renderMenuItems(generalMenuItems, role, pathname)}
 
                     {customerSection && (
