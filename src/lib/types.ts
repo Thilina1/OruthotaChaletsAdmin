@@ -285,6 +285,9 @@ export type Expense = {
   category: string;
   date: string;
   support_links?: string[];
+  is_paid?: boolean;
+  paid_at?: string | null;
+  paid_by?: string | null;
   created_at?: string;
   updated_at?: string;
 };

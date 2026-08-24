@@ -60,6 +60,36 @@ export async function POST(request: Request) {
           : day_type === 'half'   ? Number(daily_rate) / 2
           : 0;
 
+        if (is_paid && amount > 0) {
+            const [cashRequestsResult, paidPaymentsResult] = await Promise.all([
+                supabase
+                    .from('daily_worker_cash_requests')
+                    .select('issued_amount')
+                    .eq('work_date', date),
+                supabase
+                    .from('daily_payments')
+                    .select('amount')
+                    .eq('date', date)
+                    .eq('is_paid', true)
+                    .neq('worker_id', worker_id),
+            ]);
+
+            if (cashRequestsResult.error) throw cashRequestsResult.error;
+            if (paidPaymentsResult.error) throw paidPaymentsResult.error;
+
+            const issued = (cashRequestsResult.data || [])
+                .reduce((sum, item) => sum + Number(item.issued_amount || 0), 0);
+            const alreadyPaid = (paidPaymentsResult.data || [])
+                .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+            const available = issued - alreadyPaid;
+
+            if (amount > available) {
+                return NextResponse.json({
+                    error: `Insufficient issued funds. Available: LKR ${available.toLocaleString('en-LK', { minimumFractionDigits: 2 })}; required: LKR ${amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}.`,
+                }, { status: 422 });
+            }
+        }
+
         const { data, error } = await supabase
             .from('daily_payments')
             .upsert([{

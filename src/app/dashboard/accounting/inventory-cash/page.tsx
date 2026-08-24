@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
     Banknote, Loader2, RefreshCw, ShoppingCart, CheckCircle2,
     AlertTriangle, Clock, User, RotateCcw, TrendingUp, Eye, PackageCheck,
@@ -66,6 +67,8 @@ type CashRequest = {
     issued_by_user: { name: string } | null;
     purchase_order: LinkedPurchaseOrder | null;
 };
+
+type Account = { id: string; name: string; current_balance: number; is_active: boolean };
 
 type DirectGRN = {
     grn_number: string;
@@ -236,25 +239,30 @@ export default function AccountingInventoryCashPage() {
     // Issue cash dialog
     const [issueReq, setIssueReq] = useState<CashRequest | null>(null);
     const [issueAmount, setIssueAmount] = useState('');
+    const [issueAccount, setIssueAccount] = useState('');
     const [issuing, setIssuing] = useState(false);
 
     // Issue additional dialog
     const [issueAddReq, setIssueAddReq] = useState<CashRequest | null>(null);
     const [issueAddAmount, setIssueAddAmount] = useState('');
+    const [issueAddAccount, setIssueAddAccount] = useState('');
     const [issuingAdd, setIssuingAdd] = useState(false);
+    const [accounts, setAccounts] = useState<Account[]>([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [res, poRes, grnRes] = await Promise.all([
+            const [res, poRes, grnRes, accountsRes] = await Promise.all([
                 fetch('/api/admin/inventory-cash-requests?view=all'),
                 fetch('/api/admin/purchase-orders'),
                 fetch('/api/admin/inventory/stock-intake'),
+                fetch('/api/admin/accounts'),
             ]);
-            const [data, poData, grnData] = await Promise.all([res.json(), poRes.json(), grnRes.json()]);
+            const [data, poData, grnData, accountsData] = await Promise.all([res.json(), poRes.json(), grnRes.json(), accountsRes.json()]);
             setRequests(data.requests ?? []);
             setPurchaseOrders(poData.purchase_orders ?? []);
             setDirectGRNs(grnData.grns ?? []);
+            setAccounts((accountsData.accounts ?? []).filter((account: Account) => account.is_active));
         } catch {
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to load requests.' });
         } finally {
@@ -297,6 +305,7 @@ export default function AccountingInventoryCashPage() {
                 body: JSON.stringify({
                     action: 'issue',
                     issued_amount: issueAmount ? Number(issueAmount) : undefined,
+                    account_id: issueAccount,
                 }),
             });
             const data = await res.json();
@@ -304,6 +313,7 @@ export default function AccountingInventoryCashPage() {
             toast({ title: 'Cash Issued', description: `${issueReq.request_number}: ${fmt(Number(issueAmount) || issueReq.approved_amount)} issued to ${issueReq.requested_by_user?.name}.` });
             setIssueReq(null);
             setIssueAmount('');
+            setIssueAccount('');
             fetchData();
         } catch (e: any) {
             toast({ variant: 'destructive', title: 'Error', description: e.message });
@@ -322,6 +332,7 @@ export default function AccountingInventoryCashPage() {
                 body: JSON.stringify({
                     action: 'issue_additional',
                     additional_issued_amount: issueAddAmount ? Number(issueAddAmount) : undefined,
+                    account_id: issueAddAccount,
                 }),
             });
             const data = await res.json();
@@ -329,6 +340,7 @@ export default function AccountingInventoryCashPage() {
             toast({ title: 'Additional Cash Issued', description: `Additional funds issued to ${issueAddReq.requested_by_user?.name}.` });
             setIssueAddReq(null);
             setIssueAddAmount('');
+            setIssueAddAccount('');
             fetchData();
         } catch (e: any) {
             toast({ variant: 'destructive', title: 'Error', description: e.message });
@@ -340,11 +352,13 @@ export default function AccountingInventoryCashPage() {
     const openIssue = (req: CashRequest) => {
         setIssueReq(req);
         setIssueAmount(String(req.approved_amount ?? ''));
+        setIssueAccount('');
     };
 
     const openIssueAdditional = (req: CashRequest) => {
         setIssueAddReq(req);
         setIssueAddAmount(String(req.additional_approved_amount ?? ''));
+        setIssueAddAccount('');
     };
 
     const filteredRequests = useMemo(() => {
@@ -935,6 +949,13 @@ export default function AccountingInventoryCashPage() {
                             </div>
                         </div>
                         <div className="space-y-2">
+                            <Label>Source Account</Label>
+                            <Select value={issueAccount} onValueChange={setIssueAccount}>
+                                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                                <SelectContent>{accounts.map(account => <SelectItem key={account.id} value={account.id}>{account.name} — {fmt(account.current_balance)}</SelectItem>)}</SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
                             <Label htmlFor="issue-amount">Amount to Issue (Rs)</Label>
                             <Input
                                 id="issue-amount"
@@ -950,7 +971,7 @@ export default function AccountingInventoryCashPage() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIssueReq(null)} disabled={issuing}>Cancel</Button>
-                        <Button onClick={doIssue} disabled={issuing || !issueAmount}>
+                        <Button onClick={doIssue} disabled={issuing || !issueAmount || !issueAccount}>
                             {issuing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                             Issue {issueAmount ? fmt(Number(issueAmount)) : ''}
                         </Button>
@@ -989,6 +1010,13 @@ export default function AccountingInventoryCashPage() {
                             </div>
                         </div>
                         <div className="space-y-2">
+                            <Label>Source Account</Label>
+                            <Select value={issueAddAccount} onValueChange={setIssueAddAccount}>
+                                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                                <SelectContent>{accounts.map(account => <SelectItem key={account.id} value={account.id}>{account.name} — {fmt(account.current_balance)}</SelectItem>)}</SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
                             <Label htmlFor="issue-add-amount">Additional Amount to Issue (Rs)</Label>
                             <Input
                                 id="issue-add-amount"
@@ -1003,7 +1031,7 @@ export default function AccountingInventoryCashPage() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIssueAddReq(null)} disabled={issuingAdd}>Cancel</Button>
-                        <Button onClick={doIssueAdditional} disabled={issuingAdd || !issueAddAmount}>
+                        <Button onClick={doIssueAdditional} disabled={issuingAdd || !issueAddAmount || !issueAddAccount}>
                             {issuingAdd && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                             Issue Additional {issueAddAmount ? fmt(Number(issueAddAmount)) : ''}
                         </Button>

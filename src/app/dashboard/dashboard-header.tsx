@@ -33,7 +33,9 @@ const getPageTitle = (pathname: string) => {
     case '/dashboard/hrms/dashboard':
       return 'HRMS Dashboard';
     case '/dashboard/accounting/daily-workers-finance':
-      return 'Daily Workers Finance';
+      return 'Finance Requests';
+    case '/dashboard/accounting/finance-requests-report':
+      return 'Finance Requests Overall Report';
     case '/dashboard/hrms/daily-workers/requests':
       return 'Daily Worker Money Requests';
     case '/dashboard/menu-management':

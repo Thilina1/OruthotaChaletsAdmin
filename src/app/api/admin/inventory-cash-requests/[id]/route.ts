@@ -88,14 +88,14 @@ export async function PATCH(
                 if (existing.status !== 'APPROVED') {
                     return NextResponse.json({ error: 'Can only issue APPROVED requests' }, { status: 400 });
                 }
-                updateData = {
-                    ...updateData,
-                    status: 'ISSUED',
-                    issued_amount: body.issued_amount != null ? Number(body.issued_amount) : existing.approved_amount,
-                    issued_by: payload.userId,
-                    issued_at: new Date().toISOString(),
-                };
-                break;
+                if (!body.account_id) return NextResponse.json({ error: 'Source account is required' }, { status: 400 });
+                const issueAmount = body.issued_amount != null ? Number(body.issued_amount) : Number(existing.approved_amount);
+                const { error: issueError } = await supabase.rpc('issue_inventory_cash', {
+                    p_request_id: id, p_account_id: body.account_id, p_amount: issueAmount,
+                    p_issued_by: payload.userId, p_is_additional: false,
+                });
+                if (issueError) return NextResponse.json({ error: issueError.message }, { status: 422 });
+                return NextResponse.json({ success: true });
             }
 
             case 'settle': {
@@ -178,14 +178,13 @@ export async function PATCH(
                 const addIssued = body.additional_issued_amount != null
                     ? Number(body.additional_issued_amount)
                     : existing.additional_approved_amount;
-                // Keep status ISSUED — employee must still submit a final settlement
-                // confirming their total spend and returning any unused additional cash
-                updateData = {
-                    ...updateData,
-                    additional_issued_amount: addIssued,
-                    additional_status: 'ISSUED',
-                };
-                break;
+                if (!body.account_id) return NextResponse.json({ error: 'Source account is required' }, { status: 400 });
+                const { error: issueError } = await supabase.rpc('issue_inventory_cash', {
+                    p_request_id: id, p_account_id: body.account_id, p_amount: addIssued,
+                    p_issued_by: payload.userId, p_is_additional: true,
+                });
+                if (issueError) return NextResponse.json({ error: issueError.message }, { status: 422 });
+                return NextResponse.json({ success: true });
             }
 
             default:

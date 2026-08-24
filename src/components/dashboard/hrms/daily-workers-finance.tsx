@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Banknote, Clock3, HandCoins, RefreshCw, Users, Wallet } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowLeft, Banknote, BarChart3, Clock3, HandCoins, RefreshCw, Users, Wallet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,13 @@ type CashRequest = {
   id: string; request_number: string; work_date: string; purpose: string; status: string;
   requested_amount: number; issued_amount: number; amount_to_issue: number; spent_amount: number; balance: number;
   requester?: { name: string } | null;
+  created_at?: string;
+  request_type?: 'daily_worker' | 'other_expense';
+  expense_request?: ExpenseCashRequest;
+};
+type ExpenseCashRequest = {
+  id: string; request_number: string; expense_id: string; expense_date: string; description: string; status: string;
+  requested_amount: number; issued_amount: number; amount_to_issue: number; requester?: { name: string } | null;
 };
 type FinanceData = {
   requests: CashRequest[]; accounts: Account[];
@@ -30,7 +38,7 @@ const money = (value: number) => `LKR ${Number(value || 0).toLocaleString('en-LK
 export function DailyWorkerDaySummary({ present, toPay, paid, requested, issued, toIssue, balance }: {
   present: number; toPay: number; paid: number; requested: number; issued: number; toIssue: number; balance: number;
 }) {
-  return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+  return <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
     <Summary label="Present" value={present} icon={Users} plainNumber />
     <Summary label="To Pay" value={toPay} icon={Clock3} />
     <Summary label="Paid" value={paid} icon={Banknote} />
@@ -53,8 +61,12 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
   const canIssue = user?.role === 'admin' || user?.role === 'payment';
   const showIssuanceControls = accountsOnly && canIssue;
   const [data, setData] = useState<FinanceData | null>(null);
+  const [expenseRequests, setExpenseRequests] = useState<ExpenseCashRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [selectedMonth, setSelectedMonth] = useState(initialDate.slice(0, 7));
+  const [financePeriod, setFinancePeriod] = useState<'all' | 'date' | 'month'>('month');
+  const [requestTypeFilter, setRequestTypeFilter] = useState<'all' | 'daily_worker' | 'other_expense'>('all');
   const [requestForm, setRequestForm] = useState({ work_date: initialDate, purpose: 'Daily worker wages', requested_amount: '' });
   const [requestSaving, setRequestSaving] = useState(false);
   const [requestPage, setRequestPage] = useState(1);
@@ -65,21 +77,41 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
   const [issueAccount, setIssueAccount] = useState('');
   const [issueAmount, setIssueAmount] = useState('');
   const [issueSaving, setIssueSaving] = useState(false);
+  const [issueExpenseRequest, setIssueExpenseRequest] = useState<ExpenseCashRequest | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const endpoint = accountsOnly ? '/api/hrms/daily-worker-finance' : `/api/hrms/daily-worker-finance?date=${selectedDate}`;
-      const response = await fetch(endpoint, { cache: 'no-store' });
+      const periodQuery = financePeriod === 'date'
+        ? `?date=${selectedDate}`
+        : financePeriod === 'month'
+          ? `?month=${selectedMonth}`
+          : '';
+      const endpoint = accountsOnly
+        ? financePeriod === 'date'
+          ? `/api/hrms/daily-worker-finance?date=${selectedDate}`
+          : financePeriod === 'month'
+            ? `/api/hrms/daily-worker-finance?month=${selectedMonth}`
+            : '/api/hrms/daily-worker-finance'
+        : `/api/hrms/daily-worker-finance?date=${selectedDate}`;
+      const [response, expenseResponse] = await Promise.all([
+        fetch(endpoint, { cache: 'no-store' }),
+        accountsOnly ? fetch(`/api/admin/expense-funding-requests${periodQuery}`, { cache: 'no-store' }) : Promise.resolve(null),
+      ]);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to load finance data.');
       setData(payload);
+      if (expenseResponse) {
+        const expensePayload = await expenseResponse.json();
+        if (!expenseResponse.ok) throw new Error(expensePayload.error || 'Failed to load expense requests.');
+        setExpenseRequests(expensePayload.requests || []);
+      }
     } catch (error) {
       toast({ variant: 'destructive', title: 'Finance error', description: (error as Error).message });
     } finally {
       setLoading(false);
     }
-  }, [accountsOnly, selectedDate, toast]);
+  }, [accountsOnly, financePeriod, selectedDate, selectedMonth, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -92,13 +124,11 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
         const workers = payload.workers || [];
         const presentWorkers = workers.filter((worker: { payment?: { day_type?: string } | null }) =>
           worker.payment && worker.payment.day_type !== 'absent');
-        const payableWorkers = workers.filter((worker: { payment?: { day_type?: string; is_paid?: boolean } | null }) =>
-          worker.payment && worker.payment.day_type !== 'absent' && !worker.payment.is_paid);
-        const amount = payableWorkers.reduce((sum: number, worker: { payment?: { amount?: number } | null }) =>
+        const amount = presentWorkers.reduce((sum: number, worker: { payment?: { amount?: number } | null }) =>
           sum + Number(worker.payment?.amount || 0), 0);
         const paid = workers.filter((worker: { payment?: { is_paid?: boolean } | null }) => worker.payment?.is_paid)
           .reduce((sum: number, worker: { payment?: { amount?: number } | null }) => sum + Number(worker.payment?.amount || 0), 0);
-        setDailyEstimate({ workers: payableWorkers.length, amount });
+        setDailyEstimate({ workers: presentWorkers.length, amount });
         setAttendanceSummary({ present: presentWorkers.length, toPay: amount, paid });
       })
       .catch(() => { setDailyEstimate(null); setAttendanceSummary({ present: 0, toPay: 0, paid: 0 }); })
@@ -134,32 +164,69 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
   };
 
   const openIssue = (request: CashRequest) => {
+    setIssueExpenseRequest(null);
     setIssueRequest(request);
     setIssueAmount(String(request.amount_to_issue));
     setIssueAccount('');
   };
 
+  const openExpenseIssue = (request: ExpenseCashRequest) => {
+    setIssueRequest(null);
+    setIssueExpenseRequest(request);
+    setIssueAmount(String(request.amount_to_issue));
+    setIssueAccount('');
+  };
+
   const issueMoney = async () => {
-    if (!issueRequest) return;
+    const activeRequest = issueExpenseRequest || issueRequest;
+    if (!activeRequest) return;
     setIssueSaving(true);
     try {
-      const response = await fetch('/api/hrms/daily-worker-finance', {
+      const response = await fetch(issueExpenseRequest ? '/api/admin/expense-funding-requests' : '/api/hrms/daily-worker-finance', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: issueRequest.id, account_id: issueAccount, amount: issueAmount }),
+        body: JSON.stringify({ request_id: activeRequest.id, account_id: issueAccount, amount: issueAmount }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Issuance failed.');
       toast({ title: 'Money issued', description: 'The account balance and request balance were updated.' });
       setIssueRequest(null);
+      setIssueExpenseRequest(null);
       load();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Issue failed', description: (error as Error).message });
     } finally { setIssueSaving(false); }
   };
 
-  const summary = data?.summary || { requested: 0, issued: 0, to_issue: 0, spent: 0, balance: 0 };
+  const dailySummary = data?.summary || { requested: 0, issued: 0, to_issue: 0, spent: 0, balance: 0 };
   const requestsPerPage = 10;
-  const requests = data?.requests || [];
+  const dailyRequests: CashRequest[] = data?.requests || [];
+  const combinedRequests: CashRequest[] = accountsOnly ? [
+    ...dailyRequests.map(request => ({ ...request, request_type: 'daily_worker' as const })),
+    ...expenseRequests.map(request => ({
+      id: request.id,
+      request_number: request.request_number,
+      work_date: request.expense_date,
+      purpose: request.description,
+      status: request.status,
+      requested_amount: request.requested_amount,
+      issued_amount: request.issued_amount,
+      amount_to_issue: request.amount_to_issue,
+      spent_amount: 0,
+      balance: 0,
+      requester: request.requester,
+      request_type: 'other_expense' as const,
+      expense_request: request,
+    })),
+  ].sort((a, b) => b.work_date.localeCompare(a.work_date) || b.request_number.localeCompare(a.request_number)) : dailyRequests;
+  const requests = accountsOnly && requestTypeFilter !== 'all'
+    ? combinedRequests.filter(request => request.request_type === requestTypeFilter)
+    : combinedRequests;
+  const summary = accountsOnly ? requests.reduce((totals, request) => ({
+    ...totals,
+    requested: totals.requested + Number(request.requested_amount || 0),
+    issued: totals.issued + Number(request.issued_amount || 0),
+    to_issue: totals.to_issue + Number(request.amount_to_issue || 0),
+  }), { ...dailySummary, requested: 0, issued: 0, to_issue: 0 }) : dailySummary;
   const requestPageCount = Math.max(1, Math.ceil(requests.length / requestsPerPage));
   const safeRequestPage = Math.min(requestPage, requestPageCount);
   const paginatedRequests = requests.slice((safeRequestPage - 1) * requestsPerPage, safeRequestPage * requestsPerPage);
@@ -168,45 +235,56 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
     {!accountsOnly && <Button variant="ghost" className="-ml-3" onClick={() => router.back()}>
       <ArrowLeft className="mr-2 h-4 w-4" /> Back to Daily Workers
     </Button>}
-    <div className="flex items-center justify-between">
-      <div><h2 className="text-2xl font-bold">{accountsOnly ? 'Daily Workers Finance' : 'Daily Worker Money Requests'}</h2><p className="text-muted-foreground">{accountsOnly ? 'Issue requested wage funds from Accounts and monitor balances.' : 'Request wage funds from Accounts and monitor the amount received and remaining.'}</p></div>
-      {!accountsOnly && <Input type="date" value={selectedDate} onChange={event => { setSelectedDate(event.target.value); setRequestForm(form => ({ ...form, work_date: event.target.value })); }} className="w-auto" />}
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><h2 className="text-2xl font-bold">{accountsOnly ? 'Finance Requests' : 'Daily Worker Money Requests'}</h2><p className="text-muted-foreground">{accountsOnly ? 'Review and issue daily-worker and other-expense funding requests.' : 'Request wage funds from Accounts and monitor the amount received and remaining.'}</p></div>
+      {accountsOnly ? <div className="flex flex-wrap items-center gap-2">
+        <Select value={requestTypeFilter} onValueChange={value => { setRequestTypeFilter(value as 'all' | 'daily_worker' | 'other_expense'); setRequestPage(1); }}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All request types</SelectItem><SelectItem value="daily_worker">Daily Workers</SelectItem><SelectItem value="other_expense">Other Expenses</SelectItem></SelectContent>
+        </Select>
+        <Select value={financePeriod} onValueChange={value => setFinancePeriod(value as 'all' | 'date' | 'month')}>
+          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="date">Date-wise</SelectItem><SelectItem value="month">Month-wise</SelectItem></SelectContent>
+        </Select>
+        {financePeriod === 'date' && <Input type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} className="w-auto" />}
+        {financePeriod === 'month' && <Input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} className="w-auto" />}
+      </div> : <Input type="date" value={selectedDate} onChange={event => { setSelectedDate(event.target.value); setRequestForm(form => ({ ...form, work_date: event.target.value })); }} className="w-auto" />}
+      {accountsOnly && <Button asChild variant="outline"><Link href="/dashboard/accounting/finance-requests-report"><BarChart3 className="mr-2 h-4 w-4" />Overall Report</Link></Button>}
       <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</Button>
     </div>
-    {accountsOnly ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    {accountsOnly ? <div className="grid gap-2 sm:grid-cols-3">
         <Summary label="Requested" value={summary.requested} icon={Wallet} />
-        <Summary label="Issued" value={summary.issued} icon={HandCoins} />
+        <Summary label="Issued by Finance" value={summary.issued} icon={HandCoins} />
         <Summary label="Amount to Issue" value={summary.to_issue} icon={Clock3} />
-        <Summary label="Wages Paid" value={summary.spent} icon={Banknote} />
-        <Summary label="Available Balance" value={summary.balance} icon={Wallet} />
       </div> : <DailyWorkerDaySummary present={attendanceSummary.present} toPay={attendanceSummary.toPay} paid={attendanceSummary.paid} requested={summary.requested} issued={summary.issued} toIssue={summary.to_issue} balance={summary.balance} />}
     {!accountsOnly && <Card>
       <CardHeader><CardTitle>Request Money from Accounts</CardTitle></CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-4">
         <div><Label>Work Date</Label><Input type="date" value={requestForm.work_date} onChange={event => { setSelectedDate(event.target.value); setRequestForm(form => ({ ...form, work_date: event.target.value })); }} /></div>
         <div><Label>Requested Amount</Label><Input type="number" min="0.01" step="0.01" value={requestForm.requested_amount} readOnly className="bg-muted/40 font-semibold" />
-          <p className="mt-1 text-xs text-muted-foreground">{estimateLoading ? 'Calculating amount to pay…' : dailyEstimate ? `${dailyEstimate.workers} unpaid worker(s) · To Pay ${money(dailyEstimate.amount)} · Already requested ${money(alreadyRequested)}` : 'No attendance data found for this date.'}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{estimateLoading ? 'Calculating amount to pay…' : dailyEstimate ? `${dailyEstimate.workers} present worker(s) · To Pay ${money(dailyEstimate.amount)} − Already requested ${money(alreadyRequested)}` : 'No attendance data found for this date.'}</p>
         </div>
         <div className="md:col-span-2"><Label>Purpose</Label><Textarea className="min-h-10" value={requestForm.purpose} onChange={event => setRequestForm(form => ({ ...form, purpose: event.target.value }))} /></div>
         <div className="md:col-span-4"><Button onClick={submitRequest} disabled={requestSaving || remainingToRequest <= 0}>{requestSaving ? 'Requesting…' : remainingToRequest > 0 ? 'Submit Money Request' : 'Fully Requested'}</Button></div>
       </CardContent>
     </Card>}
-    {issueRequest && showIssuanceControls && <Card className="border-primary/30">
-      <CardHeader><CardTitle>Issue Money — {issueRequest.request_number}</CardTitle></CardHeader>
+    {(issueRequest || issueExpenseRequest) && showIssuanceControls && <Card className="border-primary/30">
+      <CardHeader><CardTitle>Issue Money — {(issueExpenseRequest || issueRequest)?.request_number}</CardTitle></CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-3">
         <div><Label>Source Account</Label><Select value={issueAccount} onValueChange={setIssueAccount}><SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent>{(data?.accounts || []).map(account => <SelectItem key={account.id} value={account.id}>{account.name} — {money(account.current_balance)}</SelectItem>)}</SelectContent></Select></div>
-        <div><Label>Amount to Issue</Label><Input type="number" min="0.01" max={issueRequest.amount_to_issue} step="0.01" value={issueAmount} onChange={event => setIssueAmount(event.target.value)} /></div>
-        <div className="flex items-end gap-2"><Button onClick={issueMoney} disabled={issueSaving || !issueAccount}>{issueSaving ? 'Issuing…' : 'Confirm Issue'}</Button><Button variant="outline" onClick={() => setIssueRequest(null)}>Cancel</Button></div>
+        <div><Label>Amount to Issue</Label><Input type="number" min="0.01" max={(issueExpenseRequest || issueRequest)?.amount_to_issue} step="0.01" value={issueAmount} onChange={event => setIssueAmount(event.target.value)} /></div>
+        <div className="flex items-end gap-2"><Button onClick={issueMoney} disabled={issueSaving || !issueAccount}>{issueSaving ? 'Issuing…' : 'Confirm Issue'}</Button><Button variant="outline" onClick={() => { setIssueRequest(null); setIssueExpenseRequest(null); }}>Cancel</Button></div>
       </CardContent>
     </Card>}
-    <Card><CardHeader><CardTitle>Money Requests</CardTitle></CardHeader><CardContent>
+    <Card><CardHeader><CardTitle>{accountsOnly ? 'All Finance Requests' : 'Money Requests'}</CardTitle></CardHeader><CardContent>
       <div className="overflow-x-auto">
-      <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Date / Purpose</TableHead><TableHead>Requested</TableHead><TableHead>Issued</TableHead><TableHead>To Issue</TableHead><TableHead>Spent</TableHead><TableHead>Balance</TableHead><TableHead>Status</TableHead>{showIssuanceControls && <TableHead />}</TableRow></TableHeader>
-      <TableBody>{!requests.length ? <TableRow><TableCell colSpan={showIssuanceControls ? 9 : 8} className="py-10 text-center text-muted-foreground">No money requests found.</TableCell></TableRow> : paginatedRequests.map(request => <TableRow key={request.id}>
+      <Table><TableHeader><TableRow><TableHead>Request</TableHead>{accountsOnly && <TableHead>Type</TableHead>}<TableHead>Date / Purpose</TableHead><TableHead>Requested</TableHead><TableHead>{accountsOnly ? 'Issued by Finance' : 'Issued'}</TableHead><TableHead>To Issue</TableHead>{!accountsOnly && <><TableHead>Spent</TableHead><TableHead>Balance</TableHead></>}<TableHead>Status</TableHead>{showIssuanceControls && <TableHead />}</TableRow></TableHeader>
+      <TableBody>{!requests.length ? <TableRow><TableCell colSpan={accountsOnly ? (showIssuanceControls ? 8 : 7) : 8} className="py-10 text-center text-muted-foreground">No finance requests found.</TableCell></TableRow> : paginatedRequests.map(request => <TableRow key={`${request.request_type || 'daily_worker'}-${request.id}`}>
         <TableCell><div className="font-medium">{request.request_number}</div><div className="text-xs text-muted-foreground">{request.requester?.name}</div></TableCell>
+        {accountsOnly && <TableCell><Badge variant={request.request_type === 'other_expense' ? 'secondary' : 'outline'}>{request.request_type === 'other_expense' ? 'Other Expense' : 'Daily Workers'}</Badge></TableCell>}
         <TableCell><div>{request.work_date}</div><div className="max-w-48 truncate text-xs text-muted-foreground">{request.purpose}</div></TableCell>
-        <TableCell>{money(request.requested_amount)}</TableCell><TableCell>{money(request.issued_amount)}</TableCell><TableCell>{money(request.amount_to_issue)}</TableCell><TableCell>{money(request.spent_amount)}</TableCell><TableCell className={request.balance < 0 ? 'text-red-600' : 'text-emerald-600'}>{money(request.balance)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{request.status.replace('_', ' ')}</Badge></TableCell>
-        {showIssuanceControls && <TableCell>{request.amount_to_issue > 0 && <Button size="sm" onClick={() => openIssue(request)}>Issue</Button>}</TableCell>}
+        <TableCell>{money(request.requested_amount)}</TableCell><TableCell>{money(request.issued_amount)}</TableCell><TableCell>{money(request.amount_to_issue)}</TableCell>{!accountsOnly && <><TableCell>{money(request.spent_amount)}</TableCell><TableCell className={request.balance < 0 ? 'text-red-600' : 'text-emerald-600'}>{money(request.balance)}</TableCell></>}<TableCell><Badge variant="outline" className="capitalize">{request.status === 'issued' ? 'Issued by Finance' : request.status.replace('_', ' ')}</Badge></TableCell>
+        {showIssuanceControls && <TableCell>{request.amount_to_issue > 0 && <Button size="sm" onClick={() => request.expense_request ? openExpenseIssue(request.expense_request) : openIssue(request)}>Issue</Button>}</TableCell>}
       </TableRow>)}</TableBody></Table>
       </div>
       {requests.length > requestsPerPage && <div className="mt-4 flex items-center justify-between gap-4 border-t pt-4">
@@ -224,5 +302,5 @@ export function DailyWorkersFinance({ accountsOnly = false }: { accountsOnly?: b
 }
 
 function Summary({ label, value, icon: Icon, plainNumber = false }: { label: string; value: number; icon: typeof Wallet; plainNumber?: boolean }) {
-  return <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-xl font-bold">{plainNumber ? value : money(value)}</p></div><div className="rounded-full bg-primary/10 p-3"><Icon className="h-5 w-5 text-primary" /></div></CardContent></Card>;
+  return <Card><CardContent className="flex min-h-20 items-center justify-between gap-2 p-3"><div className="min-w-0"><p className="text-[11px] text-muted-foreground">{label}</p><p className="mt-0.5 truncate text-base font-bold">{plainNumber ? value : money(value)}</p></div><div className="shrink-0 rounded-full bg-primary/10 p-2"><Icon className="h-4 w-4 text-primary" /></div></CardContent></Card>;
 }

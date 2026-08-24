@@ -58,10 +58,10 @@ export const roomBookingMenuItems: MenuItem[] = [
 ];
 
 export const otherMenue: MenuItem[] = [
-    { href: '/dashboard/accounting/daily-workers-finance', icon: Banknote, label: 'Daily Workers Finance', roles: ['admin', 'payment'] },
+    { href: '/dashboard/accounting/daily-workers-finance', icon: Banknote, label: 'Finance Requests', roles: ['admin', 'payment'] },
     { href: '/dashboard/accounting/inventory-cash', icon: Banknote, label: 'Inventory Cash', roles: ['admin', 'payment'] },
     { href: '/dashboard/accounting', icon: BookOpen, label: 'Accounting', roles: ['admin'] },
-    { href: '/dashboard/expenses', icon: Zap, label: 'Expenses', roles: ['admin'] },
+    { href: '/dashboard/expenses', icon: Zap, label: 'Other Expenses', roles: ['admin'] },
     { href: '/dashboard/other-incomes', icon: Zap, label: 'Other Incomes', roles: ['admin'] },
 ];
 

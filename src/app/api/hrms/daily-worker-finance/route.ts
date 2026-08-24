@@ -18,6 +18,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const date = new URL(request.url).searchParams.get('date');
+  const month = new URL(request.url).searchParams.get('month');
   let requestsQuery = supabase.from('daily_worker_cash_requests').select(`
     *, requester:users!requested_by(name), issuer:users!last_issued_by(name),
     issues:daily_worker_cash_issues(id, amount, created_at, account:accounts(id, name), issued_by_user:users!issued_by(name))
@@ -26,6 +27,13 @@ export async function GET(request: Request) {
   if (date) {
     requestsQuery = requestsQuery.eq('work_date', date);
     paymentsQuery = paymentsQuery.eq('date', date);
+  } else if (month && /^\d{4}-\d{2}$/.test(month)) {
+    const monthStart = `${month}-01`;
+    const nextMonth = new Date(`${monthStart}T00:00:00Z`);
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+    const monthEnd = nextMonth.toISOString().slice(0, 10);
+    requestsQuery = requestsQuery.gte('work_date', monthStart).lt('work_date', monthEnd);
+    paymentsQuery = paymentsQuery.gte('date', monthStart).lt('date', monthEnd);
   }
 
   const [requestsResult, paymentsResult, accountsResult] = await Promise.all([
@@ -36,10 +44,43 @@ export async function GET(request: Request) {
   const error = requestsResult.error || paymentsResult.error || accountsResult.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const spentByDate = new Map<string, number>();
+  for (const payment of paymentsResult.data || []) {
+    if (!payment.is_paid) continue;
+    spentByDate.set(payment.date, (spentByDate.get(payment.date) || 0) + Number(payment.amount || 0));
+  }
+
+  // Multiple funding requests can belong to the same work date. Allocate that
+  // day's paid wages across those requests once, instead of attaching the full
+  // daily spend to every request and multiplying it in the summary.
+  const requestsByDate = new Map<string, typeof requestsResult.data>();
+  for (const request of requestsResult.data || []) {
+    const dateRequests = requestsByDate.get(request.work_date) || [];
+    dateRequests.push(request);
+    requestsByDate.set(request.work_date, dateRequests);
+  }
+
+  const spentByRequest = new Map<string, number>();
+  for (const [workDate, dateRequests] of requestsByDate) {
+    const orderedRequests = [...dateRequests].sort((a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    let remainingSpent = spentByDate.get(workDate) || 0;
+
+    for (const request of orderedRequests) {
+      const allocated = Math.min(Number(request.issued_amount || 0), remainingSpent);
+      spentByRequest.set(request.id, allocated);
+      remainingSpent -= allocated;
+    }
+
+    // Preserve a real funding deficit when wages paid exceed all issued funds.
+    const lastRequest = orderedRequests.at(-1);
+    if (lastRequest && remainingSpent > 0) {
+      spentByRequest.set(lastRequest.id, (spentByRequest.get(lastRequest.id) || 0) + remainingSpent);
+    }
+  }
+
   const requests = (requestsResult.data || []).map(request => {
-    const spent = (paymentsResult.data || [])
-      .filter(payment => payment.date === request.work_date && payment.is_paid)
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const spent = spentByRequest.get(request.id) || 0;
     const issued = Number(request.issued_amount || 0);
     const requested = Number(request.requested_amount || 0);
     return {

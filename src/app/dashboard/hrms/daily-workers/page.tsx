@@ -250,7 +250,7 @@ export default function DailyWorkersPage() {
 
     // Summary
     const present = workers.filter(w => w.payment && w.payment.day_type !== 'absent');
-    const totalToPay = present.filter(w => !w.payment?.is_paid).reduce((s, w) => s + (w.payment?.amount || 0), 0);
+    const totalToPay = present.reduce((s, w) => s + (w.payment?.amount || 0), 0);
     const totalPaid = present.filter(w => w.payment?.is_paid).reduce((s, w) => s + (w.payment?.amount || 0), 0);
 
     const filteredManagedWorkers = managedWorkers.filter(worker => {

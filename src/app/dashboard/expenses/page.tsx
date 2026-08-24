@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Pencil, Trash2, Link2, ExternalLink, X, Plus, Settings, Lock } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, Link2, ExternalLink, X, Plus, Settings, Lock, Search, HandCoins } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,9 +33,7 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -43,6 +41,8 @@ import type { Expense } from '@/lib/types';
 import { EXPENSE_CATEGORY_GROUPS } from '@/lib/expense-categories';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface DbCategory {
   id: string;
@@ -73,11 +73,19 @@ function buildGroups(dbCats: DbCategory[]): CategoryGroup[] {
 
 export default function ExpensesPage() {
   const { toast } = useToast();
+  const today = new Date().toISOString().slice(0, 10);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [fundingByExpenseId, setFundingByExpenseId] = useState<Map<string, { status: string; issued_amount: number; requested_amount: number; item_amount: number }>>(new Map());
+  const [requestingExpenseId, setRequestingExpenseId] = useState<string | null>(null);
+  const [payingExpenseId, setPayingExpenseId] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'date' | 'month' | 'year'>('month');
+  const [filterDate, setFilterDate] = useState(today);
+  const [filterMonth, setFilterMonth] = useState(today.slice(0, 7));
+  const [filterYear, setFilterYear] = useState(today.slice(0, 4));
 
   // Category management
   const [dbCategories, setDbCategories] = useState<DbCategory[]>([]);
@@ -92,6 +100,8 @@ export default function ExpensesPage() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
+  const [categoryOpen, setCategoryOpen] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [supportLinks, setSupportLinks] = useState<string[]>([]);
 
@@ -99,19 +109,43 @@ export default function ExpensesPage() {
 
   // Fallback to hardcoded COA list when DB hasn't been migrated yet
   const hasCategoriesFromDb = dbCategories.length > 0;
+  const availableCategoryGroups = useMemo(() => hasCategoriesFromDb
+    ? categoryGroups
+    : EXPENSE_CATEGORY_GROUPS.map(group => ({
+        group: group.group,
+        categories: group.categories.map(name => ({ id: name, name, group_name: group.group, is_system: true })),
+      })), [categoryGroups, hasCategoriesFromDb]);
+  const searchedCategoryGroups = useMemo(() => {
+    const term = categorySearch.trim().toLowerCase();
+    if (!term) return availableCategoryGroups;
+    return availableCategoryGroups
+      .map(group => ({ ...group, categories: group.categories.filter(cat => cat.name.toLowerCase().includes(term)) }))
+      .filter(group => group.categories.length > 0);
+  }, [availableCategoryGroups, categorySearch]);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [expRes, catRes] = await Promise.all([
+      const [expRes, catRes, fundingRes] = await Promise.all([
         fetch('/api/admin/expenses'),
         fetch('/api/admin/expense-categories'),
+        fetch('/api/admin/expense-funding-requests'),
       ]);
       const expData = await expRes.json();
       const catData = await catRes.json();
+      const fundingData = await fundingRes.json();
       if (expData.error) throw new Error(expData.error);
       setExpenses(expData.expenses || []);
       if (!catData.error) setDbCategories(catData.categories || []);
+      if (!fundingData.error) {
+        const entries = (fundingData.requests || []).flatMap((requestItem: { expense_id?: string; status: string; issued_amount: number; requested_amount: number; items?: Array<{ expense_id: string; amount: number }> }) => {
+          const items = requestItem.items?.length
+            ? requestItem.items
+            : requestItem.expense_id ? [{ expense_id: requestItem.expense_id, amount: requestItem.requested_amount }] : [];
+          return items.map(item => [item.expense_id, { ...requestItem, item_amount: Number(item.amount || 0) }] as const);
+        });
+        setFundingByExpenseId(new Map(entries));
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
       toast({ variant: 'destructive', title: "Error", description: "Failed to fetch expenses." });
@@ -122,13 +156,40 @@ export default function ExpensesPage() {
 
   useEffect(() => { fetchData(); }, []);
 
+  const filteredExpenses = useMemo(() => expenses.filter(expense => {
+    if (periodFilter === 'date') return expense.date.slice(0, 10) === filterDate;
+    if (periodFilter === 'month') return expense.date.slice(0, 7) === filterMonth;
+    if (periodFilter === 'year') return expense.date.slice(0, 4) === filterYear;
+    return true;
+  }), [expenses, filterDate, filterMonth, filterYear, periodFilter]);
+  const expensesToRequest = filteredExpenses.filter(expense => !expense.is_paid && !fundingByExpenseId.has(expense.id));
+  const amountToRequest = expensesToRequest.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const expenseFundingSummary = filteredExpenses.reduce((totals, expense) => {
+    const funding = fundingByExpenseId.get(expense.id);
+    const itemAmount = Number(funding?.item_amount || 0);
+    const issuedRatio = funding?.requested_amount ? Math.min(1, Number(funding.issued_amount || 0) / Number(funding.requested_amount)) : 0;
+    return {
+      requested: totals.requested + itemAmount,
+      issued: totals.issued + itemAmount * issuedRatio,
+      paid: totals.paid + (expense.is_paid ? Number(expense.amount || 0) : 0),
+    };
+  }, { requested: 0, issued: 0, paid: 0 });
+
+  const expenseYears = useMemo(() => Array.from(new Set([
+    today.slice(0, 4),
+    ...expenses.map(expense => expense.date.slice(0, 4)),
+  ])).sort((a, b) => b.localeCompare(a)), [expenses, today]);
+
   const { currentPage, totalPages, totalItems, paginatedItems, itemsPerPage, setCurrentPage } =
-    usePagination(expenses, 20);
+    usePagination(filteredExpenses, 20);
+
+  useEffect(() => { setCurrentPage(1); }, [filterDate, filterMonth, filterYear, periodFilter, setCurrentPage]);
 
   const resetForm = () => {
     setDescription('');
     setAmount('');
     setCategory('');
+    setCategorySearch('');
     setDate(new Date().toISOString().split('T')[0]);
     setSupportLinks([]);
     setEditingExpense(null);
@@ -140,6 +201,7 @@ export default function ExpensesPage() {
       setDescription(expense.description);
       setAmount(expense.amount.toString());
       setCategory(expense.category);
+      setCategorySearch(expense.category);
       setDate(expense.date);
       setSupportLinks(expense.support_links ?? []);
     } else {
@@ -155,6 +217,10 @@ export default function ExpensesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!category) {
+      toast({ variant: 'destructive', title: "Category required", description: "Please select an expense category." });
+      return;
+    }
     try {
       const method = editingExpense ? 'PUT' : 'POST';
       const body = {
@@ -171,13 +237,13 @@ export default function ExpensesPage() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to save expense.');
       toast({ title: editingExpense ? "Expense Updated" : "Expense Added" });
       setIsDialogOpen(false);
       resetForm();
       fetchData();
     } catch (error) {
-      toast({ variant: 'destructive', title: "Error", description: "Failed to save expense." });
+      toast({ variant: 'destructive', title: "Error", description: (error as Error).message });
     }
   };
 
@@ -193,6 +259,51 @@ export default function ExpensesPage() {
       toast({ variant: 'destructive', title: "Error", description: "Failed to delete expense." });
     } finally {
       setDeleteId(null);
+    }
+  };
+
+  const requestExpenseFunds = async () => {
+    if (!expensesToRequest.length) return;
+    setRequestingExpenseId('batch');
+    try {
+      const response = await fetch('/api/admin/expense-funding-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expense_ids: expensesToRequest.map(expense => expense.id) }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to request funds.');
+      setFundingByExpenseId(previous => {
+        const next = new Map(previous);
+        for (const item of payload.request.items || []) {
+          next.set(item.expense_id, { ...payload.request, item_amount: Number(item.amount || 0) });
+        }
+        return next;
+      });
+      toast({ title: 'Funds requested', description: `${expensesToRequest.length} expense(s) were submitted as one Finance Request.` });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Request failed', description: (error as Error).message });
+    } finally {
+      setRequestingExpenseId(null);
+    }
+  };
+
+  const markExpensePaid = async (expense: Expense) => {
+    setPayingExpenseId(expense.id);
+    try {
+      const response = await fetch('/api/admin/expenses', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: expense.id, is_paid: true }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to mark expense paid.');
+      setExpenses(previous => previous.map(item => item.id === expense.id ? payload.expense : item));
+      toast({ title: 'Expense settled', description: `${expense.description} was marked as settled.` });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Payment failed', description: (error as Error).message });
+    } finally {
+      setPayingExpenseId(null);
     }
   };
 
@@ -248,8 +359,8 @@ export default function ExpensesPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-headline font-bold">Expenses</h1>
-          <p className="text-muted-foreground">Track and manage your expenses.</p>
+          <h1 className="text-3xl font-headline font-bold">Other Expenses</h1>
+          <p className="text-muted-foreground">Track and manage your other expenses.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setIsCatDialogOpen(true)}>
@@ -261,6 +372,44 @@ export default function ExpensesPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-card p-3">
+        <Label className="mr-1">Filter period</Label>
+        <Select value={periodFilter} onValueChange={value => setPeriodFilter(value as 'all' | 'date' | 'month' | 'year')}>
+          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="date">Date-wise</SelectItem>
+            <SelectItem value="month">Month-wise</SelectItem>
+            <SelectItem value="year">Year-wise</SelectItem>
+          </SelectContent>
+        </Select>
+        {periodFilter === 'date' && <Input type="date" value={filterDate} onChange={event => setFilterDate(event.target.value)} className="w-auto" />}
+        {periodFilter === 'month' && <Input type="month" value={filterMonth} onChange={event => setFilterMonth(event.target.value)} className="w-auto" />}
+        {periodFilter === 'year' && <Select value={filterYear} onValueChange={setFilterYear}>
+          <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+          <SelectContent>{expenseYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}</SelectContent>
+        </Select>}
+        <span className="ml-auto text-sm text-muted-foreground">{filteredExpenses.length} expense(s)</span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">Requested</p><p className="mt-1 text-lg font-bold">LKR {expenseFundingSummary.requested.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</p></CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">Issued by Finance</p><p className="mt-1 text-lg font-bold">LKR {expenseFundingSummary.issued.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</p></CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">Settled</p><p className="mt-1 text-lg font-bold">LKR {expenseFundingSummary.paid.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</p></CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">To Settle</p><p className="mt-1 text-lg font-bold">LKR {Math.max(0, expenseFundingSummary.issued - expenseFundingSummary.paid).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</p></CardContent></Card>
+      </div>
+
+      <Card><CardContent className="flex flex-wrap items-end gap-3 p-4">
+        <div className="min-w-56 flex-1">
+          <Label>Amount to Request</Label>
+          <Input value={amountToRequest.toFixed(2)} readOnly className="mt-1 bg-muted/40 font-semibold" />
+          <p className="mt-1 text-xs text-muted-foreground">{expensesToRequest.length} unrequested expense(s) in the selected period</p>
+        </div>
+        <Button onClick={requestExpenseFunds} disabled={!expensesToRequest.length || requestingExpenseId === 'batch'}>
+          <HandCoins className="mr-2 h-4 w-4" />{requestingExpenseId === 'batch' ? 'Requesting…' : 'Request Money'}
+        </Button>
+      </CardContent></Card>
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -270,16 +419,20 @@ export default function ExpensesPage() {
               <TableHead>Category</TableHead>
               <TableHead className="text-right">Amount (LKR)</TableHead>
               <TableHead>Links</TableHead>
+              <TableHead>Settlement</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-10">Loading...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-10">Loading...</TableCell></TableRow>
             ) : (!paginatedItems || paginatedItems.length === 0) ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No expenses recorded.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">No expenses recorded.</TableCell></TableRow>
             ) : (
-              paginatedItems.map((expense) => (
+              paginatedItems.map((expense) => {
+                const funding = fundingByExpenseId.get(expense.id);
+                const fullyFunded = Number(funding?.issued_amount || 0) >= Number(expense.amount || 0);
+                return (
                 <TableRow key={expense.id}>
                   <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-medium">{expense.description}</TableCell>
@@ -301,8 +454,22 @@ export default function ExpensesPage() {
                       </div>
                     ) : <span className="text-muted-foreground text-xs">—</span>}
                   </TableCell>
+                  <TableCell>
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${expense.is_paid ? 'bg-emerald-100 text-emerald-700' : fullyFunded ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'}`}>
+                      {expense.is_paid ? 'Settled' : fullyFunded ? 'Issued by Finance' : funding ? 'Awaiting Finance' : 'Not Requested'}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right space-x-2">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(expense)}>
+                    {!expense.is_paid && <Button size="sm" disabled={!fullyFunded || payingExpenseId === expense.id} onClick={() => markExpensePaid(expense)}>
+                      {payingExpenseId === expense.id ? 'Settling…' : 'Mark Settled'}
+                    </Button>}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={Number(funding?.issued_amount || 0) > 0}
+                      title={Number(funding?.issued_amount || 0) > 0 ? 'Cannot edit after Finance has issued funds' : 'Edit expense'}
+                      onClick={() => handleOpenDialog(expense)}
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => setDeleteId(expense.id)} className="text-destructive hover:text-destructive">
@@ -310,7 +477,7 @@ export default function ExpensesPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))
+              );})
             )}
           </TableBody>
         </Table>
@@ -344,24 +511,44 @@ export default function ExpensesPage() {
                   + Add new category
                 </button>
               </div>
-              <Select value={category} onValueChange={setCategory} required>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {(hasCategoriesFromDb ? categoryGroups : EXPENSE_CATEGORY_GROUPS.map(g => ({
-                    group: g.group,
-                    categories: g.categories.map(name => ({ id: name, name, group_name: g.group, is_system: true }))
-                  }))).map((group) => (
-                    <SelectGroup key={group.group}>
-                      <SelectLabel>{group.group}</SelectLabel>
-                      {group.categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover modal open={categoryOpen} onOpenChange={setCategoryOpen}>
+                <PopoverTrigger asChild>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={categorySearch}
+                      onFocus={() => setCategoryOpen(true)}
+                      onChange={event => {
+                        setCategorySearch(event.target.value);
+                        setCategory('');
+                        setCategoryOpen(true);
+                      }}
+                      placeholder="Search and select category…"
+                      className="pl-9"
+                      autoComplete="off"
+                    />
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="max-h-72 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1"
+                  align="start"
+                  onOpenAutoFocus={event => event.preventDefault()}
+                >
+                  {searchedCategoryGroups.length ? searchedCategoryGroups.map(group => <div key={group.group} className="py-1">
+                    <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">{group.group}</p>
+                    {group.categories.map(cat => <button
+                      key={cat.id}
+                      type="button"
+                      className="w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                      onClick={() => {
+                        setCategory(cat.name);
+                        setCategorySearch(cat.name);
+                        setCategoryOpen(false);
+                      }}
+                    >{cat.name}</button>)}
+                  </div>) : <div className="px-3 py-6 text-center text-sm text-muted-foreground">No category found.</div>}
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2">
               <Label htmlFor="amount">Amount (LKR)</Label>

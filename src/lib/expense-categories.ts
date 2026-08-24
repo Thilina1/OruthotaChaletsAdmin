@@ -25,7 +25,6 @@ export const EXPENSE_CATEGORY_GROUPS: ExpenseCategoryGroup[] = [
       'Salary',
       'Staff Service Charge Distribution',
       'Staff Accommodation',
-      'Staff Meals (Cafeteria Cost)',
       'Overtime Pay',
     ],
   },

@@ -109,7 +109,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full overflow-hidden bg-background">
+    <div className="relative flex min-h-screen w-full overflow-hidden bg-background">
+      {/* Mobile background */}
+      {loginImage && (
+        <Image
+          src={loginImage.imageUrl}
+          alt={loginImage.description}
+          fill
+          className="object-cover lg:hidden"
+          data-ai-hint={loginImage.imageHint}
+          priority
+        />
+      )}
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px] lg:hidden" />
+
       {/* Left Side - Visual (Hidden on mobile) */}
       <div className="relative hidden w-3/5 lg:block">
         {loginImage && (
@@ -139,12 +152,12 @@ export default function LoginPage() {
       </div>
 
       {/* Right Side - Form */}
-      <div className="relative flex w-full items-center justify-center lg:w-2/5 p-8 bg-background">
+      <div className="relative flex w-full items-center justify-center p-5 sm:p-8 lg:w-2/5 lg:bg-background">
         <div className="absolute top-8 left-8 lg:hidden animate-fade-in-up">
           <Logo className="h-10 w-40 text-white" />
         </div>
 
-        <div className="w-full max-w-md animate-fade-in-up stagger-2">
+        <div className="w-full max-w-md animate-fade-in-up stagger-2 rounded-2xl bg-background/90 p-6 shadow-2xl backdrop-blur-md sm:p-8 lg:rounded-none lg:bg-transparent lg:p-0 lg:shadow-none lg:backdrop-blur-none">
           <div className="mb-10 text-center lg:text-left">
             <h2 className="text-4xl font-headline font-bold text-foreground mb-3">Login</h2>
             <p className="text-muted-foreground text-lg">
