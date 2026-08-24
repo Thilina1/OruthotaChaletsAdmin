@@ -41,7 +41,7 @@ const formSchema = z.object({
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, loading, refreshUser } = useUserContext();
+  const { user, loading } = useUserContext();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const loginImage = PlaceHolderImages.find(p => p.id === 'login-background');
@@ -67,6 +67,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(values),
       });
 
@@ -86,13 +87,15 @@ export default function LoginPage() {
         return;
       }
 
-      await refreshUser(); // Refresh user context to update state
-
       toast({
         title: "Login Successful",
         description: "Redirecting to your dashboard...",
       });
-      router.replace("/dashboard/home");
+
+      // Use a document navigation after the server sets the HTTP-only auth
+      // cookie. This guarantees that middleware receives the new session on
+      // the first protected-page request and avoids bouncing back to login.
+      window.location.replace("/dashboard/home");
     } catch (error: any) {
       console.error("Login Error:", error);
       toast({
