@@ -10,7 +10,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -32,7 +34,18 @@ type ContactMessage = {
   phone: string | null;
   subject: string | null;
   message: string | null;
+  status: InquiryStatus;
   created_at: string;
+};
+
+type InquiryStatus = 'pending' | 'contacted' | 'confirmed' | 'cancelled' | 'completed';
+
+const statusStyles: Record<InquiryStatus, string> = {
+  pending: 'bg-amber-100 text-amber-800 border-amber-200',
+  contacted: 'bg-blue-100 text-blue-800 border-blue-200',
+  confirmed: 'bg-green-100 text-green-800 border-green-200',
+  cancelled: 'bg-red-100 text-red-800 border-red-200',
+  completed: 'bg-slate-100 text-slate-800 border-slate-200',
 };
 
 export default function InquiriesPage() {
@@ -44,6 +57,7 @@ export default function InquiriesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedInquiry, setSelectedInquiry] = useState<ContactMessage | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const fetchInquiries = async () => {
     setIsLoading(true);
@@ -67,6 +81,29 @@ export default function InquiriesPage() {
   useEffect(() => {
     fetchInquiries();
   }, []);
+
+  const handleStatusChange = async (inquiry: ContactMessage, status: InquiryStatus) => {
+    if (inquiry.status === status) return;
+    setUpdatingId(inquiry.id);
+    try {
+      const { error } = await supabase
+        .from('contact_messages')
+        .update({ status })
+        .eq('id', inquiry.id)
+        .eq('inquiry_type', 'general');
+      if (error) throw error;
+
+      setInquiries(current => current.map(item => item.id === inquiry.id ? { ...item, status } : item));
+      setSelectedInquiry(current => current?.id === inquiry.id ? { ...current, status } : current);
+      window.dispatchEvent(new Event('notifications-changed'));
+      toast({ title: 'Status Updated', description: `Inquiry marked as ${status}.` });
+    } catch (error) {
+      console.error('Error updating inquiry status:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update inquiry status.' });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   const filtered = inquiries.filter((inq) => {
     const q = searchQuery.toLowerCase();
@@ -125,6 +162,7 @@ export default function InquiriesPage() {
                 <TableHead>Subject</TableHead>
                 <TableHead>Message</TableHead>
                 <TableHead>Date</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -132,14 +170,14 @@ export default function InquiriesPage() {
               {isLoading ? (
                 [...Array(6)].map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-14 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-14 text-muted-foreground">
                     <MessageSquare className="mx-auto h-8 w-8 mb-2 opacity-30" />
                     {searchQuery ? 'No inquiries match your search.' : 'No inquiries yet.'}
                   </TableCell>
@@ -182,6 +220,28 @@ export default function InquiriesPage() {
                           year: 'numeric', month: 'short', day: 'numeric',
                         })}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={inq.status || 'pending'}
+                        disabled={updatingId === inq.id}
+                        onValueChange={value => void handleStatusChange(inq, value as InquiryStatus)}
+                      >
+                        <SelectTrigger className="h-8 w-32">
+                          <SelectValue>
+                            <Badge variant="outline" className={`capitalize ${statusStyles[inq.status || 'pending']}`}>
+                              {(inq.status || 'pending').replace('_', ' ')}
+                            </Badge>
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="contacted">Contacted</SelectItem>
+                          <SelectItem value="confirmed">Confirmed</SelectItem>
+                          <SelectItem value="completed">Completed</SelectItem>
+                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

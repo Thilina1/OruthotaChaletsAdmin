@@ -10,6 +10,7 @@ export default function KitchenInventoryRequestPage() {
             badgeLabel="Kitchen"
             lockedDepartmentName="kitchen"
             requestSections={['Staff', 'Function', 'A la carte', 'Room guest']}
+            compactHeader
         />
     );
 }

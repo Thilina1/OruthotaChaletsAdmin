@@ -55,11 +55,12 @@ interface StockRequestPortalProps {
      * this (case-insensitive), even for admins. Omit for the generic, any-department portal. */
     lockedDepartmentName?: string;
     requestSections?: readonly string[];
+    compactHeader?: boolean;
 }
 
 const ITEMS_PER_PAGE = 20;
 
-export default function StockRequestPortal({ title, descriptionText, badgeLabel = 'Inventory Management', lockedDepartmentName, requestSections }: StockRequestPortalProps) {
+export default function StockRequestPortal({ title, descriptionText, badgeLabel = 'Inventory Management', lockedDepartmentName, requestSections, compactHeader = false }: StockRequestPortalProps) {
     const router = useRouter();
     const { toast } = useToast();
     const { user, hasRole } = useUserContext();
@@ -276,13 +277,13 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     return (
         <div className="space-y-4 pb-10">
             {/* Header Section */}
-            <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 text-white">
-                <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 bg-primary/20 rounded-full blur-[100px]" />
+            <div className={cn("relative overflow-hidden bg-slate-900 text-white", compactHeader ? "rounded-2xl p-4 md:p-5" : "rounded-[2rem] p-8")}>
+                <div className={cn("absolute top-0 right-0 bg-primary/20 rounded-full blur-[100px]", compactHeader ? "-mr-12 -mt-12 h-40 w-40" : "-mr-20 -mt-20 h-64 w-64")} />
                 <div className="relative z-10">
-                    <div className="flex items-center gap-4 mb-6">
+                    <div className={cn("flex items-center", compactHeader ? "gap-2 mb-3" : "gap-4 mb-6")}>
                         <Button
                             variant="ghost"
-                            className="text-white/60 hover:text-white hover:bg-white/10 rounded-xl"
+                            className={cn("text-white/60 hover:text-white hover:bg-white/10 rounded-xl", compactHeader && "h-8 px-2 text-xs")}
                             onClick={() => router.back()}
                         >
                             <ArrowLeft className="h-5 w-5 mr-2" />
@@ -292,15 +293,15 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                             {badgeLabel}
                         </Badge>
                     </div>
-                    <h1 className="text-3xl font-black mb-2 tracking-tight">{title}</h1>
-                    <p className="text-lg text-slate-400 max-w-2xl font-medium leading-tight">
+                    <h1 className={cn("font-black tracking-tight", compactHeader ? "text-xl mb-1" : "text-3xl mb-2")}>{title}</h1>
+                    <p className={cn("text-slate-400 max-w-2xl font-medium leading-tight", compactHeader ? "text-sm pr-0 md:pr-44" : "text-lg")}>
                         {descriptionText}
                     </p>
                 </div>
                 {!lockedDepartmentName && (
-                    <div className="absolute bottom-8 right-8 flex gap-4 z-20">
+                    <div className={cn("flex gap-4 z-20", compactHeader ? "mt-4 md:mt-0 md:absolute md:bottom-5 md:right-5" : "absolute bottom-8 right-8")}>
                         <Button
-                            className="bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-2xl h-12 px-6 font-black gap-2 border-none transition-all hover:scale-[1.02] active:scale-[0.98]"
+                            className={cn("bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 font-black gap-2 border-none transition-all hover:scale-[1.02] active:scale-[0.98]", compactHeader ? "rounded-xl h-9 px-4 text-xs" : "rounded-2xl h-12 px-6")}
                             onClick={() => router.push(`/dashboard/inventory-requests/view-history?deptId=${selectedDeptId}`)}
                         >
                             <Clock className="h-5 w-5" />

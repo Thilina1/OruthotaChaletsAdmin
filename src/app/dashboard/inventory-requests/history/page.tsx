@@ -190,13 +190,13 @@ export default function InventoryRequestHistoryPage() {
     return (
         <div className="space-y-4 pb-10">
             {/* Header Section */}
-            <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 text-white">
-                <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 bg-primary/20 rounded-full blur-[100px]" />
+            <div className="relative overflow-hidden bg-slate-900 rounded-2xl p-4 md:p-5 text-white">
+                <div className="absolute top-0 right-0 -mr-12 -mt-12 h-40 w-40 bg-primary/20 rounded-full blur-[100px]" />
                 <div className="relative z-10">
-                    <div className="flex items-center gap-4 mb-6">
+                    <div className="flex items-center gap-2 mb-3">
                         <Button
                             variant="ghost"
-                            className="text-white/60 hover:text-white hover:bg-white/10 rounded-xl"
+                            className="h-8 px-2 text-xs text-white/60 hover:text-white hover:bg-white/10 rounded-xl"
                             onClick={() => router.back()}
                         >
                             <ArrowLeft className="h-5 w-5 mr-2" />
@@ -206,8 +206,8 @@ export default function InventoryRequestHistoryPage() {
                             MRN Approvals & Transfers
                         </Badge>
                     </div>
-                    <h1 className="text-3xl font-black mb-2 tracking-tight">MRN Approvals & Transfers</h1>
-                    <p className="text-lg text-slate-400 max-w-2xl font-medium leading-tight">
+                    <h1 className="text-xl font-black mb-1 tracking-tight">MRN Approvals & Transfers</h1>
+                    <p className="text-sm text-slate-400 max-w-2xl font-medium leading-tight">
                         Track and manage all Material Requisition Note requests across departments.
                     </p>
                 </div>

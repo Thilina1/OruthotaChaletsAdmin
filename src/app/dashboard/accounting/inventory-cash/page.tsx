@@ -311,6 +311,7 @@ export default function AccountingInventoryCashPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             toast({ title: 'Cash Issued', description: `${issueReq.request_number}: ${fmt(Number(issueAmount) || issueReq.approved_amount)} issued to ${issueReq.requested_by_user?.name}.` });
+            window.dispatchEvent(new Event('notifications-changed'));
             setIssueReq(null);
             setIssueAmount('');
             setIssueAccount('');
@@ -338,6 +339,7 @@ export default function AccountingInventoryCashPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             toast({ title: 'Additional Cash Issued', description: `Additional funds issued to ${issueAddReq.requested_by_user?.name}.` });
+            window.dispatchEvent(new Event('notifications-changed'));
             setIssueAddReq(null);
             setIssueAddAmount('');
             setIssueAddAccount('');

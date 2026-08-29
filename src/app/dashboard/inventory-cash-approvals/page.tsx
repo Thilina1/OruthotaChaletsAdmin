@@ -390,9 +390,9 @@ export default function InventoryCashApprovalsPage() {
                 <div>
                     <h1 className="text-3xl font-headline font-bold flex items-center gap-2">
                         <CheckSquare className="h-7 w-7 text-primary" />
-                        Inventory Cash Approvals
+                        Inventory Cash and Credit Approvals
                     </h1>
-                    <p className="text-muted-foreground mt-1">Review and approve cash requests before they proceed to accounting.</p>
+                    <p className="text-muted-foreground mt-1">Review cash requests and manage credit purchase liabilities.</p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                     <DateFilterBar value={dateFilter} onChange={setDateFilter} />

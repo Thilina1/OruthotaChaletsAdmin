@@ -164,15 +164,15 @@ export default function WaiterDashboard() {
 
             {sections.map(section => (
               <TabsContent value={section.name} key={section.id}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {isLoading && Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)}
+                <div className="grid grid-cols-[repeat(auto-fill,260px)] justify-center gap-4 sm:justify-start">
+                  {isLoading && Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[260px] w-[260px]" />)}
 
                   {!isLoading && tablesBySection[section.name] && tablesBySection[section.name].map(table => {
                     const billInfo = billedOrders[table.id];
                     return (
                       <Card
                         key={table.id}
-                        className={`hover:shadow-lg transition-shadow border-2 h-full flex flex-col justify-between ${billInfo ? 'border-orange-400' : statusStyles[table.status]?.border || 'border-gray-300'}`}
+                        className={`h-[260px] w-[260px] overflow-hidden border-2 transition-shadow hover:shadow-lg flex flex-col ${billInfo ? 'border-orange-400' : statusStyles[table.status]?.border || 'border-gray-300'}`}
                       >
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
                           <CardTitle className="text-lg font-bold font-headline">Table {table.table_number}</CardTitle>
@@ -186,7 +186,7 @@ export default function WaiterDashboard() {
                             </Badge>
                           )}
                         </CardHeader>
-                        <CardContent className="space-y-2 flex-grow">
+                        <CardContent className="min-h-0 flex-1 space-y-2 overflow-y-auto">
                           {billInfo ? (
                             <div className="space-y-1.5">
                               {billInfo.items.length > 0 ? billInfo.items.map(item => (

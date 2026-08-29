@@ -21,9 +21,10 @@ import {
 import { ChefHat, Clock, Flame, CheckCircle2, History, Printer, Search, Maximize2, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Cooked-to-order items are the ones marked 'Non-Inventoried' on the menu
-// (raw-stock/bottled items are 'Inventoried' and don't need kitchen prep).
+// Cooked-to-order items are the ones marked 'Non-Inventoried' on the menu.
+// Custom items have no menu_item_id and must also go through kitchen prep.
 function isCookedItem(menuItemsById: Record<string, MenuItem>, orderItem: OrderItem) {
+    if (!orderItem.menu_item_id) return true;
     return menuItemsById[orderItem.menu_item_id]?.stock_type === 'Non-Inventoried';
 }
 
@@ -75,7 +76,7 @@ export default function KitchenOrdersPage() {
             // Only currently open tables — once billed/closed (payment done) the
             // order stops showing up here, so the kitchen sees just what's left to cook.
             const [{ data: ordersData }, { data: itemsData }, { data: menuData }, { data: usersData }] = await Promise.all([
-                supabase.from('orders').select('*').eq('status', 'open').order('created_at', { ascending: true }),
+                supabase.from('orders').select('*').eq('status', 'open').order('created_at', { ascending: false }),
                 supabase.from('order_items').select('*').order('created_at', { ascending: true }),
                 supabase.from('menu_items').select('*'),
                 supabase.from('users').select('*').eq('role', 'kitchen').order('name'),
@@ -125,6 +126,7 @@ export default function KitchenOrdersPage() {
             }
             const { error } = await supabase.from('order_items').update(payload).eq('id', itemId);
             if (error) throw error;
+            window.dispatchEvent(new Event('notifications-changed'));
 
             // Update local state immediately rather than waiting on the
             // realtime round-trip, so the card reflects the change right away.
@@ -162,6 +164,7 @@ export default function KitchenOrdersPage() {
             };
             const { error } = await supabase.from('order_items').update(payload).eq('id', item.id);
             if (error) throw error;
+            window.dispatchEvent(new Event('notifications-changed'));
 
             setOrderItemsByOrder(prev => {
                 const next: Record<string, OrderItem[]> = {};
@@ -181,9 +184,11 @@ export default function KitchenOrdersPage() {
     const tickets = orders
         .map(order => ({
             order,
-            // A KOT is a complete order reference, so include every item while
-            // the table order is open—even no-prep, prepared, or presented items.
-            cookItems: orderItemsByOrder[order.id] || [],
+            // Completed items belong in KOT History, not the active kitchen
+            // queue. A ticket disappears once all of its items are done.
+            cookItems: (orderItemsByOrder[order.id] || []).filter(
+                item => (item.kitchen_status || 'pending') !== 'done'
+            ),
         }))
         .filter(t => t.cookItems.length > 0);
 
@@ -392,10 +397,13 @@ export default function KitchenOrdersPage() {
                                                 ? item.quantity
                                                 : Math.min(item.quantity, item.prepared_quantity ?? 0);
                                             return (
-                                                <li key={item.id} className="flex flex-col gap-2 pb-3 border-b last:border-0 last:pb-0">
+                                                <li key={item.id} className={cn("flex flex-col gap-2 rounded-md border-b p-2 last:border-b", !item.menu_item_id && "border border-amber-300 bg-amber-50/70")}>
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div className="flex flex-col min-w-0">
-                                                            <span className="font-medium truncate">{item.name} <span className="font-bold text-primary">x {item.quantity}</span></span>
+                                                            <div className="flex items-center gap-1.5 font-medium truncate">
+                                                                {item.name} <span className="font-bold text-primary">x {item.quantity}</span>
+                                                                {!item.menu_item_id && <Badge className="bg-amber-500 text-[10px] text-white">Custom</Badge>}
+                                                            </div>
                                                             {requiresKitchenPrep ? (
                                                                 <>
                                                                     <Badge

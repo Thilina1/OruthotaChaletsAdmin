@@ -18,6 +18,7 @@ import {
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useUserContext } from '@/context/user-context';
 import { SidebarTrigger } from '../ui/sidebar';
+import { NotificationMenu } from './notification-menu';
 
 const getPageTitle = (pathname: string) => {
   switch (pathname) {
@@ -87,6 +88,7 @@ export default function DashboardHeader() {
       <div className="flex-1">
         <h1 className="font-semibold text-lg">{getPageTitle(pathname)}</h1>
       </div>
+      <NotificationMenu />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

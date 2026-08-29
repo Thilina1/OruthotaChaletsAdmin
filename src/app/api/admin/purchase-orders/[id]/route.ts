@@ -91,6 +91,52 @@ export async function PUT(
 
         if (poError) throw poError;
 
+        // Keep one aggregated notification per eligible user while one or more
+        // purchase orders are awaiting approval.
+        const approvalQueueChanged = status && (
+            (status === 'pending_approval' && currentPO.status !== 'pending_approval') ||
+            (status !== 'pending_approval' && currentPO.status === 'pending_approval')
+        );
+        if (approvalQueueChanged) {
+            const approvalPath = '/dashboard/purchase-orders/approvals';
+            const [usersResult, pendingResult] = await Promise.all([
+                supabase.from('users').select('id, permissions'),
+                supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+            ]);
+
+            if (usersResult.error || pendingResult.error) {
+                console.error('Failed to synchronize PO notifications:', usersResult.error?.message || pendingResult.error?.message);
+            } else {
+                const recipients = (usersResult.data ?? []).filter(user =>
+                    Array.isArray(user.permissions) && user.permissions.includes(approvalPath)
+                );
+                const pendingCount = pendingResult.count ?? 0;
+
+                const { error: clearError } = await supabase
+                    .from('notifications')
+                    .delete()
+                    .eq('type', 'purchase_order_approval');
+
+                if (clearError) {
+                    console.error('Failed to clear PO approval notifications:', clearError.message);
+                } else if (recipients.length > 0 && pendingCount > 0) {
+                    const { error: notificationError } = await supabase
+                        .from('notifications')
+                        .insert(recipients.map(user => ({
+                            user_id: user.id,
+                            type: 'purchase_order_approval',
+                            title: 'Purchase Orders Awaiting Approval',
+                            message: `${pendingCount} purchase order${pendingCount === 1 ? '' : 's'} awaiting your approval.`,
+                            href: approvalPath,
+                        })));
+
+                    if (notificationError) {
+                        console.error('Failed to create PO approval notifications:', notificationError.message);
+                    }
+                }
+            }
+        }
+
         // --- NEW: General Sync for Line Items ---
         if (items && Array.isArray(items)) {
             // Get existing items to know what to delete

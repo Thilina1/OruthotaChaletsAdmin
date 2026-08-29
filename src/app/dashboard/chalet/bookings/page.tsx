@@ -230,6 +230,7 @@ export default function ChaletBookingsPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             toast({ title: 'Success', description: editingId ? 'Booking updated' : 'Booking created' });
+            window.dispatchEvent(new Event('notifications-changed'));
             setDialogOpen(false);
             fetchAll();
         } catch (e: any) {
@@ -278,6 +279,7 @@ export default function ChaletBookingsPage() {
             const res = await fetch(`/api/chalet/bookings?id=${deleteId}`, { method: 'DELETE' });
             if (!res.ok) throw new Error('Failed to delete');
             toast({ title: 'Deleted', description: 'Booking removed' });
+            window.dispatchEvent(new Event('notifications-changed'));
             setDeleteDialogOpen(false);
             fetchAll();
         } catch (e: any) {

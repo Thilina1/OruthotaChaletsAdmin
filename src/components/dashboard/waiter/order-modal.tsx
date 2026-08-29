@@ -40,6 +40,10 @@ import {
   Clock,
   RefreshCw,
   Unlock,
+  Pencil,
+  ReceiptText,
+  Plus,
+  X,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -90,6 +94,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
   const [isReleasingTable, setIsReleasingTable] = useState(false);
+  const [mobileView, setMobileView] = useState<'menu' | 'bill'>('menu');
+  const [showMobileNewItems, setShowMobileNewItems] = useState(false);
 
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -100,6 +106,19 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       variant: 'destructive',
       title: 'Table Assigned to Another Waiter',
       description: `${openOrder?.waiter_name || 'Another waiter'} is currently handling this table.`,
+    });
+  };
+
+  const getPreparedQuantity = (item: OrderItem) =>
+    ['ready', 'done'].includes(item.kitchen_status || '')
+      ? item.quantity
+      : Math.min(item.quantity, item.prepared_quantity ?? 0);
+
+  const showPreparedItemMessage = () => {
+    toast({
+      variant: 'destructive',
+      title: 'Item Already Prepared',
+      description: 'The quantity cannot be reduced below the amount already prepared by the kitchen.',
     });
   };
 
@@ -235,12 +254,22 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
 
   const [localOrder, setLocalOrder] = useState<Record<string, number>>({});
+  const [customItems, setCustomItems] = useState<Array<{ id: string; name: string; price: number; quantity: number }>>([]);
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
+  const [customItemQuantity, setCustomItemQuantity] = useState('1');
+  const [editingCustomItemId, setEditingCustomItemId] = useState<string | null>(null);
+  const [editingCustomItemName, setEditingCustomItemName] = useState('');
+  const [editingCustomItemPrice, setEditingCustomItemPrice] = useState('');
+  const [editingCustomItemQuantity, setEditingCustomItemQuantity] = useState('1');
 
   // reset UI state on close (but keep localOrder for persistence)
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
       setSelectedCategory(null);
+      setMobileView('menu');
+      setShowMobileNewItems(false);
     }
   }, [isOpen]);
 
@@ -287,13 +316,24 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
               : item));
             return;
           }
-          // Inserts and deletes change the list shape and still need a full refresh.
-          fetchData();
+          if (payload.eventType === 'INSERT' && payload.new?.id) {
+            setOrderItems(current => current.some(item => item.id === payload.new.id)
+              ? current
+              : [...current, payload.new as OrderItem]);
+            return;
+          }
+          if (payload.eventType === 'DELETE' && payload.old?.id) {
+            setOrderItems(current => current.filter(item => item.id !== payload.old.id));
+          }
         }
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${openOrder.id}` },
-        () => { fetchData(); }
+        (payload: any) => {
+          if (payload.new?.id) {
+            setOpenOrder(current => current ? { ...current, ...payload.new } : current);
+          }
+        }
       )
       .subscribe();
 
@@ -378,9 +418,67 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     });
   };
 
+  const handleAddCustomItem = () => {
+    if (isTableLocked) return showTableLockedMessage();
+    const name = customItemName.trim();
+    const price = Number(customItemPrice);
+    const quantity = Number(customItemQuantity);
+
+    if (!name || !Number.isFinite(price) || price < 0 || !Number.isInteger(quantity) || quantity < 1) {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid Custom Item',
+        description: 'Enter an item name, a valid unit price, and a whole-number quantity.',
+      });
+      return;
+    }
+
+    setCustomItems(current => [...current, { id: crypto.randomUUID(), name, price, quantity }]);
+    setCustomItemName('');
+    setCustomItemPrice('');
+    setCustomItemQuantity('1');
+  };
+
+  const handleSaveCustomItemName = async (item: OrderItem) => {
+    const name = editingCustomItemName.trim();
+    const price = Number(editingCustomItemPrice);
+    const quantity = Number(editingCustomItemQuantity);
+    const preparedQuantity = getPreparedQuantity(item);
+    if (!name || !Number.isFinite(price) || price < 0 || !Number.isInteger(quantity) || quantity < 1) {
+      toast({ variant: 'destructive', title: 'Invalid Custom Item', description: 'Enter a name, valid unit price, and whole-number quantity.' });
+      return;
+    }
+    if (isTableLocked) return showTableLockedMessage();
+    if (quantity < preparedQuantity) return showPreparedItemMessage();
+
+    const itemUpdate: Record<string, any> = { name, price, quantity };
+    if (quantity > item.quantity && ['ready', 'done'].includes(item.kitchen_status || '')) {
+      itemUpdate.prepared_quantity = item.quantity;
+      itemUpdate.kitchen_status = 'preparing';
+      itemUpdate.prepared_at = null;
+    }
+    const { error } = await supabase.from('order_items').update(itemUpdate).eq('id', item.id);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Update Failed', description: error.message });
+      return;
+    }
+    const newTotal = Math.max(0, (openOrder?.total_price ?? 0) - (item.price * item.quantity) + (price * quantity));
+    const { error: totalError } = await supabase.from('orders').update({ total_price: newTotal, updated_at: new Date().toISOString() }).eq('id', openOrder?.id);
+    if (totalError) {
+      toast({ variant: 'destructive', title: 'Total Update Failed', description: totalError.message });
+      return;
+    }
+    setOrderItems(current => current.map(existing => existing.id === item.id ? { ...existing, ...itemUpdate } : existing));
+    setOpenOrder(current => current ? { ...current, total_price: newTotal } : current);
+    setEditingCustomItemId(null);
+    setEditingCustomItemName('');
+    setEditingCustomItemPrice('');
+    setEditingCustomItemQuantity('1');
+  };
+
   const handleAddItemsToBill = async () => {
     if (isTableLocked) return showTableLockedMessage();
-    if (!table || !currentUser || Object.keys(localOrder).length === 0) return;
+    if (!table || !currentUser || (Object.keys(localOrder).length === 0 && customItems.length === 0)) return;
 
     let currentOrderId = openOrder?.id;
     try {
@@ -486,6 +584,18 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         }
       }
 
+      for (const customItem of customItems) {
+        orderTotalPriceUpdate += customItem.price * customItem.quantity;
+        const { error: customItemError } = await supabase.from('order_items').insert([{
+          order_id: currentOrderId,
+          menu_item_id: null,
+          name: customItem.name,
+          price: customItem.price,
+          quantity: customItem.quantity,
+        }]);
+        if (customItemError) throw customItemError;
+      }
+
       // Update Order Total
       const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', currentOrderId).single();
       const currentTotal = freshOrder?.total_price || 0;
@@ -503,8 +613,11 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       }
 
       setLocalOrder({});
+      setCustomItems([]);
+      setMobileView('bill');
+      setShowMobileNewItems(false);
       toast({ title: 'Items Added', description: 'New items have been added to the bill.' });
-      fetchData(); // Refetch
+      await fetchData();
     } catch (error) {
       console.error('Error adding items to order:', error);
       toast({ variant: 'destructive', title: 'Order Failed', description: 'Could not add items to the order.' });
@@ -515,6 +628,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     if (isTableLocked) return showTableLockedMessage();
     if (delta === 0) return;
     const newQuantity = item.quantity + delta;
+    if (delta < 0 && newQuantity < getPreparedQuantity(item)) return showPreparedItemMessage();
     if (newQuantity < 1) {
       handleRemoveOrderItem(item);
       return;
@@ -585,12 +699,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       // Update Order Total
       const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', openOrder?.id).single();
       const currentTotal = freshOrder?.total_price || 0;
+      const newTotal = currentTotal + (item.price * delta);
       await supabase.from('orders').update({
-        total_price: currentTotal + (item.price * delta),
+        total_price: newTotal,
         updated_at: new Date().toISOString(),
       }).eq('id', openOrder?.id);
 
-      fetchData();
+      setOrderItems(current => current.map(existing => existing.id === item.id
+        ? { ...existing, ...quantityUpdate }
+        : existing));
+      setOpenOrder(current => current ? { ...current, total_price: newTotal } : current);
     } catch (error) {
       console.error('Error updating item quantity:', error);
       toast({ variant: 'destructive', title: 'Update Failed' });
@@ -599,6 +717,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
   const handleRemoveOrderItem = async (item: OrderItem) => {
     if (isTableLocked) return showTableLockedMessage();
+    if (getPreparedQuantity(item) > 0) return showPreparedItemMessage();
     try {
       const menuItem = menuItems.find(m => m.id === item.menu_item_id);
       
@@ -641,12 +760,14 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       // Update Order Total
       const { data: freshOrder } = await supabase.from('orders').select('total_price').eq('id', openOrder?.id).single();
       const currentTotal = freshOrder?.total_price || 0;
+      const newTotal = Math.max(0, currentTotal - (item.price * item.quantity));
       await supabase.from('orders').update({
-        total_price: Math.max(0, currentTotal - (item.price * item.quantity)),
+        total_price: newTotal,
         updated_at: new Date().toISOString(),
       }).eq('id', openOrder?.id);
 
-      fetchData();
+      setOrderItems(current => current.filter(existing => existing.id !== item.id));
+      setOpenOrder(current => current ? { ...current, total_price: newTotal } : current);
       toast({ title: 'Item Removed' });
     } catch (error) {
       console.error('Error removing item:', error);
@@ -691,16 +812,18 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
 
     try {
-      await supabase.from('orders').update({
+      const { error: billingError } = await supabase.from('orders').update({
         status: 'billed',
         updated_at: new Date().toISOString()
       }).eq('id', openOrder.id);
+      if (billingError) throw billingError;
 
       // Keep table occupied — only the cashier confirming payment should free it
       await supabase.from('restaurant_tables').update({ status: 'occupied' }).eq('id', table.id);
 
       setLocalOrder({});
       toast({ title: 'Bill Sent for Payment', description: `The bill for Table ${table.table_number} is now pending payment.` });
+      window.dispatchEvent(new Event('notifications-changed'));
       fetchData();
     } catch (error) {
       console.error('Error processing payment:', error);
@@ -740,38 +863,150 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     const batch = batchId ? item.available_batches?.find((b: any) => b.id === batchId) : null;
     const price = batch?.selling_price || item.price;
     return acc + price * quantity;
-  }, 0);
+  }, 0) + customItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const totalBill = (openOrder?.total_price || 0) + totalLocalprice;
+  const newItemCount = Object.values(localOrder).reduce((sum, quantity) => sum + quantity, 0)
+    + customItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  const renderNewItemsEditor = () => (
+    <div className="space-y-3">
+      <h3 className="font-semibold">New Items</h3>
+      <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-12 sm:p-2">
+        <Input
+          className="col-span-2 h-10 text-sm sm:col-span-5 sm:h-8"
+          placeholder="Custom item (e.g. Hoppers)"
+          value={customItemName}
+          onChange={event => setCustomItemName(event.target.value)}
+          disabled={isTableLocked}
+        />
+        <Input
+          className="h-10 text-sm sm:col-span-3 sm:h-8"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Unit price"
+          value={customItemPrice}
+          onChange={event => setCustomItemPrice(event.target.value)}
+          disabled={isTableLocked}
+        />
+        <Input
+          className="h-10 text-sm sm:col-span-2 sm:h-8"
+          type="number"
+          min="1"
+          step="1"
+          aria-label="Custom item quantity"
+          value={customItemQuantity}
+          onChange={event => setCustomItemQuantity(event.target.value)}
+          disabled={isTableLocked}
+        />
+        <Button className="col-span-2 h-10 sm:col-span-2 sm:h-8" size="sm" type="button" onClick={handleAddCustomItem} disabled={isTableLocked}>
+          Add
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {newItemCount > 0 ? (
+          <>
+            {Object.entries(localOrder).map(([orderKey, quantity]) => {
+              const [menuItemId, batchId] = orderKey.split('::');
+              const item = menuItems?.find((menuItem) => menuItem.id === menuItemId) as any;
+              if (!item) return null;
+              const batch = batchId ? item.available_batches?.find((entry: any) => entry.id === batchId) : null;
+              const price = batch?.selling_price || item.price;
+              const batchLabel = batch ? ` (Batch: ${batch.batch_number})` : '';
+              return (
+                <div key={orderKey} className="flex items-center justify-between gap-2 text-sm">
+                  <p className="min-w-0 flex-1 truncate">{item.name}{batchLabel} x {quantity}</p>
+                  <p className="shrink-0">LKR {(price * quantity).toFixed(2)}</p>
+                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0 sm:h-6 sm:w-6 sm:border-0" disabled={isTableLocked} onClick={() => handleAddConfirmedItem(item, batchId || null)} aria-label={`Add another ${item.name}`}>
+                    <PlusCircle className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0 sm:h-6 sm:w-6 sm:border-0" disabled={isTableLocked} onClick={() => handleRemoveItem(orderKey)} aria-label={`Remove one ${item.name}`}>
+                    <MinusCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+            {customItems.map(item => (
+              <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                <p className="min-w-0 flex-1 truncate">{item.name} x {item.quantity}</p>
+                <p className="shrink-0">LKR {(item.price * item.quantity).toFixed(2)}</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 text-destructive sm:h-6 sm:w-6"
+                  disabled={isTableLocked}
+                  onClick={() => setCustomItems(current => current.filter(existing => existing.id !== item.id))}
+                  aria-label={`Remove ${item.name}`}
+                >
+                  <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Add items from the menu or enter a custom item.</p>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl h-[90vh] flex flex-col overflow-hidden p-0">
-        <DialogHeader className="flex-shrink-0 p-6 pb-0">
+      <DialogContent className="h-[100dvh] max-h-[100dvh] max-w-6xl flex flex-col overflow-hidden border-0 p-0 sm:h-[90vh] sm:max-h-[90vh] sm:border">
+        <DialogHeader className="flex-shrink-0 px-4 pb-0 pt-4 text-left sm:p-6 sm:pb-0">
           <DialogTitle>Table {table?.table_number} - Order</DialogTitle>
         </DialogHeader>
 
+        {!isBilled && (
+          <div className="grid grid-cols-2 gap-1 border-b px-4 pb-3 pt-3 md:hidden">
+            <Button
+              type="button"
+              variant={mobileView === 'menu' ? 'default' : 'ghost'}
+              className="h-11"
+              onClick={() => setMobileView('menu')}
+            >
+              <Utensils className="mr-2 h-4 w-4" />
+              Menu
+            </Button>
+            <Button
+              type="button"
+              variant={mobileView === 'bill' ? 'default' : 'ghost'}
+              className="relative h-11"
+              onClick={() => setMobileView('bill')}
+            >
+              <ReceiptText className="mr-2 h-4 w-4" />
+              Bill
+              {newItemCount > 0 && (
+                <span className="ml-2 min-w-5 rounded-full bg-background px-1.5 text-xs font-bold text-foreground">
+                  {newItemCount}
+                </span>
+              )}
+            </Button>
+          </div>
+        )}
+
         {/* Grid container: using min-h-0 & flex-1 to allow children to size correctly */}
-        <div className={`grid gap-6 items-start flex-1 min-h-0 p-6 pt-2 ${isBilled ? 'grid-cols-1 max-w-xl mx-auto w-full' : 'md:grid-cols-2 lg:grid-cols-5'}`}>
+        <div className={`grid flex-1 min-h-0 items-start gap-0 overflow-hidden p-3 sm:p-6 sm:pt-2 md:gap-6 ${isBilled ? 'grid-cols-1 max-w-xl mx-auto w-full' : 'md:grid-cols-2 lg:grid-cols-5'}`}>
           {/* Menu Card — hidden when bill is sent to payment */}
-          {!isBilled && <Card className="lg:col-span-3 h-full flex flex-col overflow-hidden">
+          {!isBilled && <Card className={`${mobileView === 'menu' ? 'flex' : 'hidden'} h-full flex-col overflow-hidden md:flex lg:col-span-3`}>
             <CardHeader className="flex-shrink-0 p-4 pb-3">
               <CardTitle className="text-base">Menu</CardTitle>
               <CardDescription className="text-xs">Select items to add to the order.</CardDescription>
 
               <div className="flex gap-2 items-center flex-wrap mt-2">
-                <div className="relative flex-grow min-w-[200px]">
+                <div className="relative min-w-0 flex-grow sm:min-w-[200px]">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input
                     placeholder="Search menu..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="h-8 pl-8 w-full text-xs"
+                    className="h-10 w-full pl-9 text-sm sm:h-8 sm:pl-8 sm:text-xs"
                   />
                 </div>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 max-w-[180px] truncate px-3 text-xs">
+                    <Button variant="outline" size="sm" className="h-10 max-w-[150px] truncate px-3 text-xs sm:h-8 sm:max-w-[180px]">
                       {selectedCategory || 'All Categories'}
                     </Button>
                   </DropdownMenuTrigger>
@@ -804,7 +1039,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                         : (item.stock ?? 0);
                       const isOutOfStock = item.stock_type === 'Inventoried' && effectiveStock - currentCountInCart <= 0;
                       return (
-                        <div key={item.id} className="flex items-center justify-between gap-3 p-1.5 rounded-lg hover:bg-muted">
+                        <div key={item.id} className="flex min-h-16 items-center justify-between gap-3 rounded-md border-b p-2 last:border-b-0 hover:bg-muted sm:min-h-0 sm:border-0 sm:p-1.5">
                           <div className="flex min-w-0 items-center gap-3">
                             <div className="relative w-12 h-12 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0">
                               {fallbackImage ? (
@@ -833,7 +1068,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             </div>
                           </div>
 
-                          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock || isTableLocked}>
+                          <Button size="sm" className="h-10 shrink-0 px-3 text-xs sm:h-7 sm:px-2.5" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock || isTableLocked}>
                             <PlusCircle className="mr-1 h-3.5 w-3.5" /> Add
                           </Button>
                         </div>
@@ -845,11 +1080,51 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                 </div>
               </ScrollArea>
             </CardContent>
+            <div className="flex-shrink-0 border-t bg-background md:hidden">
+              <div className="flex h-14 items-center justify-between px-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">New Items</span>
+                  {newItemCount > 0 && (
+                    <Badge variant="secondary" className="min-w-6 justify-center px-1.5">
+                      {newItemCount}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={showMobileNewItems ? 'secondary' : 'default'}
+                  className="h-10 w-10"
+                  onClick={() => setShowMobileNewItems(current => !current)}
+                  title={showMobileNewItems ? 'Close new item editor' : 'Add a new item'}
+                  aria-label={showMobileNewItems ? 'Close new item editor' : 'Add a new item'}
+                  aria-expanded={showMobileNewItems}
+                >
+                  {showMobileNewItems ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                </Button>
+              </div>
+              {showMobileNewItems && (
+                <div className="max-h-[42vh] overflow-y-auto border-t p-4">
+                  {renderNewItemsEditor()}
+                </div>
+              )}
+              <div className="border-t p-3">
+                <Button
+                  type="button"
+                  className="h-11 w-full"
+                  onClick={handleAddItemsToBill}
+                  disabled={newItemCount === 0 || isTableLocked}
+                >
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Add {newItemCount} {newItemCount === 1 ? 'Item' : 'Items'} to Order
+                </Button>
+              </div>
+            </div>
           </Card>}
 
           {/* Current Bill Card */}
-          <Card className="lg:col-span-2 h-full flex flex-col overflow-hidden sticky top-0">
-            <CardHeader className="flex-shrink-0">
+          <Card className={`${isBilled || mobileView === 'bill' ? 'flex' : 'hidden'} h-full flex-col overflow-hidden md:flex lg:col-span-2`}>
+            <CardHeader className="flex-shrink-0 p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="flex items-center">
                   <ShoppingCart className="mr-2" /> Current Bill
@@ -859,7 +1134,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="shrink-0"
+                    className="h-9 shrink-0 px-2.5 text-xs sm:px-3"
                     disabled={isReleasingTable}
                     onClick={handleReleaseTable}
                   >
@@ -877,9 +1152,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
               )}
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden">
-              <ScrollArea className="h-full pr-4">
-                <div className="space-y-4">
+            <CardContent className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6">
+              <ScrollArea className="h-full pr-2 sm:pr-4">
+                <div className="space-y-3 sm:space-y-4">
 
                   {/* Customer Mobile (Loyalty) */}
                   <div className="space-y-1">
@@ -903,37 +1178,59 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                   )}
 
                   <Separator />
-                  <h3 className="font-semibold">Order Items</h3>
-                  <div className="space-y-2">
+                  <h3 className="text-sm font-semibold sm:text-base">Order Items</h3>
+                  <div className="space-y-1.5 sm:space-y-2">
                     {isLoading ? (
                       <Skeleton className="h-16 w-full" />
                     ) : orderItems && orderItems.length > 0 ? (
                       orderItems.map((item) => {
                         const menuItem = menuItems.find(menu => menu.id === item.menu_item_id);
                         const kitchenStatus = KITCHEN_STATUS[item.kitchen_status || 'pending'];
-                        const needsKitchenPreparation = menuItem?.stock_type === 'Non-Inventoried';
+                        // Custom items have no menu_item_id, but still go through
+                        // the kitchen preparation workflow.
+                        const needsKitchenPreparation = !menuItem || menuItem.stock_type === 'Non-Inventoried';
                         const preparedQuantity = item.kitchen_status === 'ready' || item.kitchen_status === 'done'
                           ? item.quantity
                           : Math.min(item.quantity, item.prepared_quantity ?? 0);
                         const isFullyPrepared = needsKitchenPreparation && preparedQuantity >= item.quantity;
+                        const cannotReducePreparedItem = needsKitchenPreparation && item.quantity <= preparedQuantity;
+                        const cannotRemovePreparedItem = needsKitchenPreparation && preparedQuantity > 0;
                         const isPresented = (item.served_quantity ?? 0) >= item.quantity;
 
                         return (
                           <div
                             key={item.id}
-                            className={`flex justify-between items-center text-sm p-2 rounded-md border ${
-                              isFullyPrepared
+                            className={`flex flex-col items-stretch gap-1.5 rounded-md border p-2 text-xs sm:flex-row sm:items-center sm:gap-2 sm:text-sm ${
+                              !item.menu_item_id
+                                ? 'border-amber-300 bg-amber-50/70'
+                                : isFullyPrepared
                                 ? 'bg-emerald-50 border-emerald-200'
                                 : 'bg-secondary/20 border-transparent'
                             }`}
                           >
                             <div className="flex-1 min-w-0">
-                              <p className={`font-medium flex items-center gap-1.5 ${isFullyPrepared ? 'text-emerald-800' : ''}`}>
-                                {isFullyPrepared && <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />}
-                                {item.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground">LKR {(item.price * item.quantity).toFixed(2)}</p>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {editingCustomItemId === item.id ? (
+                                <div className="grid grid-cols-12 gap-1.5 pr-2">
+                                  <Input className="col-span-12 h-7 text-sm sm:col-span-5" value={editingCustomItemName} onChange={event => setEditingCustomItemName(event.target.value)} placeholder="Item name" autoFocus />
+                                  <Input className="col-span-5 h-7 text-sm sm:col-span-3" type="number" min="0" step="0.01" value={editingCustomItemPrice} onChange={event => setEditingCustomItemPrice(event.target.value)} placeholder="Price" />
+                                  <Input className="col-span-3 h-7 text-sm sm:col-span-2" type="number" min={preparedQuantity || 1} step="1" value={editingCustomItemQuantity} onChange={event => setEditingCustomItemQuantity(event.target.value)} aria-label="Quantity" />
+                                  <Button size="sm" className="h-7 px-2" onClick={() => handleSaveCustomItemName(item)}>Save</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingCustomItemId(null)}>Cancel</Button>
+                                </div>
+                              ) : (
+                                <div className={`flex items-center gap-1.5 text-sm font-medium ${isFullyPrepared ? 'text-emerald-800' : ''}`}>
+                                  {isFullyPrepared && <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                  {item.name}
+                                  {!item.menu_item_id && <Badge className="h-5 bg-amber-500 text-[10px] text-white">Custom</Badge>}
+                                  {!item.menu_item_id && !isTableLocked && !isBilled && (
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingCustomItemId(item.id); setEditingCustomItemName(item.name); setEditingCustomItemPrice(String(item.price)); setEditingCustomItemQuantity(String(item.quantity)); }} aria-label={`Edit ${item.name}`}>
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
+                              <p className="text-[11px] text-muted-foreground sm:text-xs">LKR {(item.price * item.quantity).toFixed(2)}</p>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1 sm:mt-1 sm:gap-1.5">
                                 {needsKitchenPreparation && kitchenStatus && (
                                   <Badge variant="outline" className={`h-5 text-[10px] ${kitchenStatus.className}`}>
                                     {isFullyPrepared && <CheckCircle className="mr-1 h-3 w-3" />}
@@ -958,16 +1255,16 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             {isBilled ? (
                               <span className="text-sm font-medium ml-2">× {item.quantity}</span>
                             ) : (
-                              <div className="flex items-center gap-1">
-                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, -1)}>
-                                  <MinusCircle className="h-3 w-3" />
+                              <div className="flex items-center justify-end gap-1.5 border-t pt-1.5 sm:justify-start sm:gap-1 sm:border-0 sm:pt-0">
+                                <Button variant="outline" size="icon" className="h-8 w-8 sm:h-6 sm:w-6 sm:border-0" disabled={isTableLocked || cannotReducePreparedItem} onClick={() => handleUpdateOrderItemQuantity(item, -1)} title={cannotReducePreparedItem ? 'Prepared items cannot be reduced' : 'Reduce quantity'}>
+                                  <MinusCircle className="h-4 w-4 sm:h-3 sm:w-3" />
                                 </Button>
-                                <span className="w-4 text-center font-bold">{item.quantity}</span>
-                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
-                                  <PlusCircle className="h-3 w-3" />
+                                <span className="w-7 text-center text-sm font-bold sm:w-4">{item.quantity}</span>
+                                <Button variant="outline" size="icon" className="h-8 w-8 sm:h-6 sm:w-6 sm:border-0" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, 1)}>
+                                  <PlusCircle className="h-4 w-4 sm:h-3 sm:w-3" />
                                 </Button>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" disabled={isTableLocked} onClick={() => handleRemoveOrderItem(item)}>
-                                  <Trash2 className="h-3 w-3" />
+                                <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 text-destructive sm:ml-0 sm:h-6 sm:w-6" disabled={isTableLocked || cannotRemovePreparedItem} onClick={() => handleRemoveOrderItem(item)} title={cannotRemovePreparedItem ? 'Prepared items cannot be removed' : 'Remove item'}>
+                                  <Trash2 className="h-4 w-4 sm:h-3 sm:w-3" />
                                 </Button>
                               </div>
                             )}
@@ -979,56 +1276,28 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     )}
                   </div>
 
-                  {/* Bill breakdown — shown as soon as order is billed */}
+                  {/* New-item editor remains in Current Bill on desktop. */}
                   {!isBilled && (
-                    <>
+                    <div className="hidden md:block">
                       <Separator />
-                      <h3 className="font-semibold">New Items</h3>
-                      <div className="space-y-1">
-                        {Object.keys(localOrder).length > 0 ? (
-                          Object.entries(localOrder).map(([orderKey, quantity]) => {
-                            const [menuItemId, batchId] = orderKey.split('::');
-                            const item = menuItems?.find((m) => m.id === menuItemId) as any;
-                            if (!item) return null;
-                            const batch = batchId ? item.available_batches?.find((b: any) => b.id === batchId) : null;
-                            const price = batch?.selling_price || item.price;
-                            const batchLabel = batch ? ` (Batch: ${batch.batch_number})` : '';
-                            return (
-                              <div key={orderKey} className="flex justify-between items-center text-sm mb-1">
-                                <div><p>{item.name}{batchLabel} x {quantity}</p></div>
-                                <div className="flex items-center gap-2">
-                                  <p>LKR {(price * quantity).toFixed(2)}</p>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleAddConfirmedItem(item, batchId || null)}>
-                                    <PlusCircle className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleRemoveItem(orderKey)}>
-                                    <MinusCircle className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Add items from the menu.</p>
-                        )}
-                      </div>
-                    </>
+                      <div className="pt-4">{renderNewItemsEditor()}</div>
+                    </div>
                   )}
                 </div>
               </ScrollArea>
             </CardContent>
 
-            <CardFooter className="flex flex-col gap-4 mt-auto border-t pt-4 flex-shrink-0">
+            <CardFooter className="mt-auto flex flex-shrink-0 flex-col gap-3 border-t bg-background p-4 sm:gap-4 sm:px-6 sm:pb-6 sm:pt-4">
               {!isBilled && (
                 <>
-                  <div className="w-full flex justify-between items-center text-xl font-bold">
+                  <div className="flex w-full items-center justify-between text-lg font-bold sm:text-xl">
                     <span>Total Bill:</span>
                     <span>LKR {totalBill.toFixed(2)}</span>
                   </div>
-                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0 || isTableLocked}>
-                    Add Items to Bill
+                  <Button className="h-11 w-full" onClick={handleAddItemsToBill} disabled={(Object.keys(localOrder).length === 0 && customItems.length === 0) || isTableLocked}>
+                    Add {newItemCount > 0 ? `${newItemCount} New ` : ''}Items to Bill
                   </Button>
-                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder || isTableLocked}>
+                  <Button className="h-11 w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder || isTableLocked}>
                     <CheckCircle className="mr-2" /> Send to Payment
                   </Button>
                 </>
@@ -1061,7 +1330,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             </CardFooter>
           </Card>
         </div>
-        
+
         {/* Bill Breakdown Dialog — shown after cashier confirms */}
         <Dialog open={showBillBreakdown} onOpenChange={setShowBillBreakdown}>
           <DialogContent className="max-w-sm">

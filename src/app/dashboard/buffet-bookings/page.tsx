@@ -139,6 +139,7 @@ export default function BuffetBookingsPage() {
       if (error) throw error;
 
       toast({ title: 'Success', description: `Booking status updated to ${newStatus}.` });
+      window.dispatchEvent(new Event('notifications-changed'));
 
       // Update local state
       setBookings(prev => prev.map(b => b.id === id ? { ...b, status: newStatus } : b));
@@ -309,6 +310,7 @@ export default function BuffetBookingsPage() {
 
       if (error) throw error;
       toast({ title: 'Success', description: 'Buffet booking created.' });
+      window.dispatchEvent(new Event('notifications-changed'));
       setCreateDialogOpen(false);
       fetchBookings();
     } catch (error: any) {

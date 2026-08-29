@@ -15,7 +15,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles, Hotel, ChefHat } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Sparkles, Hotel, ChefHat, CalendarRange } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '../icons';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -36,6 +36,7 @@ import {
   hrmsMenuItems,
   otherMenuItems,
   servicesMenuItems,
+  eventManagementMenuItems,
   allMenuItems,
   MenuItem
 } from '@/lib/route-config';
@@ -46,8 +47,7 @@ const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boo
     // The permission-aware home screen is available to every signed-in user.
     if (item.href === '/dashboard/home') return true;
     // Admins default to all access unless specifically restricted to selected permissions.
-    // Inventory Admins likewise always see everything, regardless of their base role.
-    if ((userRole === 'admin' && !user?.restrict_admin_permissions) || user?.inventory_admin === true) return true;
+    if (userRole === 'admin' && !user?.restrict_admin_permissions) return true;
 
     // Everyone else (including restricted admins) only sees a section if it was
     // explicitly marked/granted for them — no more falling back to the role's
@@ -94,6 +94,7 @@ export default function AppSidebar() {
   const otherSection = renderMenuItems(otherMenue, hasPathAccess, pathname, user);
   const customerSection = renderMenuItems(customerMenuItems, hasPathAccess, pathname, user);
   const servicesSection = renderMenuItems(servicesMenuItems, hasPathAccess, pathname, user);
+  const eventManagementSection = renderMenuItems(eventManagementMenuItems, hasPathAccess, pathname, user);
   const hrmsSection = renderMenuItems(hrmsMenuItems, hasPathAccess, pathname, user);
   const otherItemsSection = renderMenuItems(otherMenuItems, hasPathAccess, pathname, user);
 
@@ -182,6 +183,19 @@ export default function AppSidebar() {
                 <SidebarGroupContent>
                   {servicesSection}
                 </SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
+
+          {eventManagementSection && (
+            <>
+              <SidebarSeparator className="my-2" />
+              <SidebarGroup>
+                <SidebarGroupLabel className="flex items-center gap-2">
+                  <CalendarRange className="size-4" />
+                  Event Management
+                </SidebarGroupLabel>
+                <SidebarGroupContent>{eventManagementSection}</SidebarGroupContent>
               </SidebarGroup>
             </>
           )}

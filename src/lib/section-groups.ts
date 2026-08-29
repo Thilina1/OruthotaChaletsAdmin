@@ -33,7 +33,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/inventory-requests', label: 'MRN Requests' },
       { path: '/dashboard/inventory-requests/history', label: 'MRN Approvals' },
       { path: '/dashboard/inventory-cash-requests', label: 'Cash Requests' },
-      { path: '/dashboard/inventory-cash-approvals', label: 'Cash Approvals' },
+      { path: '/dashboard/inventory-cash-approvals', label: 'Cash and Credit Approvals' },
       { path: '/dashboard/purchase-orders', label: 'Purchase Orders' },
       { path: '/dashboard/purchase-orders/approvals', label: 'PO Approvals' },
       { path: '/dashboard/inventory-stock-overview', label: 'Stock Overview' },
@@ -48,6 +48,7 @@ export const APP_SECTION_GROUPS = [
   {
     name: 'Kitchen',
     sections: [
+      { path: '/dashboard/kitchen/events', label: 'Event Food Requirements' },
       { path: '/dashboard/kitchen/orders', label: 'Kitchen Orders' },
       { path: '/dashboard/kitchen/inventory-requests', label: 'Request Stock' },
       { path: '/dashboard/kitchen/stock-usage', label: 'Stock Usage & Damage' },
@@ -89,6 +90,15 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard/services/laundry', label: 'Laundry Income' },
       { path: '/dashboard/services/transport', label: 'Transport & Excursion' },
       { path: '/dashboard/services/spa', label: 'Spa/Pool Income' },
+    ],
+  },
+  {
+    name: 'Event Management',
+    sections: [
+      { path: '/dashboard/event-management/events', label: 'Event Workspace' },
+      { path: '/dashboard/event-management/approvals', label: 'Event Approvals' },
+      { path: '/dashboard/event-management/calendar', label: 'Event Calendar' },
+      { path: '/dashboard/event-management/registrations', label: 'Registration & Booking' },
     ],
   },
   {

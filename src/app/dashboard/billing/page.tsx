@@ -37,6 +37,7 @@ export default function BillingPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [billingModalMode, setBillingModalMode] = useState<'review' | 'payment'>('review');
     const [confirmingTableId, setConfirmingTableId] = useState<string | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -128,8 +129,13 @@ export default function BillingPage() {
                 vat_amount: vatAmt,
                 grand_total: grandTotal,
             };
-            await supabase.from('orders').update({ confirmed_total: grandTotal, bill_breakdown: breakdown }).eq('id', order.id);
+            const { error: confirmError } = await supabase
+                .from('orders')
+                .update({ confirmed_total: grandTotal, bill_breakdown: breakdown })
+                .eq('id', order.id);
+            if (confirmError) throw confirmError;
             toast({ title: 'Bill Confirmed', description: `Total LKR ${grandTotal.toFixed(2)} sent to waiter view.` });
+            window.dispatchEvent(new Event('notifications-changed'));
             fetchData();
         } catch {
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to confirm bill.' });
@@ -138,10 +144,11 @@ export default function BillingPage() {
         }
     };
 
-    const handleProcessPayment = (tableId: string) => {
+    const openBillingModal = (tableId: string, mode: 'review' | 'payment') => {
         const order = orders[tableId];
         if (order) {
             setSelectedOrder(order);
+            setBillingModalMode(mode);
             setIsPaymentModalOpen(true);
         }
     };
@@ -241,22 +248,21 @@ export default function BillingPage() {
                                         <Button
                                             className="w-full"
                                             variant={order.confirmed_total ? 'outline' : 'secondary'}
-                                            onClick={() => handleConfirmBill(table.id)}
-                                            disabled={confirmingTableId === table.id}
+                                            onClick={() => openBillingModal(table.id, 'review')}
                                         >
                                             <CheckCircle2 className="mr-2 h-4 w-4" />
                                             {order.confirmed_total
                                                 ? `Confirmed: LKR ${order.confirmed_total.toFixed(2)}`
-                                                : confirmingTableId === table.id ? 'Confirming…' : 'Confirm Bill'}
+                                                : 'Review & Confirm Bill'}
                                         </Button>
                                     )}
                                     <Button
                                         className="w-full"
-                                        onClick={() => handleProcessPayment(table.id)}
-                                        disabled={!order || order.status === 'open'}
+                                        onClick={() => openBillingModal(table.id, 'payment')}
+                                        disabled={!order || order.status === 'open' || !order.confirmed_total}
                                         variant={order?.status === 'billed' ? 'default' : 'outline'}
                                     >
-                                        {!order ? 'No Order' : order.status === 'open' ? 'Awaiting Payment Request' : 'Process Payment'}
+                                        {!order ? 'No Order' : order.status === 'open' ? 'Awaiting Payment Request' : !order.confirmed_total ? 'Confirm Bill First' : 'Process Payment'}
                                     </Button>
                                 </CardFooter>
                             </Card>
@@ -271,9 +277,11 @@ export default function BillingPage() {
                     onClose={() => {
                         setIsPaymentModalOpen(false);
                         setSelectedOrder(null);
+                        window.dispatchEvent(new Event('notifications-changed'));
                         fetchData(); // Refresh after payment
                     }}
                     order={selectedOrder}
+                    mode={billingModalMode}
                 />
             )}
         </div>

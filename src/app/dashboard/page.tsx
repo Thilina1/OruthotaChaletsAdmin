@@ -1,6 +1,5 @@
 'use client';
 
-import AdminDashboard from '@/components/dashboard/admin-dashboard';
 import WaiterDashboard from '@/components/dashboard/waiter-dashboard';
 import PaymentDashboard from '@/components/dashboard/payment-dashboard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,7 +20,6 @@ export default function DashboardPage() {
 
     switch (user.role) {
         case 'admin':
-            return <AdminDashboard />;
         case 'waiter':
             return <WaiterDashboard />;
         case 'payment':

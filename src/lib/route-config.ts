@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle, ChefHat } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle, ChefHat, CalendarCheck, CalendarRange, CircleCheckBig } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -36,7 +36,7 @@ export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'MRN Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-requests/history', icon: History, label: 'MRN Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-cash-requests', icon: Wallet, label: 'Cash Requests', roles: ['admin'] },
-    { href: '/dashboard/inventory-cash-approvals', icon: CheckSquare, label: 'Cash Approvals', roles: ['admin'] },
+    { href: '/dashboard/inventory-cash-approvals', icon: CheckSquare, label: 'Cash and Credit Approvals', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },
     { href: '/dashboard/purchase-orders/approvals', icon: ClipboardCheck, label: 'PO Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
@@ -106,6 +106,13 @@ export const servicesMenuItems: MenuItem[] = [
     { href: '/dashboard/services/spa', icon: Waves, label: 'Spa/Pool Income', roles: ['admin'] },
 ];
 
+export const eventManagementMenuItems: MenuItem[] = [
+    { href: '/dashboard/event-management/events', icon: CalendarRange, label: 'Event Workspace', roles: ['admin'] },
+    { href: '/dashboard/event-management/approvals', icon: CircleCheckBig, label: 'Event Approvals', roles: ['admin'] },
+    { href: '/dashboard/event-management/calendar', icon: CalendarDays, label: 'Event Calendar', roles: ['admin'] },
+    { href: '/dashboard/event-management/registrations', icon: CalendarCheck, label: 'Registration & Booking', roles: ['admin'] },
+];
+
 export const chaletMenuItems: MenuItem[] = [
     { href: '/dashboard/chalet/bookings', icon: BedDouble, label: 'Chalet Bookings', roles: ['admin'] },
     { href: '/dashboard/chalet/rooms', icon: BedDouble, label: 'Chalet Rooms', roles: ['admin'] },
@@ -113,6 +120,7 @@ export const chaletMenuItems: MenuItem[] = [
 ];
 
 export const kitchenMenuItems: MenuItem[] = [
+    { href: '/dashboard/kitchen/events', icon: CalendarDays, label: 'Event Food Requirements', roles: ['admin', 'kitchen'] },
     { href: '/dashboard/kitchen/orders', icon: UtensilsCrossed, label: 'Kitchen Orders', roles: ['admin', 'kitchen'] },
     { href: '/dashboard/kitchen/inventory-requests', icon: ChefHat, label: 'Request Stock', roles: ['admin', 'kitchen'] },
     { href: '/dashboard/kitchen/stock-usage', icon: PackageOpen, label: 'Stock Usage & Damage', roles: ['admin', 'kitchen'] },
@@ -128,6 +136,25 @@ export const allMenuItems = [
     ...kitchenMenuItems,
     ...otherMenue,
     ...servicesMenuItems,
+    ...eventManagementMenuItems,
     ...hrmsMenuItems,
     ...otherMenuItems,
 ];
+
+/**
+ * Resolve a dashboard URL to the most specific permission entry that owns it.
+ * This prevents a broad entry such as `/dashboard` or
+ * `/dashboard/inventory-management` from granting separately configurable
+ * pages beneath it, while still allowing child pages such as `/new` and
+ * `/:id/edit` to inherit their parent permission.
+ */
+export function getPermissionPath(pathname: string): string | null {
+    const matchingItems = allMenuItems
+        .filter(item => {
+            if (item.href === '/dashboard') return pathname === '/dashboard';
+            return pathname === item.href || pathname.startsWith(item.href + '/');
+        })
+        .sort((a, b) => b.href.length - a.href.length);
+
+    return matchingItems[0]?.href ?? null;
+}

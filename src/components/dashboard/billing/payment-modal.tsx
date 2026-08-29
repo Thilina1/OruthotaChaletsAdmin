@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Order, OrderItem, PaymentMethod } from '@/lib/types';
+import type { Bill, Order, OrderItem, PaymentMethod } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
@@ -14,8 +14,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { CheckCircle, Receipt, CreditCard, Wallet, Phone, Loader2, ChevronDown, ChevronUp, Printer, PartyPopper } from 'lucide-react';
+import { CheckCircle, Receipt as ReceiptIcon, CreditCard, Wallet, Phone, Loader2, ChevronDown, ChevronUp, Printer, PartyPopper, Plus, Trash2 } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Receipt as PrintableReceipt } from '@/components/dashboard/billing/receipt';
 
 // ── Billing config types (mirrors restaurant-settings) ────────────────────────
 type ChargeType = 'percentage' | 'fixed';
@@ -44,9 +45,10 @@ interface PaymentModalProps {
   order: Order;
   isOpen: boolean;
   onClose: () => void;
+  mode?: 'review' | 'payment';
 }
 
-export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
+export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: PaymentModalProps) {
   const supabase = createClient();
   const { toast } = useToast();
 
@@ -57,8 +59,14 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
   // Per-bill overrides: which service/other charges are active this bill
   const [activeCharges, setActiveCharges] = useState<Record<string, boolean>>({});
   const [activeOtherCharges, setActiveOtherCharges] = useState<Record<string, boolean>>({});
+  const [vatEnabled, setVatEnabled] = useState(false);
   // Which discounts the cashier has selected for this bill
   const [selectedDiscounts, setSelectedDiscounts] = useState<Record<string, boolean>>({});
+  const [customDiscounts, setCustomDiscounts] = useState<DiscountEntry[]>([]);
+  const [newDiscountName, setNewDiscountName] = useState('');
+  const [newDiscountType, setNewDiscountType] = useState<ChargeType>('fixed');
+  const [newDiscountValue, setNewDiscountValue] = useState('');
+  const [discountsEnabled, setDiscountsEnabled] = useState(false);
   // Show/hide breakdown detail
   const [showBreakdown, setShowBreakdown] = useState(true);
 
@@ -70,6 +78,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
   const [paidTotal, setPaidTotal] = useState(0);
   const [paidMethod, setPaidMethod] = useState<PaymentMethod>('cash');
   const [paidChange, setPaidChange] = useState(0);
+  const [paidAt, setPaidAt] = useState('');
 
   // ── Load order items + billing config ──────────────────────────────────────
   useEffect(() => {
@@ -87,6 +96,8 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
         ? { ...DEFAULT_CONFIG, ...configRes.value }
         : DEFAULT_CONFIG;
       setBillingConfig(cfg);
+      const savedVatRate = (order as any).bill_breakdown?.vat_rate;
+      setVatEnabled(order.confirmed_total != null && savedVatRate != null ? Number(savedVatRate) > 0 : cfg.vat.enabled);
 
       const chargeDefaults: Record<string, boolean> = {};
       cfg.service_charges.forEach(sc => { chargeDefaults[sc.id] = sc.enabled; });
@@ -107,6 +118,11 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
     setPaymentMethod('cash');
     setConfirmed(!!order.confirmed_total);
     setPaymentDone(false);
+    setPaidAt('');
+    setCustomDiscounts([]);
+    setNewDiscountName('');
+    setNewDiscountValue('');
+    setDiscountsEnabled(false);
   }, [order]);
 
   // ── Bill calculation ────────────────────────────────────────────────────────
@@ -125,7 +141,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
     const subtotal = orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
     // Discounts applied to subtotal
-    const discountLines = billingConfig.discounts
+    const discountLines = [...billingConfig.discounts, ...customDiscounts]
       .filter(d => d.enabled && selectedDiscounts[d.id])
       .map(d => ({ ...d, amount: applyCharge(subtotal, d) }));
     const discountTotal = discountLines.reduce((s, d) => s + d.amount, 0);
@@ -145,20 +161,23 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
 
     // VAT on (afterDiscount + service + other)
     const vatBase = afterDiscount + serviceChargeTotal + otherChargeTotal;
-    const vatAmount = billingConfig.vat.enabled
+    const vatAmount = vatEnabled
       ? vatBase * (billingConfig.vat.rate / 100)
       : 0;
 
     const grandTotal = vatBase + vatAmount;
 
     return { subtotal, discountLines, discountTotal, afterDiscount, serviceChargeLines, serviceChargeTotal, otherChargeLines, otherChargeTotal, vatAmount, grandTotal };
-  }, [order.total_price, billingConfig, activeCharges, activeOtherCharges, selectedDiscounts]);
+  }, [orderItems, billingConfig, customDiscounts, activeCharges, activeOtherCharges, selectedDiscounts, vatEnabled]);
 
+  const payableTotal = mode === 'payment' && order.confirmed_total != null
+    ? Number(order.confirmed_total)
+    : grandTotal;
   const cashReceivedNumber = Number(cashReceived);
-  const balance = cashReceivedNumber > 0 ? cashReceivedNumber - grandTotal : 0;
+  const balance = cashReceivedNumber > 0 ? cashReceivedNumber - payableTotal : 0;
   const canProcess = paymentMethod === 'cash'
-    ? cashReceivedNumber >= grandTotal && !isProcessing
-    : grandTotal >= 0 && !isProcessing;
+    ? cashReceivedNumber >= payableTotal && !isProcessing
+    : payableTotal >= 0 && !isProcessing;
 
   // ── Confirm bill total (send to waiter view without processing payment) ──────
   const [isConfirming, setIsConfirming] = useState(false);
@@ -167,7 +186,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
   const handleConfirmBill = async () => {
     setIsConfirming(true);
     try {
-      const breakdown = {
+      const calculatedBreakdown = {
         subtotal,
         discount_lines: discountLines.map(d => ({ name: d.name, type: d.type, value: d.value, amount: d.amount })),
         discount_total: discountTotal,
@@ -176,14 +195,14 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
         service_charge_total: serviceChargeTotal,
         other_charge_lines: otherChargeLines.map(o => ({ name: o.name, type: o.type, value: o.value, amount: o.amount })),
         other_charge_total: otherChargeTotal,
-        vat_rate: billingConfig.vat.enabled ? billingConfig.vat.rate : 0,
+        vat_rate: vatEnabled ? billingConfig.vat.rate : 0,
         vat_amount: vatAmount,
         grand_total: grandTotal,
       };
 
       const { error } = await supabase.from('orders').update({
         confirmed_total: grandTotal,
-        bill_breakdown: breakdown,
+        bill_breakdown: calculatedBreakdown,
         ...(customerMobile ? { customer_mobile: customerMobile } : {}),
       }).eq('id', order.id);
       if (error) throw error;
@@ -196,12 +215,34 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
     }
   };
 
+  const handleCustomPriceChange = (itemId: string, value: string) => {
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0) return;
+    setOrderItems(current => current.map(item => item.id === itemId ? { ...item, price } : item));
+    setConfirmed(false);
+  };
+
+  const handleCustomPriceSave = async (itemId: string) => {
+    const item = orderItems.find(current => current.id === itemId);
+    if (!item) return;
+    const updatedSubtotal = orderItems.reduce((sum, current) => sum + current.price * current.quantity, 0);
+    const [{ error: itemError }, { error: orderError }] = await Promise.all([
+      supabase.from('order_items').update({ price: item.price }).eq('id', itemId),
+      supabase.from('orders').update({ total_price: updatedSubtotal, confirmed_total: null, bill_breakdown: null, updated_at: new Date().toISOString() }).eq('id', order.id),
+    ]);
+    if (itemError || orderError) {
+      toast({ variant: 'destructive', title: 'Price Update Failed', description: itemError?.message || orderError?.message });
+      return;
+    }
+    toast({ title: 'Custom Price Updated', description: 'Review and confirm the recalculated bill.' });
+  };
+
   // ── Payment handler ─────────────────────────────────────────────────────────
   const handleProcessPayment = async () => {
     if (!canProcess) return;
     setIsProcessing(true);
     try {
-      const breakdown = {
+      const calculatedBreakdown = {
         subtotal,
         discount_lines: discountLines.map(d => ({ name: d.name, type: d.type, value: d.value, amount: d.amount })),
         discount_total: discountTotal,
@@ -210,13 +251,16 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
         service_charge_total: serviceChargeTotal,
         other_charge_lines: otherChargeLines.map(o => ({ name: o.name, type: o.type, value: o.value, amount: o.amount })),
         other_charge_total: otherChargeTotal,
-        vat_rate: billingConfig.vat.enabled ? billingConfig.vat.rate : 0,
+        vat_rate: vatEnabled ? billingConfig.vat.rate : 0,
         vat_amount: vatAmount,
         grand_total: grandTotal,
       };
+      const breakdown = mode === 'payment' && (order as any).bill_breakdown
+        ? (order as any).bill_breakdown
+        : calculatedBreakdown;
       const { error } = await supabase.from('orders').update({
         status: 'closed',
-        confirmed_total: grandTotal,
+        confirmed_total: payableTotal,
         bill_breakdown: breakdown,
         updated_at: new Date().toISOString(),
         ...(customerMobile ? { customer_mobile: customerMobile } : {}),
@@ -235,9 +279,10 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
         await supabase.from('restaurant_tables').update({ status: 'available' }).eq('id', order.table_id);
       }
 
-      setPaidTotal(grandTotal);
+      setPaidTotal(payableTotal);
       setPaidMethod(paymentMethod);
-      setPaidChange(paymentMethod === 'cash' ? Math.max(0, cashReceivedNumber - grandTotal) : 0);
+      setPaidChange(paymentMethod === 'cash' ? Math.max(0, cashReceivedNumber - payableTotal) : 0);
+      setPaidAt(new Date().toISOString());
       setPaymentDone(true);
     } catch (error) {
       console.error('Payment error:', error);
@@ -249,22 +294,65 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   const fmt = (n: number) => `LKR ${n.toFixed(2)}`;
-  const hasCharges = billingConfig.service_charges.length > 0 || billingConfig.other_charges.length > 0 || billingConfig.vat.enabled;
-  const hasDiscounts = billingConfig.discounts.filter(d => d.enabled).length > 0;
+  const hasCharges = billingConfig.service_charges.length > 0 || billingConfig.other_charges.length > 0 || billingConfig.vat.rate > 0;
+  const allDiscounts = [...billingConfig.discounts, ...customDiscounts];
+  const hasDiscounts = allDiscounts.filter(d => d.enabled).length > 0;
+
+  const handleAddDiscount = () => {
+    const name = newDiscountName.trim();
+    const value = Number(newDiscountValue);
+    if (!name || !Number.isFinite(value) || value <= 0 || (newDiscountType === 'percentage' && value > 100)) {
+      toast({ variant: 'destructive', title: 'Invalid Discount', description: 'Enter a name and a valid discount value.' });
+      return;
+    }
+    const id = `custom-${crypto.randomUUID()}`;
+    setCustomDiscounts(current => [...current, { id, name, type: newDiscountType, value, condition: '', enabled: true }]);
+    setSelectedDiscounts(current => ({ ...current, [id]: true }));
+    setConfirmed(false);
+    setNewDiscountName('');
+    setNewDiscountValue('');
+  };
+
+  const handleRemoveDiscount = (id: string) => {
+    setCustomDiscounts(current => current.filter(discount => discount.id !== id));
+    setSelectedDiscounts(current => ({ ...current, [id]: false }));
+    setConfirmed(false);
+  };
 
   const handlePrint = () => window.print();
+
+  const printableBill: Bill = {
+    id: order.id,
+    bill_number: order.bill_number || `REST-${order.id.slice(0, 8).toUpperCase()}`,
+    order_id: order.id,
+    table_id: order.table_id,
+    table_number: order.table_number,
+    waiter_name: order.waiter_name,
+    items: orderItems,
+    status: 'paid',
+    payment_method: paidMethod,
+    subtotal,
+    discount: 0,
+    total: paidTotal,
+    created_at: order.created_at,
+    paid_at: paidAt,
+  };
 
   // ── Payment success screen ──────────────────────────────────────────────────
   if (paymentDone) {
     return (
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-sm">
+      <>
+        <div id="print-area" className="fixed -left-[10000px] top-0 w-[80mm] print:static print:w-full">
+          <PrintableReceipt bill={printableBill} items={orderItems} />
+        </div>
+        <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="max-w-sm print:hidden">
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <div className="p-4 bg-green-100 rounded-full">
               <PartyPopper className="h-10 w-10 text-green-600" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-green-700">Payment Successful!</h2>
+              <DialogTitle className="text-xl font-bold text-green-700">Payment Successful!</DialogTitle>
               <p className="text-muted-foreground text-sm mt-1">Table {order.table_number} — {order.waiter_name}</p>
             </div>
 
@@ -304,7 +392,8 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
             </div>
           </div>
         </DialogContent>
-      </Dialog>
+        </Dialog>
+      </>
     );
   }
 
@@ -313,7 +402,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5" />
+            <ReceiptIcon className="h-5 w-5" />
             Bill — Table {order.table_number}
           </DialogTitle>
           <div className="text-xs text-muted-foreground space-y-0.5">
@@ -332,9 +421,30 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
               {/* Order items */}
               <div className="space-y-1.5">
                 {orderItems.length > 0 ? orderItems.map((item, i) => (
-                  <div key={item.id || i} className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">{item.name} × {item.quantity}</span>
-                    <span>{fmt(item.price * item.quantity)}</span>
+                  <div key={item.id || i} className={`flex justify-between items-center gap-3 rounded px-2 py-1 text-sm ${mode === 'review' && !item.menu_item_id ? 'border border-amber-300 bg-amber-50/70' : ''}`}>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      {item.name} × {item.quantity}
+                      {mode === 'review' && !item.menu_item_id && <Badge className="bg-amber-500 text-[10px] text-white">Custom</Badge>}
+                    </div>
+                    {!item.menu_item_id ? (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Label htmlFor={`custom-price-${item.id}`} className="text-xs">Unit price</Label>
+                        <Input
+                          id={`custom-price-${item.id}`}
+                          className="h-8 w-28 text-right"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.price}
+                          onChange={event => handleCustomPriceChange(item.id, event.target.value)}
+                          onBlur={() => handleCustomPriceSave(item.id)}
+                          disabled={mode === 'payment' || isProcessing || isConfirming}
+                        />
+                        <span className="w-28 text-right font-medium">{fmt(item.price * item.quantity)}</span>
+                      </div>
+                    ) : (
+                      <span>{fmt(item.price * item.quantity)}</span>
+                    )}
                   </div>
                 )) : (
                   <p className="text-sm text-muted-foreground">No item details available.</p>
@@ -360,16 +470,89 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                     <span>{fmt(subtotal)}</span>
                   </div>
 
+                  {mode === 'payment' && (order as any).bill_breakdown && (() => {
+                    const saved = (order as any).bill_breakdown;
+                    return <>
+                      {(saved.discount_lines || []).map((line: any, index: number) => (
+                        <div key={`discount-${index}`} className="flex justify-between text-green-700"><span>{line.name}</span><span>-{fmt(Number(line.amount || 0))}</span></div>
+                      ))}
+                      {(saved.service_charge_lines || []).map((line: any, index: number) => (
+                        <div key={`service-${index}`} className="flex justify-between"><span className="text-muted-foreground">{line.name}</span><span>{fmt(Number(line.amount || 0))}</span></div>
+                      ))}
+                      {(saved.other_charge_lines || []).map((line: any, index: number) => (
+                        <div key={`other-${index}`} className="flex justify-between"><span className="text-muted-foreground">{line.name}</span><span>{fmt(Number(line.amount || 0))}</span></div>
+                      ))}
+                      {Number(saved.vat_rate || 0) > 0 && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">VAT ({saved.vat_rate}%)</span><span>{fmt(Number(saved.vat_amount || 0))}</span></div>
+                      )}
+                    </>;
+                  })()}
+
                   {/* Discounts */}
-                  {hasDiscounts && (
+                  {mode === 'review' && <div className="space-y-2 rounded-lg border border-dashed p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Add Discount</p>
+                        <p className="text-xs text-muted-foreground">Enable only when this bill needs a discount.</p>
+                      </div>
+                      <Switch
+                        className="origin-right scale-75"
+                        checked={discountsEnabled}
+                        onCheckedChange={enabled => {
+                          setDiscountsEnabled(enabled);
+                          if (!enabled) {
+                            setSelectedDiscounts({});
+                            setCustomDiscounts([]);
+                            setConfirmed(false);
+                          }
+                        }}
+                        aria-label="Enable discounts"
+                      />
+                    </div>
+                    {discountsEnabled && <div className="grid grid-cols-12 gap-2">
+                      <Input
+                        className="col-span-12 h-8 sm:col-span-5"
+                        placeholder="Discount name"
+                        value={newDiscountName}
+                        onChange={event => setNewDiscountName(event.target.value)}
+                      />
+                      <select
+                        className="col-span-5 h-8 rounded-md border bg-background px-2 text-sm sm:col-span-3"
+                        value={newDiscountType}
+                        onChange={event => setNewDiscountType(event.target.value as ChargeType)}
+                        aria-label="Discount type"
+                      >
+                        <option value="fixed">Fixed</option>
+                        <option value="percentage">Percent</option>
+                      </select>
+                      <Input
+                        className="col-span-4 h-8 sm:col-span-2"
+                        type="number"
+                        min="0"
+                        max={newDiscountType === 'percentage' ? '100' : undefined}
+                        step="0.01"
+                        placeholder={newDiscountType === 'percentage' ? '%' : 'Amount'}
+                        value={newDiscountValue}
+                        onChange={event => setNewDiscountValue(event.target.value)}
+                      />
+                      <Button type="button" size="sm" className="col-span-3 h-8 sm:col-span-2" onClick={handleAddDiscount}>
+                        <Plus className="mr-1 h-3.5 w-3.5" /> Add
+                      </Button>
+                    </div>}
+                  </div>}
+
+                  {mode === 'review' && discountsEnabled && hasDiscounts && (
                     <div className="space-y-2 border rounded-lg p-3 bg-green-50/50 dark:bg-green-950/20">
                       <p className="text-xs font-semibold text-green-700 dark:text-green-400">Discounts</p>
-                      {billingConfig.discounts.filter(d => d.enabled).map(d => (
+                      {allDiscounts.filter(d => d.enabled).map(d => (
                         <label key={d.id} className="flex items-start gap-2 cursor-pointer">
                           <Checkbox
                             className="mt-0.5"
                             checked={!!selectedDiscounts[d.id]}
-                            onCheckedChange={(v) => setSelectedDiscounts(prev => ({ ...prev, [d.id]: !!v }))}
+                            onCheckedChange={(v) => {
+                              setSelectedDiscounts(prev => ({ ...prev, [d.id]: !!v }));
+                              setConfirmed(false);
+                            }}
                           />
                           <div className="flex-1 min-w-0">
                             <span className="font-medium">{d.name}</span>
@@ -378,6 +561,11 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                           <span className="text-green-700 dark:text-green-400 whitespace-nowrap">
                             -{d.type === 'percentage' ? `${d.value}%` : fmt(d.value)}
                           </span>
+                          {d.id.startsWith('custom-') && (
+                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={event => { event.preventDefault(); handleRemoveDiscount(d.id); }} aria-label={`Remove ${d.name}`}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </label>
                       ))}
                       {discountTotal > 0 && (
@@ -390,7 +578,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                   )}
 
                   {/* After discount subtotal (only show if discounts applied) */}
-                  {discountTotal > 0 && (
+                  {mode === 'review' && discountTotal > 0 && (
                     <div className="flex justify-between text-sm font-medium">
                       <span>After Discount</span>
                       <span>{fmt(afterDiscount)}</span>
@@ -398,7 +586,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                   )}
 
                   {/* Service charges */}
-                  {billingConfig.service_charges.length > 0 && (
+                  {mode === 'review' && billingConfig.service_charges.length > 0 && (
                     <div className="space-y-2 border rounded-lg p-3 bg-muted/30">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Service Charges</p>
                       {billingConfig.service_charges.map(sc => (
@@ -423,7 +611,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                   )}
 
                   {/* Other charges */}
-                  {billingConfig.other_charges.length > 0 && (
+                  {mode === 'review' && billingConfig.other_charges.length > 0 && (
                     <div className="space-y-2 border rounded-lg p-3 bg-muted/30">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Charges</p>
                       {billingConfig.other_charges.map(oc => (
@@ -448,10 +636,20 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                   )}
 
                   {/* VAT */}
-                  {billingConfig.vat.enabled && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">VAT ({billingConfig.vat.rate}%)</span>
-                      <span>{fmt(vatAmount)}</span>
+                  {mode === 'review' && billingConfig.vat.rate > 0 && (
+                    <div className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+                      <Switch
+                        className="scale-75"
+                        checked={vatEnabled}
+                        onCheckedChange={enabled => {
+                          setVatEnabled(enabled);
+                          setConfirmed(false);
+                        }}
+                        aria-label="Apply VAT"
+                      />
+                      <span className="flex-1 text-muted-foreground">VAT</span>
+                      <Badge variant="outline" className="text-xs">{billingConfig.vat.rate}%</Badge>
+                      <span className="w-24 text-right">{vatEnabled ? fmt(vatAmount) : 'Disabled'}</span>
                     </div>
                   )}
                 </div>
@@ -462,7 +660,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
               {/* Grand total */}
               <div className="flex justify-between text-xl font-bold">
                 <span>Total</span>
-                <span>{fmt(grandTotal)}</span>
+                <span>{fmt(payableTotal)}</span>
               </div>
 
               <Separator />
@@ -483,8 +681,8 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                 </div>
               </div>
 
-              {/* Payment method */}
-              <RadioGroup
+              {/* Payment controls are intentionally hidden in bill-review mode. */}
+              {mode === 'payment' && <RadioGroup
                 value={paymentMethod}
                 onValueChange={(v: PaymentMethod) => setPaymentMethod(v)}
                 className="flex gap-3"
@@ -497,10 +695,10 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                   <RadioGroupItem value="card" id="card" />
                   <CreditCard className="h-4 w-4" /> Card
                 </Label>
-              </RadioGroup>
+              </RadioGroup>}
 
               {/* Cash received / balance */}
-              {paymentMethod === 'cash' && (
+              {mode === 'payment' && confirmed && paymentMethod === 'cash' && (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <Label htmlFor="cash-received">Cash Received</Label>
@@ -529,7 +727,7 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={onClose} disabled={isProcessing || isConfirming}>Cancel</Button>
-          <Button
+          {mode === 'review' && <Button
             variant={confirmed ? 'outline' : 'secondary'}
             onClick={handleConfirmBill}
             disabled={isLoadingConfig || isConfirming || isProcessing}
@@ -541,13 +739,13 @@ export function PaymentModal({ order, isOpen, onClose }: PaymentModalProps) {
                 ? <><CheckCircle className="mr-2 h-4 w-4 text-green-600" />Bill Confirmed</>
                 : <><CheckCircle className="mr-2 h-4 w-4" />Confirm Bill</>
             }
-          </Button>
-          <Button onClick={handleProcessPayment} disabled={!canProcess || isLoadingConfig} className="flex-1">
+          </Button>}
+          {mode === 'payment' && <Button onClick={handleProcessPayment} disabled={!confirmed || !canProcess || isLoadingConfig} className="flex-1">
             {isProcessing
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing…</>
-              : <><CheckCircle className="mr-2 h-4 w-4" />Pay {fmt(grandTotal)}</>
+              : <><CheckCircle className="mr-2 h-4 w-4" />Pay {fmt(payableTotal)}</>
             }
-          </Button>
+          </Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

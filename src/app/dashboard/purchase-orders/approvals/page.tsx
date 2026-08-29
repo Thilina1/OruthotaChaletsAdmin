@@ -101,6 +101,7 @@ export default function POApprovalsPage() {
                 title: approve ? 'PO Approved' : 'PO Rejected', 
                 description: approve ? 'The purchase order has been authorized.' : 'The PO was sent back to draft.' 
             });
+            window.dispatchEvent(new Event('notifications-changed'));
             
             setViewPO(null);
             fetchOrders();
@@ -219,9 +220,18 @@ export default function POApprovalsPage() {
                                                     <Button variant="ghost" size="sm" onClick={() => setViewPO(po)}>
                                                         <Eye className="h-4 w-4 mr-1" /> Review
                                                     </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="text-destructive border-red-200 bg-red-50 hover:bg-red-100 hover:text-destructive"
+                                                        onClick={() => handleApproval(po.id, false)}
+                                                        disabled={isSubmitting}
+                                                    >
+                                                        <XCircle className="h-4 w-4 mr-1" /> Reject
+                                                    </Button>
                                                     <Button variant="outline" size="sm" className="text-green-600 border-green-200 bg-green-50 hover:bg-green-100" 
                                                         onClick={() => handleApproval(po.id, true)} disabled={isSubmitting}>
-                                                        Approve
+                                                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
                                                     </Button>
                                                 </div>
                                             </TableCell>

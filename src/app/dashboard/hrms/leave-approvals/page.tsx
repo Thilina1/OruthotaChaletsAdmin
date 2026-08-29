@@ -103,6 +103,7 @@ export default function LeaveApprovalsPage() {
             if (data.error) throw new Error(data.error);
             const msg = `Leave request ${confirming.action}.`;
             toast({ title: 'Done', description: msg });
+            window.dispatchEvent(new Event('notifications-changed'));
             setConfirming(null);
             fetchLeaves();
         } catch (error) {

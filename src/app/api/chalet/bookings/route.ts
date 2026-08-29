@@ -32,6 +32,45 @@ async function findRoomConflict(roomId: string, checkIn: string, checkOut: strin
     return data && data.length > 0 ? data[0] : null;
 }
 
+async function syncChaletBookingNotifications() {
+    const bookingPath = '/dashboard/chalet/bookings';
+    const [usersResult, pendingResult] = await Promise.all([
+        supabase.from('users').select('id, permissions'),
+        supabase.from('chalet_bookings').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    ]);
+
+    if (usersResult.error || pendingResult.error) {
+        console.error('Failed to synchronize chalet booking notifications:', usersResult.error?.message || pendingResult.error?.message);
+        return;
+    }
+
+    const recipients = (usersResult.data ?? []).filter(user =>
+        Array.isArray(user.permissions) && user.permissions.includes(bookingPath)
+    );
+    const pendingCount = pendingResult.count ?? 0;
+
+    const { error: clearError } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('type', 'chalet_booking');
+
+    if (clearError) {
+        console.error('Failed to clear chalet booking notifications:', clearError.message);
+        return;
+    }
+
+    if (recipients.length > 0 && pendingCount > 0) {
+        const { error } = await supabase.from('notifications').insert(recipients.map(user => ({
+            user_id: user.id,
+            type: 'chalet_booking',
+            title: 'Chalet Bookings Awaiting Action',
+            message: `${pendingCount} chalet booking${pendingCount === 1 ? '' : 's'} awaiting your action.`,
+            href: bookingPath,
+        })));
+        if (error) console.error('Failed to create chalet booking notifications:', error.message);
+    }
+}
+
 export async function GET() {
     try {
         const cookieStore = await cookies();
@@ -149,6 +188,7 @@ export async function POST(request: Request) {
             .single();
 
         if (error) throw error;
+        if (data.status === 'pending') await syncChaletBookingNotifications();
         return NextResponse.json({ booking: data }, { status: 201 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -186,6 +226,13 @@ export async function PUT(request: Request) {
         } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        const { data: currentBooking, error: currentBookingError } = await supabase
+            .from('chalet_bookings')
+            .select('status')
+            .eq('id', id)
+            .single();
+        if (currentBookingError) throw currentBookingError;
 
         if (check_in_date && check_out_date && new Date(check_out_date) <= new Date(check_in_date)) {
             return NextResponse.json({ error: 'Check-out date must be after check-in date' }, { status: 400 });
@@ -251,6 +298,9 @@ export async function PUT(request: Request) {
             .single();
 
         if (error) throw error;
+        if (currentBooking.status !== data.status && (currentBooking.status === 'pending' || data.status === 'pending')) {
+            await syncChaletBookingNotifications();
+        }
         return NextResponse.json({ booking: data }, { status: 200 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -268,8 +318,16 @@ export async function DELETE(request: Request) {
         const id = searchParams.get('id');
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
+        const { data: booking, error: bookingError } = await supabase
+            .from('chalet_bookings')
+            .select('status')
+            .eq('id', id)
+            .single();
+        if (bookingError) throw bookingError;
+
         const { error } = await supabase.from('chalet_bookings').delete().eq('id', id);
         if (error) throw error;
+        if (booking.status === 'pending') await syncChaletBookingNotifications();
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

@@ -90,6 +90,13 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
+  const isTableLocked = Boolean(openOrder?.waiter_id && openOrder.waiter_id !== currentUser?.id);
+
+  const showTableLockedMessage = () => toast({
+    variant: 'destructive',
+    title: 'Table Assigned to Another User',
+    description: `${openOrder?.waiter_name || 'Another user'} is currently handling this table.`,
+  });
 
   // Fetch logic
   const fetchData = useCallback(async () => {
@@ -278,6 +285,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [batchSelectionItem, setBatchSelectionItem] = useState<any | null>(null);
 
   const handleAddItemClick = (menuItem: any) => {
+    if (isTableLocked) return showTableLockedMessage();
     const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
     if (itemInLocalMenu?.stock_type === 'Inventoried' && itemInLocalMenu?.linked_inventory_item_id) {
       if (itemInLocalMenu.available_batches?.length > 0) {
@@ -291,6 +299,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleAddConfirmedItem = (menuItem: any, batchId: string | null) => {
+    if (isTableLocked) return showTableLockedMessage();
     const itemInLocalMenu = localMenuItems?.find((m) => m.id === menuItem.id) as any;
     const orderKey = batchId ? `${menuItem.id}::${batchId}` : menuItem.id;
     let effectiveStock = 0;
@@ -310,6 +319,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleRemoveItem = (orderKey: string) => {
+    if (isTableLocked) return showTableLockedMessage();
     setLocalOrder((prev) => {
       const newCount = (prev[orderKey] || 0) - 1;
       if (newCount <= 0) {
@@ -321,11 +331,13 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleSaveCustomerMobile = async () => {
+    if (isTableLocked) return showTableLockedMessage();
     if (!openOrder?.id || !customerMobile) return;
     await supabase.from('orders').update({ customer_mobile: customerMobile }).eq('id', openOrder.id);
   };
 
   const handlePresentedToggle = async (item: OrderItem) => {
+    if (isTableLocked) return showTableLockedMessage();
     const isPresented = (item.served_quantity ?? 0) >= item.quantity;
     const nextServed = isPresented ? 0 : item.quantity;
 
@@ -342,6 +354,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleAddItemsToBill = async () => {
+    if (isTableLocked) return showTableLockedMessage();
     if (!table || !currentUser || Object.keys(localOrder).length === 0) return;
 
     let currentOrderId = openOrder?.id;
@@ -460,6 +473,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleUpdateOrderItemQuantity = async (item: OrderItem, delta: number) => {
+    if (isTableLocked) return showTableLockedMessage();
     if (delta === 0) return;
     const newQuantity = item.quantity + delta;
     if (newQuantity < 1) {
@@ -532,6 +546,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleRemoveOrderItem = async (item: OrderItem) => {
+    if (isTableLocked) return showTableLockedMessage();
     try {
       const menuItem = menuItems.find(m => m.id === item.menu_item_id);
       await supabase.from('order_items').delete().eq('id', item.id);
@@ -579,21 +594,24 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   };
 
   const handleProcessPayment = async () => {
+    if (isTableLocked) return showTableLockedMessage();
     if (!openOrder || !table) {
       toast({ variant: 'destructive', title: 'Cannot Process Payment', description: 'There is no open order for this table.' });
       return;
     }
 
     try {
-      await supabase.from('orders').update({
+      const { error: billingError } = await supabase.from('orders').update({
         status: 'billed',
         updated_at: new Date().toISOString()
       }).eq('id', openOrder.id);
+      if (billingError) throw billingError;
 
       // Keep table occupied — only the cashier confirming payment should free it
       await supabase.from('restaurant_tables').update({ status: 'occupied' }).eq('id', table.id);
 
       toast({ title: 'Bill Sent for Payment', description: `The bill for Table ${table.table_number} is now pending payment.` });
+      window.dispatchEvent(new Event('notifications-changed'));
       onClose();
     } catch (error) {
       console.error('Error processing payment:', error);
@@ -695,7 +713,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                             </div>
                           </div>
 
-                          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock}>
+                          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => handleAddItemClick(item)} disabled={isOutOfStock || isTableLocked}>
                             <PlusCircle className="mr-1 h-3.5 w-3.5" /> Add
                           </Button>
                         </div>
@@ -718,6 +736,11 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
 
               {table && <Badge className="capitalize w-fit">{table.status}</Badge>}
               {openOrder?.waiter_name && <p className="text-sm text-muted-foreground pt-1">Waiter: {openOrder.waiter_name}</p>}
+              {isTableLocked && (
+                <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  View only — {openOrder?.waiter_name || 'another user'} is handling this table.
+                </div>
+              )}
             </CardHeader>
 
             <CardContent className="flex-1 min-h-0 overflow-hidden">
@@ -732,6 +755,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                       value={customerMobile}
                       onChange={(e) => setCustomerMobile(e.target.value)}
                       onBlur={handleSaveCustomerMobile}
+                      disabled={isTableLocked}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -774,17 +798,17 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                                     {preparedQuantity}/{item.quantity}
                                   </Badge>
                                 )}
-                                <Button type="button" size="sm" variant="outline" className={`h-6 w-6 p-0 ${isPresented ? 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white' : 'border-slate-300 text-slate-400'}`} disabled={updatingPresentedItemId === item.id} onClick={() => handlePresentedToggle(item)} title={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-label={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-pressed={isPresented}><CheckCircle className="h-3.5 w-3.5" /></Button>
+                                <Button type="button" size="sm" variant="outline" className={`h-6 w-6 p-0 ${isPresented ? 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white' : 'border-slate-300 text-slate-400'}`} disabled={isTableLocked || updatingPresentedItemId === item.id} onClick={() => handlePresentedToggle(item)} title={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-label={isPresented ? 'Unmark as presented' : 'Mark as presented to the customer'} aria-pressed={isPresented}><CheckCircle className="h-3.5 w-3.5" /></Button>
                               </div>
                             </div>
                             {isBilled ? (
                               <span className="text-sm font-medium ml-2">× {item.quantity}</span>
                             ) : (
                               <div className="flex items-center gap-1">
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, -1)}><MinusCircle className="h-3 w-3" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, -1)}><MinusCircle className="h-3 w-3" /></Button>
                                 <span className="w-4 text-center font-bold">{item.quantity}</span>
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateOrderItemQuantity(item, 1)}><PlusCircle className="h-3 w-3" /></Button>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveOrderItem(item)}><Trash2 className="h-3 w-3" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={isTableLocked} onClick={() => handleUpdateOrderItemQuantity(item, 1)}><PlusCircle className="h-3 w-3" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" disabled={isTableLocked} onClick={() => handleRemoveOrderItem(item)}><Trash2 className="h-3 w-3" /></Button>
                               </div>
                             )}
                           </div>
@@ -837,10 +861,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                     <span>Total Bill:</span>
                     <span>LKR {totalBill.toFixed(2)}</span>
                   </div>
-                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={Object.keys(localOrder).length === 0}>
+                  <Button className="w-full" onClick={handleAddItemsToBill} disabled={isTableLocked || Object.keys(localOrder).length === 0}>
                     Add Items to Bill
                   </Button>
-                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={!openOrder}>
+                  <Button className="w-full" variant="secondary" onClick={handleProcessPayment} disabled={isTableLocked || !openOrder}>
                     <CheckCircle className="mr-2" /> Send to Payment
                   </Button>
                 </>

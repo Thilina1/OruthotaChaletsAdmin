@@ -46,7 +46,15 @@ export default function EmployeeManagementPage() {
         const visibleUsers = salaryFilter === 'assigned'
             ? users.filter(user => user.has_salary)
             : users;
-        return [...visibleUsers].sort((a, b) => a.name.localeCompare(b.name));
+        return [...visibleUsers].sort((a, b) => {
+            // Keep employees without a joining date at the bottom. ISO dates can
+            // be compared as strings, so the latest joining date sorts first.
+            if (!a.join_date && !b.join_date) return a.name.localeCompare(b.name);
+            if (!a.join_date) return 1;
+            if (!b.join_date) return -1;
+
+            return b.join_date.localeCompare(a.join_date) || a.name.localeCompare(b.name);
+        });
     }, [salaryFilter, users]);
 
     const { currentPage, totalPages, totalItems, paginatedItems, itemsPerPage, setCurrentPage } =

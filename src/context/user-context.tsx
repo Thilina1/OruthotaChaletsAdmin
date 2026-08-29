@@ -5,6 +5,7 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import type { User, UserRole } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getPermissionPath } from '@/lib/route-config';
 
 interface UserContextType {
   user: User | null;
@@ -58,9 +59,15 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     if (!user) return false;
     if (user.role === 'admin' && !user.restrict_admin_permissions) return true;
     if (!user.permissions) return false;
-    // Prefix match: permission on /dashboard/purchase-orders also covers
-    // /dashboard/purchase-orders/create, /dashboard/purchase-orders/[id]/edit, etc.
-    return user.permissions.some(p => path === p || path.startsWith(p + '/'));
+
+    const permissionPath = getPermissionPath(path);
+    if (permissionPath) return user.permissions.includes(permissionPath);
+
+    // Non-menu child routes inherit an explicitly approved parent. The root
+    // dashboard permission is exact-only and must never unlock every page.
+    return user.permissions.some(p =>
+      p !== '/dashboard' && (path === p || path.startsWith(p + '/'))
+    );
   };
 
   const value = {

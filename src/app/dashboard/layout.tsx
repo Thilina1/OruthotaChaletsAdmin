@@ -6,7 +6,6 @@ import DashboardHeader from '@/components/dashboard/dashboard-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { UserProvider, useUserContext } from '@/context/user-context';
 import { usePathname } from 'next/navigation';
-import { allMenuItems } from '@/lib/route-config';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -15,43 +14,14 @@ function DashboardContent({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const { user, loading, hasPathAccess } = useUserContext();
 
-    // Check if the current route has role restrictions
-    const currentMenuItem = allMenuItems.find(item =>
-        pathname.startsWith(item.href) && (item.href !== '/dashboard' || pathname === '/dashboard')
-    );
-
     const hasAccess = React.useMemo(() => {
         if (!user || loading) return true;
         // The dashboard is the authenticated landing page and only displays
         // links that the current user is allowed to open.
         if (pathname === '/dashboard/home') return true;
-        // Admins and Inventory Admins always have access, regardless of role defaults.
-        if (user.role === 'admin' || user.inventory_admin === true) return true;
 
-        if (currentMenuItem) {
-            // Only an explicitly granted permission counts now — no more falling
-            // back to the route's default role list.
-            const hasExplicitAccess = hasPathAccess(pathname);
-            if (hasExplicitAccess) return true;
-
-            // Section-sibling access: user has a permission within the same top-level section
-            // (e.g., permission on /dashboard/purchase-orders/approvals grants access to
-            //  /dashboard/purchase-orders/[id]/edit because they're in the same section)
-            const segments = pathname.split('/').filter(Boolean);
-            if (segments.length >= 2) {
-                const sectionPrefix = '/' + segments.slice(0, 2).join('/') + '/';
-                const hasSectionAccess = (user.permissions ?? []).some(
-                    (p: string) => p.startsWith(sectionPrefix)
-                );
-                if (hasSectionAccess) return true;
-            }
-
-            return false;
-        }
-
-        // Not a known menu item — allow by default (sub-pages inherit parent access)
-        return true;
-    }, [user, loading, currentMenuItem, hasPathAccess, pathname]);
+        return hasPathAccess(pathname);
+    }, [user, loading, hasPathAccess, pathname]);
 
     if (!hasAccess) {
         return (
