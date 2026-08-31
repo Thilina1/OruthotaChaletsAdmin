@@ -27,7 +27,7 @@ export async function GET(request: Request) {
                 supabase.from('customers').select('*'),
                 supabase.from('reservations').select('customer_id,total_cost,payment_status').in('status', ['checked-in', 'confirmed']),
                 supabase.from('chalet_bookings').select('customer_name,grand_total,payment_status').in('status', ['checked_in', 'confirmed']),
-                supabase.from('orders').select('customer_id,total_price').in('status', ['open', 'billed']),
+                supabase.from('orders').select('customer_id,total_price,confirmed_total').in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
                 supabase.from('service_incomes').select('customer_id,amount').eq('payment_status', 'add_to_bill'),
             ]);
             const firstError = [customersResult.error, reservationsResult.error, chaletResult.error, ordersResult.error, servicesResult.error].find(Boolean);
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
             reservationsResult.data?.forEach((item: any) => {
                 if (item.payment_status !== 'paid') add(item.customer_id, item.total_cost);
             });
-            ordersResult.data?.forEach((item: any) => add(item.customer_id, item.total_price));
+            ordersResult.data?.forEach((item: any) => add(item.customer_id, item.confirmed_total ?? item.total_price));
             servicesResult.data?.forEach((item: any) => add(item.customer_id, item.amount));
 
             const customersByName = new Map((customersResult.data || []).map((customer: any) => [customer.name?.trim().toLowerCase(), customer.id]));
@@ -100,7 +100,8 @@ export async function GET(request: Request) {
             .from('orders')
             .select('*')
             .eq('customer_id', customer_id)
-            .in('status', ['open', 'billed']);
+            .in('status', ['open', 'billed', 'room_charge'])
+            .not('waiter_name', 'like', 'Package Meal|%');
 
         // 4. Get unpaid Service Incomes
         const { data: serviceIncomes } = await supabase
@@ -123,7 +124,7 @@ export async function GET(request: Request) {
         });
 
         orders?.forEach(ord => {
-            if (ord.total_price) totalOutstanding += Number(ord.total_price);
+            if (ord.confirmed_total ?? ord.total_price) totalOutstanding += Number(ord.confirmed_total ?? ord.total_price);
         });
 
         serviceIncomes?.forEach(inc => {

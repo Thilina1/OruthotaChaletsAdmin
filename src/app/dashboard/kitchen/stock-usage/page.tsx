@@ -8,6 +8,7 @@ export default function KitchenStockUsagePage() {
             title="Stock Usage & Damage for Kitchen"
             descriptionText="Mark Kitchen stock as used, or report expired/damaged items."
             lockedDepartmentName="kitchen"
+            usageSections={['Staff', 'Function', 'A la carte', 'Room guest']}
         />
     );
 }

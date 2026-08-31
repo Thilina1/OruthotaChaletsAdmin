@@ -30,7 +30,7 @@ function calcGrandTotal(subtotal: number, cfg: BillingConfig): number {
 }
 
 export default function BillingPage() {
-    const supabase = createClient();
+    const [supabase] = useState(() => createClient());
     const { toast } = useToast();
     const [tables, setTables] = useState<TableType[]>([]);
     const [orders, setOrders] = useState<Record<string, Order>>({}); // table_id -> Order
@@ -49,6 +49,10 @@ export default function BillingPage() {
                 .from('orders')
                 .select('*')
                 .in('status', ['open', 'billed'])
+                // Package-meal KOTs are room-service preparation records and
+                // deliberately have no restaurant table. They belong in the
+                // Kitchen queue, not the table Billing dashboard.
+                .not('table_id', 'is', null)
                 .order('created_at', { ascending: false });
 
             if (ordersError) throw ordersError;
@@ -77,9 +81,10 @@ export default function BillingPage() {
                 setTables([]);
             }
 
-        } catch (error) {
-            console.error("Error fetching billing data:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Failed to fetch billing data." });
+        } catch (error: any) {
+            const message = error?.message || error?.details || error?.hint || 'Failed to fetch billing data.';
+            console.error('Error fetching billing data:', message, error);
+            toast({ variant: 'destructive', title: 'Error', description: message });
         } finally {
             setIsLoading(false);
         }

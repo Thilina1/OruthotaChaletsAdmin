@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Table,
     TableBody,
@@ -50,7 +51,7 @@ export default function InventoryRequestHistoryPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [existingRequests, setExistingRequests] = useState<any[]>([]);
     const [inventoryItems, setInventoryItems] = useState<any[]>([]);
-    const [requestFilter, setRequestFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+    const [requestFilter, setRequestFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED' | 'REJECTED'>('ALL');
     
     // Pagination
     const {
@@ -71,6 +72,8 @@ export default function InventoryRequestHistoryPage() {
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [transferRequest, setTransferRequest] = useState<any>(null);
     const [selectedBatches, setSelectedBatches] = useState<any[]>([]); // { batch_id, warehouse_id, quantity, available }
+    const [rejectRequest, setRejectRequest] = useState<any>(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -178,6 +181,31 @@ export default function InventoryRequestHistoryPage() {
         }
     };
 
+    const handleRejectTransfer = async () => {
+        if (!rejectRequest || rejectionReason.trim().length < 10) {
+            toast({ variant: 'destructive', title: 'More Information Required', description: 'Please provide a clear rejection reason of at least 10 characters.' });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            const res = await fetch('/api/admin/inventory-requests', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: rejectRequest.id, status: 'REJECTED', rejection_reason: rejectionReason.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed to reject transfer.');
+            toast({ title: 'Transfer Rejected', description: 'The requester can now see the rejection reason.' });
+            setRejectRequest(null);
+            setRejectionReason('');
+            fetchData();
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Rejection Failed', description: error.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
@@ -233,7 +261,7 @@ export default function InventoryRequestHistoryPage() {
                                 Clear Dept Filter
                             </button>
                         )}
-                        {(['ALL', 'PENDING', 'COMPLETED'] as const).map((f) => (
+                        {(['ALL', 'PENDING', 'COMPLETED', 'REJECTED'] as const).map((f) => (
                             <button
                                 key={f}
                                 onClick={() => setRequestFilter(f)}
@@ -315,22 +343,27 @@ export default function InventoryRequestHistoryPage() {
                                                 "rounded-full font-black text-[10px] px-3 py-0.5",
                                                 req.status === 'PENDING' ? "bg-amber-100 text-amber-700 hover:bg-amber-100" :
                                                     req.status === 'COMPLETED' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100" :
+                                                    req.status === 'REJECTED' ? "bg-red-100 text-red-700 hover:bg-red-100" :
                                                         "bg-slate-100 text-slate-700 hover:bg-slate-100"
                                             )}>
                                                 {req.status}
                                             </Badge>
+                                            {req.status === 'REJECTED' && req.action_metadata?.rejection_reason && (
+                                                <p className="mt-1 max-w-[220px] text-xs text-red-600" title={req.action_metadata.rejection_reason}>
+                                                    {req.action_metadata.rejection_reason}
+                                                </p>
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-right pr-8">
                                             {isAdmin && req.status === 'PENDING' && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-9 rounded-lg font-black text-[10px] gap-2 border-primary/20 text-primary hover:bg-primary hover:text-white"
-                                                    onClick={() => handleOpenTransfer(req)}
-                                                >
-                                                    <ArrowRight className="h-3 w-3" />
-                                                    Transfer
-                                                </Button>
+                                                <div className="flex justify-end gap-2">
+                                                    <Button variant="outline" size="sm" className="h-9 rounded-lg border-red-200 text-[10px] font-black text-red-600 hover:bg-red-600 hover:text-white" onClick={() => { setRejectRequest(req); setRejectionReason(''); }}>
+                                                        Reject
+                                                    </Button>
+                                                    <Button variant="outline" size="sm" className="h-9 rounded-lg font-black text-[10px] gap-2 border-primary/20 text-primary hover:bg-primary hover:text-white" onClick={() => handleOpenTransfer(req)}>
+                                                        <ArrowRight className="h-3 w-3" /> Transfer
+                                                    </Button>
+                                                </div>
                                             )}
                                         </TableCell>
                                     </TableRow>
@@ -468,6 +501,15 @@ export default function InventoryRequestHistoryPage() {
                             </Button>
                         </DialogFooter>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!rejectRequest} onOpenChange={open => { if (!open && !isSubmitting) { setRejectRequest(null); setRejectionReason(''); } }}>
+                <DialogContent className="sm:max-w-[520px] rounded-2xl">
+                    <DialogHeader><DialogTitle>Reject Transfer Request</DialogTitle><DialogDescription>Explain why this MRN cannot be fulfilled. The requester will see this information in their history and notification.</DialogDescription></DialogHeader>
+                    {rejectRequest && <div className="rounded-xl border bg-slate-50 p-4"><p className="font-bold">{rejectRequest.item?.name || 'Requested item'}</p><p className="text-sm text-muted-foreground">Requested: {rejectRequest.requested_quantity} {rejectRequest.item?.unit?.name || 'units'} for {rejectRequest.action_metadata?.requesting_department_name || rejectRequest.requester?.department || 'Department'}</p></div>}
+                    <div className="space-y-2"><label className="text-sm font-bold">Detailed rejection reason *</label><Textarea value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} placeholder="Example: Requested quantity is unavailable; only 5 units remain. Please submit a revised request." rows={5} maxLength={1000} /><div className="flex justify-between text-xs text-muted-foreground"><span>Minimum 10 characters</span><span>{rejectionReason.trim().length}/1000</span></div></div>
+                    <DialogFooter><Button variant="outline" onClick={() => setRejectRequest(null)} disabled={isSubmitting}>Cancel</Button><Button variant="destructive" onClick={handleRejectTransfer} disabled={isSubmitting || rejectionReason.trim().length < 10}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Reject Transfer</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

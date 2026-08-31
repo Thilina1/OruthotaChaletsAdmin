@@ -17,9 +17,18 @@ import { useToast } from '@/hooks/use-toast';
 interface BarcodeScannerProps {
     onScan: (decodedText: string) => void;
     trigger?: React.ReactNode;
+    title?: string;
+    description?: string;
+    successTitle?: string;
 }
 
-export function BarcodeScanner({ onScan, trigger }: BarcodeScannerProps) {
+export function BarcodeScanner({
+    onScan,
+    trigger,
+    title = 'Scan Barcode / SKU',
+    description = "Point your camera at the item's barcode.",
+    successTitle = 'Barcode Captured',
+}: BarcodeScannerProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isScannerStarted, setIsScannerStarted] = useState(false);
     const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -45,7 +54,7 @@ export function BarcodeScanner({ onScan, trigger }: BarcodeScannerProps) {
                     stopScanner();
                     setIsOpen(false);
                     toast({
-                        title: "Barcode Captured",
+                        title: successTitle,
                         description: `Code: ${decodedText}`,
                     });
                 },
@@ -99,9 +108,9 @@ export function BarcodeScanner({ onScan, trigger }: BarcodeScannerProps) {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Scan Barcode / SKU</DialogTitle>
+                    <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>
-                        Point your camera at the item's barcode.
+                        {description}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="relative flex flex-col items-center justify-center p-4">

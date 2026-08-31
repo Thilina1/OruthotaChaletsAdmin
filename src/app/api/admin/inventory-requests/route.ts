@@ -394,7 +394,7 @@ export async function PUT(request: Request) {
         }
 
         const body = await request.json();
-        const { id, status, requested_quantity, request_type, notes, brand, supplier_name, item_size } = body;
+        const { id, status, requested_quantity, request_type, notes, brand, supplier_name, item_size, rejection_reason } = body;
 
         if (!id || !status) return NextResponse.json({ error: 'ID and status are required' }, { status: 400 });
 
@@ -407,6 +407,10 @@ export async function PUT(request: Request) {
 
         if (fetchError) throw fetchError;
         if (!requestData) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
+
+        if (status === 'REJECTED' && (!rejection_reason || rejection_reason.trim().length < 10)) {
+            return NextResponse.json({ error: 'A detailed rejection reason of at least 10 characters is required.' }, { status: 400 });
+        }
 
         // 1. Get Store Department ID
         const { data: storeDept, error: storeDeptError } = await supabase
@@ -430,6 +434,14 @@ export async function PUT(request: Request) {
             if (request_type) updatePayload.request_type = request_type;
             if (requested_quantity) updatePayload.requested_quantity = requested_quantity;
             if (notes !== undefined) updatePayload.notes = notes;
+            if (status === 'REJECTED') {
+                updatePayload.action_metadata = {
+                    ...(requestData.action_metadata || {}),
+                    rejection_reason: rejection_reason.trim(),
+                    rejected_at: new Date().toISOString(),
+                    rejected_by_name: decoded.name || decoded.email || 'Approver',
+                };
+            }
         }
 
         if (status === 'COMPLETED') {

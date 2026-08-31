@@ -169,12 +169,19 @@ export default function SimpleHistoryPage() {
                                                 "rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest",
                                                 req.status === 'COMPLETED' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
                                                 req.status === 'PENDING' ? "bg-amber-50 text-amber-600 border-amber-100" :
+                                                req.status === 'REJECTED' ? "bg-red-50 text-red-600 border-red-100" :
                                                 "bg-slate-50 text-slate-600 border-slate-100"
                                             )}
                                             variant="outline"
                                         >
                                             {req.status}
                                         </Badge>
+                                        {req.status === 'REJECTED' && req.action_metadata?.rejection_reason && (
+                                            <div className="mt-2 max-w-xs rounded-lg border border-red-100 bg-red-50 p-2 text-xs text-red-700">
+                                                <span className="font-bold">Reason: </span>{req.action_metadata.rejection_reason}
+                                                {req.action_metadata.rejected_by_name && <div className="mt-1 text-[10px] text-red-500">By {req.action_metadata.rejected_by_name}</div>}
+                                            </div>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))}

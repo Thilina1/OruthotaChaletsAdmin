@@ -82,6 +82,9 @@ interface StockUsagePanelProps {
      * name matches this (case-insensitive), even for admins. Omit for the
      * generic, any-department page. */
     lockedDepartmentName?: string;
+    /** Optional consumption sections. Items are filtered using Kitchen item assignments
+     * and the selected section is recorded with each usage transaction. */
+    usageSections?: readonly string[];
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -89,6 +92,7 @@ export default function StockUsagePanel({
     title = 'Stock Usage & Damage',
     descriptionText = 'Use inventory items, or report expired and damaged stock.',
     lockedDepartmentName,
+    usageSections,
 }: StockUsagePanelProps) {
     const { user, hasRole } = useUserContext();
     const { toast } = useToast();
@@ -103,6 +107,8 @@ export default function StockUsagePanel({
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [search, setSearch] = useState('');
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [selectedUsageSection, setSelectedUsageSection] = useState(usageSections?.[0] || '');
+    const [sectionAssignments, setSectionAssignments] = useState<Array<{ section: string; item_id: string }>>([]);
 
     // Use dialog
     const [useItem, setUseItem] = useState<{ item: StockItem; batch: Batch } | null>(null);
@@ -142,6 +148,19 @@ export default function StockUsagePanel({
             .finally(() => setLoadingWh(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAdmin, user?.department, lockedDepartmentName]);
+
+    useEffect(() => {
+        if (!usageSections?.length) return;
+        fetch('/api/admin/inventory/kitchen-section-items', { cache: 'no-store' })
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok || data.error) throw new Error(data.error || 'Failed to load section assignments.');
+                setSectionAssignments(data.assignments || []);
+            })
+            .catch(error => toast({ variant: 'destructive', title: 'Kitchen Sections Unavailable', description: error.message }));
+    // The page passes a literal section array, so depend on its stable content rather than its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [usageSections?.join('|'), toast]);
 
     const loadItems = useCallback(async () => {
         if (!warehouseId) return;
@@ -183,11 +202,17 @@ export default function StockUsagePanel({
         }
     }, [warehouseId, loadItems, loadHistory]);
 
-    const filteredItems = useMemo(() =>
-        items.filter(i =>
-            i.name.toLowerCase().includes(search.toLowerCase()) ||
-            i.category?.name.toLowerCase().includes(search.toLowerCase()) || false
-        ), [items, search]);
+    const filteredItems = useMemo(() => {
+        const assignedIds = new Set(sectionAssignments
+            .filter(assignment => assignment.section === selectedUsageSection)
+            .map(assignment => assignment.item_id));
+        return items.filter(i => {
+            const matchesSearch = i.name.toLowerCase().includes(search.toLowerCase()) ||
+                i.category?.name.toLowerCase().includes(search.toLowerCase()) || false;
+            const matchesSection = !usageSections?.length || assignedIds.has(i.id);
+            return matchesSearch && matchesSection;
+        });
+    }, [items, search, sectionAssignments, selectedUsageSection, usageSections]);
 
     const toggleExpand = (id: string) =>
         setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
@@ -221,12 +246,13 @@ export default function StockUsagePanel({
                     stock_id: useItem.batch.stock_id,
                     quantity: qty,
                     type: 'use',
+                    section: selectedUsageSection || undefined,
                     reason: useReason.trim() || undefined,
                 }),
             });
             const d = await res.json();
             if (!res.ok) throw new Error(d.error);
-            toast({ title: 'Recorded', description: `${qty} ${useItem.item.unit?.name ?? 'units'} of ${useItem.item.name} marked as used.` });
+            toast({ title: 'Recorded', description: `${qty} ${useItem.item.unit?.name ?? 'units'} of ${useItem.item.name} marked as used${selectedUsageSection ? ` for ${selectedUsageSection}` : ''}.` });
             setUseItem(null);
             loadItems();
         } catch (e: any) {
@@ -369,14 +395,35 @@ export default function StockUsagePanel({
 
                     {/* ── Available Items tab ─────────────────────────── */}
                     <TabsContent value="items" className="space-y-3 mt-4">
-                        <div className="relative max-w-sm">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Search items or category…"
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                className="pl-9"
-                            />
+                        <div className="flex flex-col gap-3 rounded-xl border bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+                            {usageSections && usageSections.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto pb-1 lg:pb-0">
+                                    {usageSections.map(section => (
+                                        <Button
+                                            key={section}
+                                            type="button"
+                                            size="sm"
+                                            variant={selectedUsageSection === section ? 'default' : 'outline'}
+                                            className="shrink-0 font-bold"
+                                            onClick={() => { setSelectedUsageSection(section); setExpanded(new Set()); }}
+                                        >
+                                            {section}
+                                            <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[9px]">
+                                                {sectionAssignments.filter(a => a.section === section && items.some(item => item.id === a.item_id)).length}
+                                            </Badge>
+                                        </Button>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="relative w-full lg:max-w-sm">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search items or category…"
+                                    value={search}
+                                    onChange={e => setSearch(e.target.value)}
+                                    className="pl-9"
+                                />
+                            </div>
                         </div>
 
                         {loadingItems ? (
@@ -387,7 +434,9 @@ export default function StockUsagePanel({
                             <Card>
                                 <CardContent className="py-16 text-center text-sm text-muted-foreground">
                                     <Boxes className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                                    No items with available stock{search ? ' matching your search' : ''}.
+                                    {usageSections?.length
+                                        ? `No assigned items with available stock in ${selectedUsageSection}${search ? ' matching your search' : ''}.`
+                                        : `No items with available stock${search ? ' matching your search' : ''}.`}
                                 </CardContent>
                             </Card>
                         ) : (
@@ -564,6 +613,11 @@ export default function StockUsagePanel({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3 py-1">
+                        {selectedUsageSection && (
+                            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                                Usage section: <strong>{selectedUsageSection}</strong>
+                            </div>
+                        )}
                         <div className="space-y-1.5">
                             <Label>Quantity Used ({useItem?.item.unit?.name ?? 'units'}) *</Label>
                             <Input

@@ -20,7 +20,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Pencil, Trash2, Printer, CheckCircle2 } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, Printer, CheckCircle2, ScanLine } from 'lucide-react';
+import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -149,6 +150,26 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsLoadingRoom(false);
+    }
+  };
+
+  const handleGuestQrScan = async (code: string) => {
+    setIsLoadingRoom(true);
+    try {
+      const res = await fetch(`/api/admin/front-desk/guest-pass?code=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Guest QR pass was not recognized');
+      const customer = data.customer as Customer & { current_room?: string };
+      setCustomerName(customer.name);
+      setCustomerSearchQuery('');
+      setShowCustomerDropdown(false);
+      setRoomNumber(customer.current_room || '');
+      setRoomAutoFilled(!!customer.current_room);
+      toast({ title: 'Guest Identified', description: `${customer.name}${customer.current_room ? ` — ${customer.current_room}` : ''}` });
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Guest Not Found', description: error.message });
     } finally {
       setIsLoadingRoom(false);
     }
@@ -503,19 +524,28 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 relative">
                     <Label htmlFor="customerName">Customer (Search by Name, Phone, ID)</Label>
-                    <Input
-                      id="customerName"
-                      placeholder="Search existing or enter new..."
-                      value={customerName}
-                      onChange={(e) => {
-                        setCustomerName(e.target.value);
-                        setCustomerSearchQuery(e.target.value);
-                      }}
-                      onFocus={() => {
-                          if (customerSearchResults.length > 0) setShowCustomerDropdown(true);
-                      }}
-                      onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="customerName"
+                        placeholder="Search existing or scan guest QR..."
+                        value={customerName}
+                        onChange={(e) => {
+                          setCustomerName(e.target.value);
+                          setCustomerSearchQuery(e.target.value);
+                        }}
+                        onFocus={() => {
+                            if (customerSearchResults.length > 0) setShowCustomerDropdown(true);
+                        }}
+                        onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                      />
+                      <BarcodeScanner
+                        onScan={handleGuestQrScan}
+                        title="Scan Guest QR Pass"
+                        description="Point the camera at the checked-in guest's QR pass."
+                        successTitle="Guest QR Captured"
+                        trigger={<Button type="button" variant="outline" className="shrink-0"><ScanLine className="mr-2 h-4 w-4" />Scan QR</Button>}
+                      />
+                    </div>
                     {showCustomerDropdown && (
                       <div className="absolute z-10 w-full bg-white border rounded-md shadow-lg top-[60px] max-h-48 overflow-y-auto">
                         {isSearchingCustomers ? (

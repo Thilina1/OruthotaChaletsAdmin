@@ -113,7 +113,7 @@ export type Order = {
   id: string;
   table_id: string;
   table_number: number;
-  status: 'open' | 'billed' | 'closed';
+  status: 'open' | 'billed' | 'closed' | 'room_charge';
   total_price: number;
   waiter_id: string;
   waiter_name: string;

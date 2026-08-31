@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Banknote, BedDouble, Bell, CalendarCheck, ChefHat, CheckCheck, CreditCard, MessageSquare, ReceiptText, ShoppingCart, Utensils } from 'lucide-react';
+import { Banknote, BedDouble, Bell, CalendarCheck, ChefHat, CheckCheck, ClipboardCheck, CreditCard, MessageSquare, ReceiptText, ShoppingCart, Utensils } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -71,7 +71,7 @@ export function NotificationMenu() {
             ? '/dashboard/event-management/approvals'
             : notification.href;
 
-        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill'].includes(notification.type)) {
+        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(notification.type)) {
             if (destination) router.push(destination);
             return;
         }
@@ -96,7 +96,7 @@ export function NotificationMenu() {
             body: JSON.stringify({ mark_all: true }),
         });
         setNotifications(current => current.map(item =>
-            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill'].includes(item.type)
+            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(item.type)
                 ? item
                 : { ...item, read_at: item.read_at ?? new Date().toISOString() }
         ));
@@ -154,6 +154,8 @@ export function NotificationMenu() {
                             <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'confirmed_restaurant_bill' ? (
                             <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        ) : notification.type === 'mrn_approval' || notification.type === 'mrn_result' ? (
+                            <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : (
                             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         )}

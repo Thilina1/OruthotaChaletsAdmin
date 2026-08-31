@@ -69,13 +69,13 @@ export async function POST(request: Request) {
             customer?.name
                 ? supabase.from('chalet_bookings').select('*,chalet_rooms(name,room_number),chalet_packages(name)').ilike('customer_name', customer.name.trim()).in('status', ['checked_in', 'confirmed'])
                 : Promise.resolve({ data: [], error: null } as any),
-            supabase.from('orders').select('*').eq('customer_id', customer_id).in('status', ['open', 'billed']),
+            supabase.from('orders').select('*').eq('customer_id', customer_id).in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
             supabase.from('service_incomes').select('*').eq('customer_id', customer_id).eq('payment_status', 'add_to_bill'),
         ]);
         const snapshotItems = [
             ...(reservationsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Room', description: `Room: ${item.room?.title || item.room?.room_number || 'Room'}`, amount: Number(item.total_cost || 0), source_id: item.id })),
             ...(chaletsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Chalet', description: `Chalet ${item.chalet_rooms?.room_number || ''}: ${item.chalet_packages?.name || item.chalet_rooms?.name || 'Stay'}`, amount: Number(item.grand_total || 0), source_id: item.id })),
-            ...(ordersDue.data || []).map((item: any) => ({ category: 'Restaurant', description: `Restaurant Order #${item.id.slice(0, 8).toUpperCase()}`, amount: Number(item.total_price || 0), source_id: item.id, breakdown: item.bill_breakdown || null })),
+            ...(ordersDue.data || []).map((item: any) => ({ category: 'Restaurant', description: `Restaurant Order #${item.id.slice(0, 8).toUpperCase()}`, amount: Number(item.confirmed_total ?? item.total_price ?? 0), source_id: item.id, breakdown: item.bill_breakdown || null })),
             ...(servicesDue.data || []).map((item: any) => ({ category: item.service_type, description: `${item.service_type}: ${item.description}`, amount: Number(item.amount || 0), source_id: item.id, line_items: item.line_items || [] })),
         ];
         const snapshotTotal = snapshotItems.reduce((sum: number, item: any) => sum + item.amount, 0);
@@ -113,7 +113,8 @@ export async function POST(request: Request) {
             .from('orders')
             .update({ status: 'paid' })
             .eq('customer_id', customer_id)
-            .in('status', ['open', 'billed']);
+            .in('status', ['open', 'billed', 'room_charge'])
+            .not('waiter_name', 'like', 'Package Meal|%');
         if (ordError) throw ordError;
 
         const { error: svcError } = await supabase

@@ -57,6 +57,11 @@ export default function KitchenOrdersPage() {
     const [collapsedOrders, setCollapsedOrders] = useState<Record<string, boolean>>({});
 
     const getKotNumber = (order: Order) => `KOT-${order.id.slice(0, 8).toUpperCase()}`;
+    const packageMeal = (order: Order) => {
+        if (!order.waiter_name?.startsWith('Package Meal|')) return null;
+        const [, , date, meal, room] = order.waiter_name.split('|');
+        return { date, meal, room };
+    };
 
     const handlePrintTicket = (order: Order, cookItems: OrderItem[]) => {
         setPrintTicket({ order, cookItems });
@@ -181,22 +186,35 @@ export default function KitchenOrdersPage() {
         }
     };
 
-    const tickets = orders
-        .map(order => ({
-            order,
-            // Completed items belong in KOT History, not the active kitchen
-            // queue. A ticket disappears once all of its items are done.
-            cookItems: (orderItemsByOrder[order.id] || []).filter(
-                item => (item.kitchen_status || 'pending') !== 'done'
-            ),
-        }))
-        .filter(t => t.cookItems.length > 0);
+    // Older package-meal requests created one order per food line. Group those
+    // legacy rows by booking/date/meal/room so Kitchen sees and prints one KOT
+    // per meal, matching newly created grouped meal requests.
+    const tickets = (() => {
+        const grouped = new Map<string, { order: Order; cookItems: OrderItem[] }>();
+        const regular: { order: Order; cookItems: OrderItem[] }[] = [];
+        orders.forEach(order => {
+            const cookItems = (orderItemsByOrder[order.id] || []).filter(item => (item.kitchen_status || 'pending') !== 'done');
+            if (!cookItems.length) return;
+            if (!packageMeal(order)) {
+                regular.push({ order, cookItems });
+                return;
+            }
+            const groupKey = order.waiter_name!.split('|').slice(0, 5).join('|');
+            const existing = grouped.get(groupKey);
+            if (existing) {
+                existing.cookItems.push(...cookItems);
+            } else {
+                grouped.set(groupKey, { order: { ...order, waiter_name: groupKey }, cookItems: [...cookItems] });
+            }
+        });
+        return [...regular, ...grouped.values()];
+    })();
 
     const filteredTickets = tickets.filter(({ order, cookItems }) => {
         const query = searchQuery.trim().toLowerCase();
         if (!query) return true;
         return getKotNumber(order).toLowerCase().includes(query)
-            || String(order.table_number).toLowerCase().includes(query)
+            || String(order.table_number ?? packageMeal(order)?.room ?? '').toLowerCase().includes(query)
             || (order.waiter_name || '').toLowerCase().includes(query)
             || cookItems.some(item => item.name.toLowerCase().includes(query));
     });
@@ -239,7 +257,7 @@ export default function KitchenOrdersPage() {
                         <ChefHat className="h-7 w-7 text-primary" />
                         Kitchen Order Tickets (KOT)
                     </h1>
-                    <p className="text-muted-foreground">Kitchen tickets for open tables. Print each KOT and complete quantities one by one.</p>
+                    <p className="text-muted-foreground">Kitchen tickets for table orders and confirmed package meals. Print each KOT and complete quantities one by one.</p>
                 </div>
                 <Button variant="outline" className="gap-2" asChild>
                     <Link href="/dashboard/kitchen/orders/history">
@@ -308,6 +326,7 @@ export default function KitchenOrdersPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {visibleTickets.map(({ order, cookItems }) => {
                         const mins = minutesAgo(order.created_at);
+                        const meal = packageMeal(order);
                         const isExpanded = expandedOrderId === order.id;
                         const isCollapsed = !!collapsedOrders[order.id];
                         return (
@@ -333,8 +352,8 @@ export default function KitchenOrdersPage() {
                                             <div className="mb-1 font-mono text-xs font-black tracking-wider text-primary">
                                                 {getKotNumber(order)}
                                             </div>
-                                            <CardTitle>Table {order.table_number}</CardTitle>
-                                            <CardDescription>Waiter: {order.waiter_name}</CardDescription>
+                                            <CardTitle>{meal ? `Room ${meal.room} · ${meal.meal}` : `Table ${order.table_number}`}</CardTitle>
+                                            <CardDescription>{meal ? `Package meal · ${meal.date}` : `Waiter: ${order.waiter_name}`}</CardDescription>
                                         </div>
                                         <div className="flex flex-col items-end gap-2">
                                             <Badge variant={mins >= 15 ? 'destructive' : 'secondary'} className="flex items-center gap-1">
@@ -503,7 +522,7 @@ export default function KitchenOrdersPage() {
                     <div className="text-xl font-black">KITCHEN ORDER TICKET</div>
                     <div className="mt-1 text-lg font-black">{getKotNumber(printTicket.order)}</div>
                     <div className="mt-2 border-y border-black py-1 text-base font-bold">
-                        TABLE {printTicket.order.table_number}
+                        {packageMeal(printTicket.order) ? `ROOM ${packageMeal(printTicket.order)!.room} · ${packageMeal(printTicket.order)!.meal.toUpperCase()}` : `TABLE ${printTicket.order.table_number}`}
                     </div>
                 </div>
                 <div className="space-y-1 border-b-2 border-dashed border-black py-3 text-sm">

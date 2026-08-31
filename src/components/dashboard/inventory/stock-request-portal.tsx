@@ -46,6 +46,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { KitchenSectionItemMatrix } from '@/components/dashboard/inventory/kitchen-section-item-matrix';
 
 interface StockRequestPortalProps {
     title: string;
@@ -92,6 +93,8 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     const [inventoryItems, setInventoryItems] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    const [portalTab, setPortalTab] = useState<'request' | 'assignments'>('request');
+    const [sectionAssignments, setSectionAssignments] = useState<Array<{ id: string; section: string; item_id: string }>>([]);
 
     // Request Creation State
     const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -152,8 +155,23 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
         }
     };
 
+    const fetchSectionAssignments = async () => {
+        if (!requestSections?.length) return;
+        try {
+            const res = await fetch('/api/admin/inventory/kitchen-section-items', { cache: 'no-store' });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed to load Kitchen assignments.');
+            setSectionAssignments(data.assignments || []);
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Kitchen Assignments Unavailable', description: error.message });
+        }
+    };
+
     useEffect(() => {
-        if (user) fetchData();
+        if (user) {
+            fetchData();
+            fetchSectionAssignments();
+        }
     }, [user?.id]);
 
     // Fallback: if departments loaded but nothing was matched, pick first non-store dept.
@@ -171,13 +189,8 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
         return departments.find(d => d.id === selectedDeptId)?.name || 'Department';
     }, [selectedDeptId, departments]);
 
-    const filteredItems = useMemo(() => {
-        const searched = inventoryItems.filter(item =>
-            item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.code?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-
-        return searched.map(item => {
+    const departmentItems = useMemo(() => {
+        return inventoryItems.map(item => {
             const selectedDeptNameLower = selectedDeptName.toLowerCase();
             const deptStock = item.warehouse_stock?.find((ws: any) =>
                 ws.department_id === selectedDeptId ||       // FK match (ideal)
@@ -195,7 +208,21 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                 batches: deptStock ? deptStock.batches : []
             };
         }).filter((item): item is any => item !== null);
-    }, [inventoryItems, searchQuery, selectedDeptId]);
+    }, [inventoryItems, selectedDeptId, selectedDeptName]);
+
+    const filteredItems = useMemo(() => {
+        const assignedItemIds = new Set(
+            sectionAssignments
+                .filter(assignment => assignment.section === selectedRequestSection)
+                .map(assignment => assignment.item_id)
+        );
+        return departmentItems.filter(item => {
+            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.code?.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesSection = !requestSections?.length || assignedItemIds.has(item.id);
+            return matchesSearch && matchesSection;
+        });
+    }, [departmentItems, searchQuery, requestSections, sectionAssignments, selectedRequestSection]);
 
     const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
     const paginatedItems = useMemo(() => {
@@ -311,8 +338,28 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                 )}
             </div>
 
+            {requestSections && requestSections.length > 0 && (
+                <div className="grid w-full grid-cols-2 rounded-xl bg-slate-100 p-1 sm:w-fit">
+                    <Button type="button" variant={portalTab === 'request' ? 'default' : 'ghost'} className="font-bold" onClick={() => setPortalTab('request')}>
+                        🍽️ Request Items
+                    </Button>
+                    <Button type="button" variant={portalTab === 'assignments' ? 'default' : 'ghost'} className="font-bold" onClick={() => setPortalTab('assignments')}>
+                        👨‍🍳 Kitchen Assigned Items
+                    </Button>
+                </div>
+            )}
+
+            {portalTab === 'assignments' && requestSections && (
+                <KitchenSectionItemMatrix
+                    items={departmentItems}
+                    sections={requestSections}
+                    assignments={sectionAssignments}
+                    onRefresh={fetchSectionAssignments}
+                />
+            )}
+
             {/* Department Selection & Search */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className={cn("grid grid-cols-1 lg:grid-cols-3 gap-8", portalTab === 'assignments' && "hidden")}>
                 <div className="lg:col-span-1 space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Active Department</label>
                     {isAdmin ? (
@@ -342,13 +389,13 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                     {requestSections && requestSections.length > 0 && (
                         <div className="space-y-2 pt-3">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Kitchen Request Section</label>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="flex gap-2 overflow-x-auto pb-1">
                                 {requestSections.map(section => (
                                     <Button
                                         key={section}
                                         type="button"
                                         variant={selectedRequestSection === section ? 'default' : 'outline'}
-                                        className="h-9 text-xs font-bold"
+                                        className="h-9 shrink-0 px-3 text-xs font-bold"
                                         onClick={() => setSelectedRequestSection(section)}
                                     >
                                         {section}
@@ -373,7 +420,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
             </div>
 
             {/* Items Table (Grouped, with batch-level detail like Inventory Stock Overview) */}
-            <div className="space-y-4">
+            <div className={cn("space-y-4", portalTab === 'assignments' && "hidden")}>
                 <div className="flex items-center justify-between pl-2">
                     <h2 className="text-xl font-black text-slate-900 tracking-tight">Department Inventory</h2>
                     <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 px-3 py-1 rounded-full font-black text-[10px] uppercase tracking-widest">
@@ -478,7 +525,9 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                             <div className="h-16 w-16 rounded-full bg-slate-50 flex items-center justify-center">
                                                 <Search className="h-8 w-8 text-slate-200" />
                                             </div>
-                                            <p className="text-slate-400 font-bold">No available items found matching your criteria.</p>
+                                            <p className="text-slate-400 font-bold">
+                                                {requestSections?.length ? `No items are assigned to ${selectedRequestSection}. Use Kitchen Assigned Items to initialize them.` : 'No available items found matching your criteria.'}
+                                            </p>
                                         </div>
                                     </TableCell>
                                 </TableRow>

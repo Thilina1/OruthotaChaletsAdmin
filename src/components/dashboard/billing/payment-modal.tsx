@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { CheckCircle, Receipt as ReceiptIcon, CreditCard, Wallet, Phone, Loader2, ChevronDown, ChevronUp, Printer, PartyPopper, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle, Receipt as ReceiptIcon, CreditCard, Wallet, Phone, Loader2, ChevronDown, ChevronUp, Printer, PartyPopper, Plus, Trash2, BedDouble } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Receipt as PrintableReceipt } from '@/components/dashboard/billing/receipt';
 
@@ -79,6 +79,8 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
   const [paidMethod, setPaidMethod] = useState<PaymentMethod>('cash');
   const [paidChange, setPaidChange] = useState(0);
   const [paidAt, setPaidAt] = useState('');
+  const [guestCustomer, setGuestCustomer] = useState<{ id: string; name: string; current_room?: string } | null>(null);
+  const [isAddingToGuestBill, setIsAddingToGuestBill] = useState(false);
 
   // ── Load order items + billing config ──────────────────────────────────────
   useEffect(() => {
@@ -110,6 +112,20 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
       setSelectedDiscounts({});
     }).finally(() => setIsLoadingConfig(false));
   }, [isOpen, order.id]);
+
+  useEffect(() => {
+    if (!isOpen || !order.customer_id) {
+      setGuestCustomer(null);
+      return;
+    }
+    fetch(`/api/admin/front-desk/guest-pass?customer_id=${encodeURIComponent(order.customer_id)}`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        setGuestCustomer(data.customer);
+      })
+      .catch(() => setGuestCustomer(null));
+  }, [isOpen, order.customer_id]);
 
   // Reset cash/method when order changes; pre-fill mobile from order
   useEffect(() => {
@@ -262,6 +278,8 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
         status: 'closed',
         confirmed_total: payableTotal,
         bill_breakdown: breakdown,
+        payment_method: paymentMethod,
+        paid_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         ...(customerMobile ? { customer_mobile: customerMobile } : {}),
       }).eq('id', order.id);
@@ -284,11 +302,49 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
       setPaidChange(paymentMethod === 'cash' ? Math.max(0, cashReceivedNumber - payableTotal) : 0);
       setPaidAt(new Date().toISOString());
       setPaymentDone(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Payment error:', error);
-      toast({ variant: 'destructive', title: 'Payment Failed', description: 'Error processing payment.' });
+      toast({ variant: 'destructive', title: 'Payment Failed', description: error?.message || 'Error processing payment.' });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleAddToGuestBill = async () => {
+    if (!order.customer_id || !confirmed) return;
+    setIsAddingToGuestBill(true);
+    try {
+      const guestRes = await fetch(`/api/admin/front-desk/guest-pass?customer_id=${encodeURIComponent(order.customer_id)}`);
+      const guestData = await guestRes.json();
+      if (!guestRes.ok) throw new Error(guestData.error || 'The guest is no longer checked in');
+      const calculatedBreakdown = {
+        subtotal,
+        discount_lines: discountLines.map(d => ({ name: d.name, type: d.type, value: d.value, amount: d.amount })),
+        discount_total: discountTotal,
+        after_discount: afterDiscount,
+        service_charge_lines: serviceChargeLines.map(s => ({ name: s.name, type: s.type, value: s.value, amount: s.amount })),
+        service_charge_total: serviceChargeTotal,
+        other_charge_lines: otherChargeLines.map(o => ({ name: o.name, type: o.type, value: o.value, amount: o.amount })),
+        other_charge_total: otherChargeTotal,
+        vat_rate: vatEnabled ? billingConfig.vat.rate : 0,
+        vat_amount: vatAmount,
+        grand_total: grandTotal,
+      };
+      const { error } = await supabase.from('orders').update({
+        status: 'room_charge',
+        confirmed_total: payableTotal,
+        bill_breakdown: (order as any).bill_breakdown || calculatedBreakdown,
+        updated_at: new Date().toISOString(),
+      }).eq('id', order.id);
+      if (error) throw error;
+      await supabase.from('order_items').update({ kitchen_status: 'done', prepared_at: new Date().toISOString() }).eq('order_id', order.id).neq('kitchen_status', 'done');
+      if (order.table_id) await supabase.from('restaurant_tables').update({ status: 'available' }).eq('id', order.table_id);
+      toast({ title: 'Added to Guest Bill', description: `${fmt(payableTotal)} added to ${guestData.customer.name}'s master bill.` });
+      onClose();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Could Not Add to Bill', description: error.message });
+    } finally {
+      setIsAddingToGuestBill(false);
     }
   };
 
@@ -682,6 +738,14 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
               </div>
 
               {/* Payment controls are intentionally hidden in bill-review mode. */}
+              {mode === 'payment' && guestCustomer && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  <div className="flex items-center gap-2 font-semibold"><BedDouble className="h-4 w-4" />{guestCustomer.name}</div>
+                  <p className="mt-1 text-xs">Active in-house guest{guestCustomer.current_room ? ` · ${guestCustomer.current_room}` : ''}</p>
+                </div>
+              )}
+
+              {/* Payment controls are intentionally hidden in bill-review mode. */}
               {mode === 'payment' && <RadioGroup
                 value={paymentMethod}
                 onValueChange={(v: PaymentMethod) => setPaymentMethod(v)}
@@ -745,6 +809,14 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing…</>
               : <><CheckCircle className="mr-2 h-4 w-4" />Pay {fmt(payableTotal)}</>
             }
+          </Button>}
+          {mode === 'payment' && guestCustomer && <Button
+            variant="secondary"
+            onClick={handleAddToGuestBill}
+            disabled={!confirmed || isLoadingConfig || isProcessing || isAddingToGuestBill}
+            className="flex-1"
+          >
+            {isAddingToGuestBill ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding…</> : <><BedDouble className="mr-2 h-4 w-4" />Add to Guest Bill</>}
           </Button>}
         </DialogFooter>
       </DialogContent>

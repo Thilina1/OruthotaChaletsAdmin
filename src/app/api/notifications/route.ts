@@ -66,6 +66,7 @@ export async function PATCH(request: Request) {
             .neq('type', 'kitchen_order')
             .neq('type', 'restaurant_billing')
             .neq('type', 'confirmed_restaurant_bill');
+        query = query.neq('type', 'mrn_approval');
 
         const { error } = await query;
         if (error) throw error;

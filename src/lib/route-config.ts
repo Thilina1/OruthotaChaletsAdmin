@@ -24,6 +24,7 @@ export const restaurantMenuItems: MenuItem[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/restaurant-analytics', icon: BarChart, label: 'Restaurant Analytics', roles: ['admin'] },
     { href: '/dashboard/billing', icon: CreditCard, label: 'Restaurant Billing', roles: ['admin', 'payment'] },
+    { href: '/dashboard/restaurant-account', icon: Wallet, label: 'Restaurant Account', roles: ['admin', 'payment'] },
     { href: '/dashboard/menu-management', icon: UtensilsCrossed, label: 'Menu Management', roles: ['admin'] },
     { href: '/dashboard/table-management', icon: TableIcon, label: 'Table Management', roles: ['admin'] },
     { href: '/dashboard/menu-settings', icon: UtensilsCrossed, label: 'Menu Section Settings', roles: ['admin'] },
@@ -101,12 +102,14 @@ export const otherMenuItems: MenuItem[] = [
 ];
 
 export const servicesMenuItems: MenuItem[] = [
+    { href: '/dashboard/services/account', icon: Wallet, label: 'Services Account', roles: ['admin'] },
     { href: '/dashboard/services/laundry', icon: Shirt, label: 'Laundry Income', roles: ['admin'] },
     { href: '/dashboard/services/transport', icon: Car, label: 'Transport & Excursion', roles: ['admin'] },
     { href: '/dashboard/services/spa', icon: Waves, label: 'Spa/Pool Income', roles: ['admin'] },
 ];
 
 export const eventManagementMenuItems: MenuItem[] = [
+    { href: '/dashboard/event-management/account', icon: Wallet, label: 'Event Account', roles: ['admin'] },
     { href: '/dashboard/event-management/events', icon: CalendarRange, label: 'Event Workspace', roles: ['admin'] },
     { href: '/dashboard/event-management/approvals', icon: CircleCheckBig, label: 'Event Approvals', roles: ['admin'] },
     { href: '/dashboard/event-management/calendar', icon: CalendarDays, label: 'Event Calendar', roles: ['admin'] },
@@ -122,8 +125,9 @@ export const chaletMenuItems: MenuItem[] = [
 export const kitchenMenuItems: MenuItem[] = [
     { href: '/dashboard/kitchen/events', icon: CalendarDays, label: 'Event Food Requirements', roles: ['admin', 'kitchen'] },
     { href: '/dashboard/kitchen/orders', icon: UtensilsCrossed, label: 'Kitchen Orders', roles: ['admin', 'kitchen'] },
-    { href: '/dashboard/kitchen/inventory-requests', icon: ChefHat, label: 'Request Stock', roles: ['admin', 'kitchen'] },
+    { href: '/dashboard/kitchen/inventory-requests', icon: ChefHat, label: 'Stock Request & Usage', roles: ['admin', 'kitchen'] },
     { href: '/dashboard/kitchen/stock-usage', icon: PackageOpen, label: 'Stock Usage & Damage', roles: ['admin', 'kitchen'] },
+    { href: '/dashboard/kitchen/stock-usage/report', icon: FileBarChart, label: 'Kitchen Usage Report', roles: ['admin', 'kitchen'] },
 ];
 
 export const allMenuItems = [

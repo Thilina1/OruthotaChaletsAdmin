@@ -44,6 +44,7 @@ import {
   ReceiptText,
   Plus,
   X,
+  ScanLine,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -57,6 +58,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useUserContext } from '@/context/user-context';
+import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
 
 type ChargeEntry = { id: string; name: string; type: 'percentage' | 'fixed'; value: number; enabled: boolean };
 type BillingCfg = { vat: { enabled: boolean; rate: number }; service_charges: ChargeEntry[]; other_charges: ChargeEntry[] };
@@ -90,6 +92,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [openOrder, setOpenOrder] = useState<Order | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [customerMobile, setCustomerMobile] = useState('');
+  const [guestCustomer, setGuestCustomer] = useState<{ id: string; name: string; current_room?: string } | null>(null);
   const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
@@ -210,12 +213,20 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
       if (orderData) {
         setOpenOrder(orderData as any);
         setCustomerMobile((orderData as any).customer_mobile || '');
+        if ((orderData as any).customer_id) {
+          const customerRes = await fetch(`/api/admin/customers?id=${encodeURIComponent((orderData as any).customer_id)}`);
+          const customerData = await customerRes.json();
+          setGuestCustomer(customerData.customers?.[0] || null);
+        } else {
+          setGuestCustomer(null);
+        }
         const { data: itemsData } = await supabase.from('order_items').select('*').eq('order_id', orderData.id);
         if (itemsData) setOrderItems(itemsData as any);
       } else {
         setOpenOrder(null);
         setOrderItems([]);
         setCustomerMobile('');
+        setGuestCustomer(null);
         setBillingConfig(null);
       }
 
@@ -492,6 +503,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
           waiter_id: currentUser.id,
           waiter_name: currentUser.name,
           ...(customerMobile ? { customer_mobile: customerMobile } : {}),
+          ...(guestCustomer ? { customer_id: guestCustomer.id } : {}),
         }]).select().single();
 
         if (createError) throw createError;
@@ -605,6 +617,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         waiter_id: currentUser.id,
         waiter_name: currentUser.name,
         ...(customerMobile ? { customer_mobile: customerMobile } : {}),
+        ...(guestCustomer ? { customer_id: guestCustomer.id } : {}),
       }).eq('id', currentOrderId);
 
       // Update Table Status
@@ -621,6 +634,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     } catch (error) {
       console.error('Error adding items to order:', error);
       toast({ variant: 'destructive', title: 'Order Failed', description: 'Could not add items to the order.' });
+    }
+  };
+
+  const handleGuestQrScan = async (code: string) => {
+    if (isTableLocked) return showTableLockedMessage();
+    try {
+      const res = await fetch(`/api/admin/front-desk/guest-pass?code=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Guest QR pass was not recognized');
+      const customer = data.customer;
+      setGuestCustomer(customer);
+      if (customer.phone) setCustomerMobile(customer.phone);
+      if (openOrder?.id) {
+        const { error } = await supabase.from('orders').update({
+          customer_id: customer.id,
+          ...(customer.phone ? { customer_mobile: customer.phone } : {}),
+        }).eq('id', openOrder.id);
+        if (error) throw error;
+        setOpenOrder(current => current ? { ...current, customer_id: customer.id } : current);
+      }
+      toast({ title: 'Guest Added', description: `${customer.name}${customer.current_room ? ` — ${customer.current_room}` : ''}` });
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Guest Not Found', description: error.message });
     }
   };
 
@@ -1155,6 +1191,27 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             <CardContent className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6">
               <ScrollArea className="h-full pr-2 sm:pr-4">
                 <div className="space-y-3 sm:space-y-4">
+
+                  {/* Customer Mobile (Loyalty) */}
+                  <div className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">In-House Guest</p>
+                        {guestCustomer ? (
+                          <p className="text-sm font-semibold">{guestCustomer.name}{guestCustomer.current_room ? ` · ${guestCustomer.current_room}` : ''}</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No guest attached</p>
+                        )}
+                      </div>
+                      <BarcodeScanner
+                        onScan={handleGuestQrScan}
+                        title="Scan Guest QR Pass"
+                        description="Scan an active in-house guest's QR pass to attach them to this order."
+                        successTitle="Guest QR Captured"
+                        trigger={<Button type="button" size="sm" variant="outline" disabled={isTableLocked}><ScanLine className="mr-2 h-4 w-4" />Scan QR</Button>}
+                      />
+                    </div>
+                  </div>
 
                   {/* Customer Mobile (Loyalty) */}
                   <div className="space-y-1">

@@ -19,6 +19,7 @@ export const APP_SECTION_GROUPS = [
       { path: '/dashboard', label: 'Dashboard' },
       { path: '/dashboard/restaurant-analytics', label: 'Restaurant Analytics' },
       { path: '/dashboard/billing', label: 'Restaurant Billing' },
+      { path: '/dashboard/restaurant-account', label: 'Restaurant Account' },
       { path: '/dashboard/menu-management', label: 'Menu Management' },
       { path: '/dashboard/table-management', label: 'Table Management' },
       { path: '/dashboard/menu-settings', label: 'Menu Section Settings' },
@@ -50,8 +51,9 @@ export const APP_SECTION_GROUPS = [
     sections: [
       { path: '/dashboard/kitchen/events', label: 'Event Food Requirements' },
       { path: '/dashboard/kitchen/orders', label: 'Kitchen Orders' },
-      { path: '/dashboard/kitchen/inventory-requests', label: 'Request Stock' },
+      { path: '/dashboard/kitchen/inventory-requests', label: 'Stock Request & Usage' },
       { path: '/dashboard/kitchen/stock-usage', label: 'Stock Usage & Damage' },
+      { path: '/dashboard/kitchen/stock-usage/report', label: 'Kitchen Usage Report' },
     ],
   },
   {
@@ -87,6 +89,7 @@ export const APP_SECTION_GROUPS = [
   {
     name: 'Services',
     sections: [
+      { path: '/dashboard/services/account', label: 'Services Account' },
       { path: '/dashboard/services/laundry', label: 'Laundry Income' },
       { path: '/dashboard/services/transport', label: 'Transport & Excursion' },
       { path: '/dashboard/services/spa', label: 'Spa/Pool Income' },
@@ -95,6 +98,7 @@ export const APP_SECTION_GROUPS = [
   {
     name: 'Event Management',
     sections: [
+      { path: '/dashboard/event-management/account', label: 'Event Account' },
       { path: '/dashboard/event-management/events', label: 'Event Workspace' },
       { path: '/dashboard/event-management/approvals', label: 'Event Approvals' },
       { path: '/dashboard/event-management/calendar', label: 'Event Calendar' },

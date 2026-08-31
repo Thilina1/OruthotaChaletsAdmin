@@ -10,6 +10,7 @@ const supabase = createClient(
 
 // GET ?warehouse_id=<uuid>             → items with available stock in that warehouse
 // GET ?warehouse_id=<uuid>&history=1   → damage/expired transaction history
+// GET ?warehouse_id=<uuid>&usage_history=1 → section-based Kitchen usage report
 export async function GET(request: Request) {
     try {
         const cookieStore = await cookies();
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const warehouse_id = searchParams.get('warehouse_id');
         const history = searchParams.get('history') === '1';
+        const usageHistory = searchParams.get('usage_history') === '1';
 
         if (!warehouse_id) return NextResponse.json({ error: 'warehouse_id is required' }, { status: 400 });
 
@@ -49,6 +51,41 @@ export async function GET(request: Request) {
                 user: r.created_by ? { id: r.created_by, name: userMap[r.created_by] ?? '—' } : null,
             }));
             return NextResponse.json({ transactions: enriched });
+        }
+
+        if (usageHistory) {
+            const { data, error } = await supabase
+                .from('inventory_transactions')
+                .select(`
+                    id, transaction_type, quantity, remarks, created_at, created_by,
+                    item:inventory_items(id, name, category:inventory_categories(name), unit:inventory_units(name)),
+                    batch:inventory_batches(id, batch_number, expiry_date)
+                `)
+                .eq('department_id', warehouse_id)
+                .eq('transaction_type', 'issue')
+                .order('created_at', { ascending: false })
+                .limit(500);
+            if (error) throw error;
+
+            const userIds = [...new Set((data ?? []).map((row: any) => row.created_by).filter(Boolean))];
+            const userMap: Record<string, string> = {};
+            if (userIds.length > 0) {
+                const { data: users } = await supabase.from('users').select('id, name').in('id', userIds);
+                for (const user of users ?? []) userMap[user.id] = user.name;
+            }
+            const sectionPrefixes = ['Staff', 'Function', 'A la carte', 'Room guest'];
+            const transactions = (data ?? []).map((row: any) => {
+                const usageSection = sectionPrefixes.find(section =>
+                    row.remarks?.toLowerCase().startsWith(`${section.toLowerCase()} usage`)
+                ) || null;
+                return {
+                    ...row,
+                    usage_section: usageSection,
+                    user: row.created_by ? { id: row.created_by, name: userMap[row.created_by] ?? '—' } : null,
+                };
+            }).filter((row: any) => row.usage_section);
+
+            return NextResponse.json({ transactions });
         }
 
         // Fetch stock with item + batch details
@@ -105,7 +142,7 @@ export async function POST(request: Request) {
         const payload = await verifyToken(token) as any;
         if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-        const { warehouse_id, item_id, batch_id, stock_id, quantity, type, reason } = await request.json();
+        const { warehouse_id, item_id, batch_id, stock_id, quantity, type, reason, section } = await request.json();
 
         if (!warehouse_id || !item_id || !batch_id || !stock_id || !quantity || !type) {
             return NextResponse.json({ error: 'warehouse_id, item_id, batch_id, stock_id, quantity, type are required' }, { status: 400 });
@@ -113,9 +150,26 @@ export async function POST(request: Request) {
         if (!['use', 'damage', 'expired'].includes(type)) {
             return NextResponse.json({ error: 'type must be use, damage, or expired' }, { status: 400 });
         }
+        const kitchenSections = ['Staff', 'Function', 'A la carte', 'Room guest'];
+        if (section && !kitchenSections.includes(section)) {
+            return NextResponse.json({ error: 'Invalid Kitchen usage section' }, { status: 400 });
+        }
         const qty = Number(quantity);
         if (isNaN(qty) || qty <= 0) {
             return NextResponse.json({ error: 'quantity must be a positive number' }, { status: 400 });
+        }
+
+        if (type === 'use' && section) {
+            const { data: assignment, error: assignmentError } = await supabase
+                .from('kitchen_section_items')
+                .select('id')
+                .eq('section', section)
+                .eq('item_id', item_id)
+                .maybeSingle();
+            if (assignmentError) throw assignmentError;
+            if (!assignment) {
+                return NextResponse.json({ error: `${item_id} is not assigned to the ${section} Kitchen section.` }, { status: 400 });
+            }
         }
 
         // Fetch the exact stock entry by its PK to avoid race conditions
@@ -146,7 +200,7 @@ export async function POST(request: Request) {
         // Transaction type: 'issue' for usage, 'damage' for damage, 'expired' for expired
         const txType = type === 'use' ? 'issue' : type;
         const remarks = type === 'use'
-            ? `Employee consumption${reason ? ': ' + reason : ''}`
+            ? `${section ? `${section} usage` : 'Employee consumption'}${reason ? ': ' + reason : ''}`
             : `${type.toUpperCase()}${reason ? ': ' + reason : ''}`;
 
         const { data: tx, error: txErr } = await supabase
