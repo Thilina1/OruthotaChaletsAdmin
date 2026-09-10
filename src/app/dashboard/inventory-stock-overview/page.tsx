@@ -20,14 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import {
   Tabs,
   TabsContent,
@@ -65,6 +58,7 @@ function StockOverviewContent() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [inventoryCategories, setInventoryCategories] = useState<any[]>([]);
   
+  const [activeView, setActiveView] = useState('cards');
   const [currentPage, setCurrentPage] = useState(1);
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -112,6 +106,12 @@ function StockOverviewContent() {
       ? warehouses
       : warehouses.filter(wh => wh.department?.name === user?.department);
   }, [warehouses, isAdmin, user?.department]);
+
+  const fixedStore = accessibleWarehouses.find(warehouse => warehouse.name.trim().toLowerCase() === 'store')
+    || accessibleWarehouses.find(warehouse => warehouse.is_main);
+  const matrixWarehouses = fixedStore
+    ? [fixedStore, ...accessibleWarehouses.filter(warehouse => warehouse.id !== fixedStore.id)]
+    : accessibleWarehouses;
 
   useEffect(() => {
     fetchData();
@@ -209,29 +209,27 @@ function StockOverviewContent() {
     return Object.values(itemMap);
   }, [activeWarehouseData]);
 
+  const totalItems = activeView === 'cards' ? (activeWarehouseData?.items.length || 0)
+    : activeView === 'table' ? groupedBatchStock.length : filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  useEffect(() => { setCurrentPage(page => Math.min(page, totalPages)); }, [totalPages]);
+
   const paginatedCardItems = useMemo(() => {
     if (!activeWarehouseData) return [];
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const start = (safePage - 1) * ITEMS_PER_PAGE;
     return activeWarehouseData.items.slice(start, start + ITEMS_PER_PAGE);
-  }, [activeWarehouseData, currentPage]);
+  }, [activeWarehouseData, safePage]);
 
   const paginatedTableItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const start = (safePage - 1) * ITEMS_PER_PAGE;
     return groupedBatchStock.slice(start, start + ITEMS_PER_PAGE);
-  }, [groupedBatchStock, currentPage]);
+  }, [groupedBatchStock, safePage]);
 
   const paginatedMatrixItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const start = (safePage - 1) * ITEMS_PER_PAGE;
     return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, currentPage]);
-
-  const totalPages = useMemo(() => {
-    // We use the filteredItems for the matrix view, and activeWarehouseData.items for other views
-    // If we are in matrix view, we need the total count of filtered items
-    // To keep it simple, let's use the larger set or context-aware count
-    const count = filteredItems.length;
-    return Math.ceil(count / ITEMS_PER_PAGE);
-  }, [filteredItems]);
+  }, [filteredItems, safePage]);
 
   const getExpiryStatus = (expiryDate: string | null) => {
     if (!expiryDate) return { label: 'No Expiry', color: 'text-slate-400' };
@@ -325,7 +323,7 @@ function StockOverviewContent() {
           <p className="font-medium">Loading items...</p>
         </div>
       ) : (
-        <Tabs defaultValue="cards" className="w-full">
+        <Tabs value={activeView} onValueChange={view => { setActiveView(view); setCurrentPage(1); }} className="w-full">
           <div className="flex justify-between items-center mb-6">
             <TabsList className="bg-slate-100 p-1">
               <TabsTrigger value="cards" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">Card List</TabsTrigger>
@@ -413,41 +411,13 @@ function StockOverviewContent() {
               )}
             </div>
 
-            {totalPages > 1 && (
-              <div className="mt-8">
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious 
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="cursor-pointer"
-                      />
-                    </PaginationItem>
-                    
-                    {[...Array(totalPages)].map((_, i) => (
-                      <PaginationItem key={i} className="hidden sm:block">
-                        <PaginationLink 
-                          isActive={currentPage === i + 1}
-                          onClick={() => setCurrentPage(i + 1)}
-                          className="cursor-pointer"
-                        >
-                          {i + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
-
-                    <PaginationItem>
-                      <PaginationNext 
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="cursor-pointer"
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-              </div>
-            )}
+            <DataTablePagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+            />
           </TabsContent>
 
           <TabsContent value="table">
@@ -552,40 +522,34 @@ function StockOverviewContent() {
               </Table>
             </div>
 
-            {totalPages > 1 && (
-              <Pagination>
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious 
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="cursor-pointer"
-                    />
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationNext 
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="cursor-pointer"
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-            )}
+            <DataTablePagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+            />
           </TabsContent>
 
-          <TabsContent value="matrix">
+          <TabsContent value="matrix" className="min-w-0">
             <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-6">
-              <div className="w-full overflow-x-auto custom-scrollbar">
-                <Table className="border-separate border-spacing-0 w-full table-fixed">
-                  <TableHeader className="bg-slate-50 sticky top-0 z-30">
+              <div className="relative isolate w-full overflow-x-auto custom-scrollbar">
+                <table
+                  className="border-separate border-spacing-0 table-fixed caption-bottom text-sm"
+                  style={{ width: 240 + matrixWarehouses.length * 180, minWidth: 240 + matrixWarehouses.length * 180 }}
+                >
+                  <colgroup>
+                    <col style={{ width: 240 }} />
+                    {matrixWarehouses.map(wh => <col key={wh.id} style={{ width: 180 }} />)}
+                  </colgroup>
+                  <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 w-[240px] sticky left-0 bg-slate-50 z-40 border-b border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 w-[240px] sticky left-0 bg-slate-50 z-20 border-b border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                         Item Details / Warehouses
                       </TableHead>
-                      {accessibleWarehouses.map(wh => (
-                        <TableHead key={wh.id} className="font-black text-[10px] uppercase tracking-widest text-center whitespace-nowrap min-w-[140px] border-b border-l border-slate-100 px-4">
-                          <Warehouse className="h-3 w-3 inline-block mr-1 opacity-50" />
+                      {matrixWarehouses.map(wh => (
+                        <TableHead key={wh.id} className={cn("h-auto py-4 px-6 text-center text-xs font-semibold leading-5 whitespace-normal break-words border-b border-l border-slate-200", wh.id === fixedStore?.id && "sticky left-[240px] z-20 bg-slate-50 border-r shadow-[2px_0_5px_rgba(0,0,0,0.05)]")}>
+                          <Warehouse className="h-3.5 w-3.5 inline-block mr-2 align-middle opacity-50" />
                           {wh.name}
                         </TableHead>
                       ))}
@@ -594,7 +558,7 @@ function StockOverviewContent() {
                   <TableBody>
                     {paginatedMatrixItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={accessibleWarehouses.length + 1} className="h-32 text-center text-muted-foreground italic">
+                        <TableCell colSpan={matrixWarehouses.length + 1} className="h-32 text-center text-muted-foreground italic">
                           No stock data available.
                         </TableCell>
                       </TableRow>
@@ -606,17 +570,17 @@ function StockOverviewContent() {
                               <div className="h-8 w-8 bg-slate-50 rounded-lg flex items-center justify-center shrink-0 border border-slate-100 group-hover:bg-primary/5">
                                 <span className="text-[10px] font-bold text-slate-400">{item.name.substring(0, 2).toUpperCase()}</span>
                               </div>
-                              <div className="flex flex-col min-w-[150px]">
+                              <div className="flex min-w-0 flex-col break-words">
                                 <span className="font-black text-slate-800 text-sm uppercase tracking-tight">{item.name}</span>
                                 <span className="text-[10px] text-muted-foreground font-bold">{item.code}</span>
                               </div>
                             </div>
                           </TableCell>
-                          {accessibleWarehouses.map(wh => {
+                          {matrixWarehouses.map(wh => {
                             const stockObj = item.warehouse_stock?.find((ws: any) => ws.id === wh.id);
                             const qty = stockObj ? stockObj.total_stock : 0;
                             return (
-                              <TableCell key={wh.id} className="text-center border-b border-l border-slate-50 min-w-[140px] px-4 group">
+                              <TableCell key={wh.id} className={cn("text-center border-b border-l border-slate-100 px-6 py-4 group", wh.id === fixedStore?.id && "sticky left-[240px] z-10 bg-white border-r shadow-[2px_0_5px_rgba(0,0,0,0.05)]")}>
                                 <div className="flex flex-col items-center">
                                   <span className={cn(
                                     "text-base font-black leading-none transition-all",
@@ -637,45 +601,17 @@ function StockOverviewContent() {
                       ))
                     )}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
 
-            {totalPages > 1 && (
-              <div className="mt-8">
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious 
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="cursor-pointer"
-                      />
-                    </PaginationItem>
-                    
-                    {[...Array(totalPages)].map((_, i) => (
-                      <PaginationItem key={i} className="hidden sm:block">
-                        <PaginationLink 
-                          isActive={currentPage === i + 1}
-                          onClick={() => setCurrentPage(i + 1)}
-                          className="cursor-pointer"
-                        >
-                          {i + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
-
-                    <PaginationItem>
-                      <PaginationNext 
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="cursor-pointer"
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-              </div>
-            )}
+            <DataTablePagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+            />
           </TabsContent>
         </Tabs>
       )}

@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Table, 
@@ -173,7 +174,7 @@ export default function StockOverviewPage() {
                                         ))}
                                     </TableRow>
                                 </TableHeader>
-                                <TableBody>
+                                <PaginatedTableBody>
                                     {isLoading ? (
                                         <TableRow>
                                             <TableCell colSpan={warehouses.length + 2} className="h-64 text-center">
@@ -227,7 +228,7 @@ export default function StockOverviewPage() {
                                             </TableRow>
                                         ))
                                     )}
-                                </TableBody>
+                                </PaginatedTableBody>
                             </Table>
                         </div>
                         <ScrollBar orientation="horizontal" />

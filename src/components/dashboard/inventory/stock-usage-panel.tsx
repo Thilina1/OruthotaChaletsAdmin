@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useUserContext } from '@/context/user-context';
 import { useToast } from '@/hooks/use-toast';
@@ -555,7 +556,7 @@ export default function StockUsagePanel({
                                                     <TableHead>Recorded By</TableHead>
                                                 </TableRow>
                                             </TableHeader>
-                                            <TableBody>
+                                            <PaginatedTableBody showSinglePage>
                                                 {history.map(r => (
                                                     <TableRow key={r.id}>
                                                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
@@ -591,7 +592,7 @@ export default function StockUsagePanel({
                                                         <TableCell className="text-sm">{r.user?.name ?? '—'}</TableCell>
                                                     </TableRow>
                                                 ))}
-                                            </TableBody>
+                                            </PaginatedTableBody>
                                         </Table>
                                     </div>
                                 )}

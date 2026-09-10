@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import {
     ArrowLeft,
     History,
+    Eye,
     Package,
     ArrowRight,
     Loader2,
@@ -72,6 +73,7 @@ export default function InventoryRequestHistoryPage() {
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [transferRequest, setTransferRequest] = useState<any>(null);
     const [selectedBatches, setSelectedBatches] = useState<any[]>([]); // { batch_id, warehouse_id, quantity, available }
+    const [viewRequest, setViewRequest] = useState<any>(null);
     const [rejectRequest, setRejectRequest] = useState<any>(null);
     const [rejectionReason, setRejectionReason] = useState('');
 
@@ -348,13 +350,12 @@ export default function InventoryRequestHistoryPage() {
                                             )}>
                                                 {req.status}
                                             </Badge>
-                                            {req.status === 'REJECTED' && req.action_metadata?.rejection_reason && (
-                                                <p className="mt-1 max-w-[220px] text-xs text-red-600" title={req.action_metadata.rejection_reason}>
-                                                    {req.action_metadata.rejection_reason}
-                                                </p>
-                                            )}
                                         </TableCell>
                                         <TableCell className="text-right pr-8">
+                                            <div className="flex items-center justify-end gap-2">
+                                            <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label={`View request ${req.id.substring(0, 8)}`} title="View request details" onClick={() => setViewRequest(req)}>
+                                                <Eye className="h-4 w-4" />
+                                            </Button>
                                             {isAdmin && req.status === 'PENDING' && (
                                                 <div className="flex justify-end gap-2">
                                                     <Button variant="outline" size="sm" className="h-9 rounded-lg border-red-200 text-[10px] font-black text-red-600 hover:bg-red-600 hover:text-white" onClick={() => { setRejectRequest(req); setRejectionReason(''); }}>
@@ -365,12 +366,13 @@ export default function InventoryRequestHistoryPage() {
                                                     </Button>
                                                 </div>
                                             )}
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))}
                             {existingRequests.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="py-12 text-center text-slate-400 font-medium italic">
+                                    <TableCell colSpan={6} className="py-12 text-center text-slate-400 font-medium italic">
                                         No requests found.
                                     </TableCell>
                                 </TableRow>
@@ -389,6 +391,51 @@ export default function InventoryRequestHistoryPage() {
             </div>
 
             {/* Transfer Modal */}
+            <Dialog open={!!viewRequest} onOpenChange={open => { if (!open) setViewRequest(null); }}>
+                <DialogContent className="max-w-2xl max-h-[85dvh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>MRN Request Details</DialogTitle>
+                        <DialogDescription>Request information, transfer details, and review outcome.</DialogDescription>
+                    </DialogHeader>
+                    {viewRequest && <div className="space-y-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="break-all font-mono text-sm">#{viewRequest.id}</span>
+                            <Badge variant="outline">{viewRequest.status}</Badge>
+                        </div>
+                        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            {[
+                                ['Item', viewRequest.item?.name],
+                                ['Item Code', viewRequest.item?.code],
+                                ['Request Type', viewRequest.request_type?.replaceAll('_', ' ')],
+                                ['Requested By', viewRequest.requester?.name],
+                                ['Requester Email', viewRequest.requester?.email],
+                                ['From', viewRequest.action_metadata?.source_warehouse_name || 'Main Store'],
+                                ['To', viewRequest.action_metadata?.requesting_department_name || viewRequest.requester?.department],
+                                ['Requested Quantity', `${viewRequest.requested_quantity} ${viewRequest.item?.unit?.name || 'units'}`],
+                                ['Received Quantity', viewRequest.received_quantity == null ? '—' : `${viewRequest.received_quantity} ${viewRequest.item?.unit?.name || 'units'}`],
+                                ['Brand', viewRequest.brand],
+                                ['Supplier', viewRequest.supplier_name],
+                                ['Size', viewRequest.item_size],
+                                ['Created', new Date(viewRequest.created_at).toLocaleString()],
+                                ['Last Updated', viewRequest.updated_at ? new Date(viewRequest.updated_at).toLocaleString() : '—'],
+                                ['Reviewed By', viewRequest.reviewer?.name || viewRequest.action_metadata?.rejected_by_name],
+                                ['Reviewer Email', viewRequest.reviewer?.email],
+                            ].map(([label, value]) => <div key={label}>
+                                <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
+                                <dd className="mt-1 break-words text-sm">{value || '—'}</dd>
+                            </div>)}
+                        </dl>
+                        <div><p className="text-sm font-semibold">Notes</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{viewRequest.notes || 'No notes provided.'}</p></div>
+                        {viewRequest.action_metadata?.rejection_reason && <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                            <p className="text-sm font-semibold text-red-800">Rejection Reason</p>
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-red-700">{viewRequest.action_metadata.rejection_reason}</p>
+                            {viewRequest.action_metadata.rejected_at && <p className="mt-2 text-xs text-red-700">{new Date(viewRequest.action_metadata.rejected_at).toLocaleString()}</p>}
+                        </div>}
+                    </div>}
+                    <DialogFooter><Button variant="outline" onClick={() => setViewRequest(null)}>Close</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
                 <DialogContent className="sm:max-w-[700px] rounded-[2.5rem] border-slate-100 p-0 overflow-hidden shadow-2xl">
                     <div className="bg-emerald-50/50 p-8 pb-4">

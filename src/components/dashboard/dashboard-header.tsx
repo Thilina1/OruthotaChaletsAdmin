@@ -81,12 +81,12 @@ export default function DashboardHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:px-6">
-      <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-30 flex h-14 w-full min-w-0 shrink-0 items-center gap-2 sm:gap-4 border-b bg-background px-4 sm:px-6">
+      <div className="flex shrink-0 items-center gap-4">
         <SidebarTrigger className="sm:hidden" />
       </div>
-      <div className="flex-1">
-        <h1 className="font-semibold text-lg">{getPageTitle(pathname)}</h1>
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate font-semibold text-lg">{getPageTitle(pathname)}</h1>
       </div>
       <NotificationMenu />
       <DropdownMenu>
@@ -94,7 +94,7 @@ export default function DashboardHeader() {
           <Button
             variant="outline"
             size="icon"
-            className="overflow-hidden rounded-full"
+            className="shrink-0 overflow-hidden rounded-full"
           >
             <Avatar>
               {avatar && <AvatarImage src={avatar.imageUrl} alt={user?.name || 'User'} />}

@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useUserContext } from '@/context/user-context';
 import { useToast } from '@/hooks/use-toast';
@@ -107,7 +108,7 @@ function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
                             <TableHead className="text-right">Total</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <PaginatedTableBody>
                         {po.purchase_order_items.map(item => {
                             const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
                             return (
@@ -126,7 +127,7 @@ function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
                             <TableCell colSpan={3} className="text-right text-xs font-semibold">PO Total</TableCell>
                             <TableCell className="text-right font-bold">{fmt(total)}</TableCell>
                         </TableRow>
-                    </TableBody>
+                    </PaginatedTableBody>
                 </Table>
             </div>
             {po.notes && (

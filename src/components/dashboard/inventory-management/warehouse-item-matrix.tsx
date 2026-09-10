@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useMemo } from 'react';
 import {
     Table,
@@ -141,7 +142,7 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
                                 ))}
                             </TableRow>
                         </TableHeader>
-                        <TableBody>
+                        <PaginatedTableBody>
                             {isLoading ? (
                                 <TableRow>
                                     <TableCell colSpan={warehouses.length + 1} className="h-32 text-center">
@@ -221,7 +222,7 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
                                     </TableRow>
                                 ))
                             )}
-                        </TableBody>
+                        </PaginatedTableBody>
                     </Table>
                 </div>
             </div>

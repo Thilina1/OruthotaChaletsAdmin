@@ -43,6 +43,7 @@ import {
 
 const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boolean, pathname: string, user: User | null) => {
   const accessibleItems = items.filter(item => {
+    if (item.hidden) return false;
     const userRole = user?.role;
     // The permission-aware home screen is available to every signed-in user.
     if (item.href === '/dashboard/home') return true;

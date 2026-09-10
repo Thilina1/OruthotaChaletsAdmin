@@ -58,3 +58,30 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+
+export async function PUT(req: Request) {
+    try {
+        const token = (await cookies()).get('auth_token')?.value;
+        if (!token || !(await verifyToken(token))) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        const body = await req.json();
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (typeof body.id !== 'string' || !/^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(body.id) || !name) {
+            return NextResponse.json({ error: 'A valid ID and name are required' }, { status: 400 });
+        }
+        const { data: records, error: lookupError } = await supabase.from('inventory_units').select('id, name');
+        if (lookupError) throw lookupError;
+        if (records?.some(record => record.id !== body.id && record.name.trim().toLowerCase() === name.toLowerCase())) {
+            return NextResponse.json({ error: 'This name already exists' }, { status: 409 });
+        }
+        const { data, error } = await supabase.from('inventory_units')
+            .update({ name, description: typeof body.description === 'string' ? body.description.trim() || null : null })
+            .eq('id', body.id).select().maybeSingle();
+        if (error) throw error;
+        if (!data) return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+        return NextResponse.json({ unit: data });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: error.code === '23505' ? 409 : 500 });
+    }
+}

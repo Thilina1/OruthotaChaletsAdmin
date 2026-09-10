@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -33,8 +34,6 @@ import {
     RefreshCw,
     Building2,
     Search,
-    ChevronLeft,
-    ChevronRight,
     Eye,
     X,
 } from 'lucide-react';
@@ -78,7 +77,7 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
     system:      { label: 'System',       color: 'bg-slate-100 text-slate-600' },
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 
 export default function TransactionLogPage() {
     const { toast } = useToast();
@@ -138,10 +137,12 @@ export default function TransactionLogPage() {
     }, [transactions, typeFilter, warehouseFilter, search]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const currentPage = Math.min(page, totalPages);
+    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    useEffect(() => { setPage(p => Math.min(p, totalPages)); }, [totalPages]);
 
     // Reset page on filter change
-    useEffect(() => { setPage(1); }, [typeFilter, warehouseFilter, search]);
+    useEffect(() => { setPage(1); }, [typeFilter, warehouseFilter, search, fromDate, toDate]);
 
     const exportCSV = () => {
         const headers = ['Date', 'Item', 'Category', 'Type', 'Source', 'Qty', 'Warehouse', 'Ref Warehouse', 'Batch', 'Expiry', 'Remarks', 'User'];
@@ -382,21 +383,14 @@ export default function TransactionLogPage() {
                     </Table>
                 </div>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="p-4 border-t flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                            Page {page} of {totalPages} · {filtered.length} total
-                        </span>
-                        <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                                <ChevronLeft className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                                <ChevronRight className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </div>
+                {!isLoading && (
+                    <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        itemsPerPage={PAGE_SIZE}
+                        onPageChange={setPage}
+                    />
                 )}
             </div>
         </div>

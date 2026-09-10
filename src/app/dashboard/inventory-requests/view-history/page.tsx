@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -73,29 +74,20 @@ export default function SimpleHistoryPage() {
     }
 
     return (
-        <div className="space-y-12 pb-20">
-            {/* Header Section */}
-            <div className="relative overflow-hidden bg-slate-900 rounded-[3rem] p-12 text-white">
-                <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 bg-primary/20 rounded-full blur-[100px]" />
-                <div className="relative z-10">
-                    <div className="flex items-center gap-4 mb-6">
-                        <Button 
-                            variant="ghost" 
-                            className="text-white/60 hover:text-white hover:bg-white/10 rounded-xl"
-                            onClick={() => router.back()}
-                        >
-                            <ArrowLeft className="h-5 w-5 mr-2" />
-                            Back
-                        </Button>
-                        <Badge variant="outline" className="bg-primary/10 border-primary/20 text-primary px-4 py-1 rounded-full font-black text-[10px] uppercase tracking-widest">
-                            MRN Request History
-                        </Badge>
-                    </div>
-                    <h1 className="text-5xl font-black mb-4 tracking-tight">MRN Request History</h1>
-                    <p className="text-xl text-slate-400 max-w-2xl font-medium leading-relaxed">
-                        View the status of your department's Material Requisition Note requests.
-                    </p>
-                </div>
+        <div className="space-y-6 pb-8">
+            <div className="rounded-2xl bg-slate-900 p-5 text-white sm:p-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mb-2 -ml-3 text-white/70 hover:bg-white/10 hover:text-white"
+                    onClick={() => router.back()}
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <h1 className="text-2xl font-bold tracking-tight">MRN Request History</h1>
+                <p className="mt-1 text-sm text-slate-400">
+                    View the status of your department's Material Requisition Note requests.
+                </p>
             </div>
 
             {/* History Table */}
@@ -122,7 +114,7 @@ export default function SimpleHistoryPage() {
                                 <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Status</TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody>
+                        <PaginatedTableBody>
                             {filteredRequests.map((req) => (
                                 <TableRow key={req.id} className="group hover:bg-slate-50/30 transition-colors border-slate-50">
                                     <TableCell className="py-5 pl-8">
@@ -197,7 +189,7 @@ export default function SimpleHistoryPage() {
                                     </TableCell>
                                 </TableRow>
                             )}
-                        </TableBody>
+                        </PaginatedTableBody>
                     </Table>
                 </div>
             </div>

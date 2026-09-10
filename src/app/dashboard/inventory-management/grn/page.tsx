@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Truck, ChevronRight, Trash2 } from 'lucide-react';
@@ -186,7 +187,7 @@ export default function GRNPage() {
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <PaginatedTableBody className="divide-y">
                   {isPOLoading ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-10 text-center">
@@ -248,7 +249,7 @@ export default function GRNPage() {
                       </tr>
                     ))
                   )}
-                </tbody>
+                </PaginatedTableBody>
               </table>
             </div>
           </div>
@@ -276,7 +277,7 @@ export default function GRNPage() {
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <PaginatedTableBody className="divide-y">
                   {isPOLoading ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-10 text-center">
@@ -341,7 +342,7 @@ export default function GRNPage() {
                       </tr>
                     ))
                   )}
-                </tbody>
+                </PaginatedTableBody>
               </table>
             </div>
           </div>
@@ -423,7 +424,7 @@ export default function GRNPage() {
                                         <th className="px-6 py-4 text-right">Line Total</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y">
+                                <PaginatedTableBody className="divide-y">
                                     {viewingPO.purchase_order_items.map((item: any) => (
                                         <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
                                             <td className="px-6 py-4">
@@ -470,7 +471,7 @@ export default function GRNPage() {
                                             </td>
                                         </tr>
                                     ))}
-                                </tbody>
+                                </PaginatedTableBody>
                                 <tfoot className="border-t bg-slate-50">
                                     <tr>
                                         <td colSpan={6} className="px-6 py-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">GRN Total</td>

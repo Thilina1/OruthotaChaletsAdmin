@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -94,7 +95,7 @@ function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
                             <TableHead className="text-right">Total</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <PaginatedTableBody>
                         {po.purchase_order_items.map(item => {
                             const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
                             return (
@@ -113,7 +114,7 @@ function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
                             <TableCell colSpan={3} className="text-right text-xs font-semibold">PO Total</TableCell>
                             <TableCell className="text-right font-bold">{fmt(total)}</TableCell>
                         </TableRow>
-                    </TableBody>
+                    </PaginatedTableBody>
                 </Table>
             </div>
             {po.notes && <p className="border-t px-4 py-2 text-xs text-muted-foreground">Notes: {po.notes}</p>}
@@ -299,7 +300,7 @@ export default function InventoryCashApprovalsPage() {
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <PaginatedTableBody>
                         {items.map(req => (
                             <TableRow key={req.id}>
                                 <TableCell className="font-mono text-xs font-bold">{req.request_number}</TableCell>
@@ -378,7 +379,7 @@ export default function InventoryCashApprovalsPage() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                    </TableBody>
+                    </PaginatedTableBody>
                 </Table>
             </div>
         )
@@ -506,7 +507,7 @@ export default function InventoryCashApprovalsPage() {
                                                 <TableHead>Date</TableHead>
                                             </TableRow>
                                         </TableHeader>
-                                        <TableBody>
+                                        <PaginatedTableBody>
                                             {filteredRequests.map(req => {
                                                 const totalIssued = (req.issued_amount ?? 0) + (req.additional_issued_amount ?? 0);
                                                 return (
@@ -577,7 +578,7 @@ export default function InventoryCashApprovalsPage() {
                                                     </TableRow>
                                                 );
                                             })}
-                                        </TableBody>
+                                        </PaginatedTableBody>
                                     </Table>
                                 </div>
                             )}

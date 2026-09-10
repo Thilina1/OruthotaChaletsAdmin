@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useToast } from '@/hooks/use-toast';
@@ -381,7 +382,7 @@ export default function PurchaseOrdersPage() {
                                         <TableHead className="text-right">Total</TableHead>
                                     </TableRow>
                                 </TableHeader>
-                                <TableBody>
+                                <PaginatedTableBody>
                                     {viewPO.purchase_order_items.map((item, idx) => (
                                         <TableRow key={item.id}>
                                             <TableCell>{idx + 1}</TableCell>
@@ -402,7 +403,7 @@ export default function PurchaseOrdersPage() {
                                             </TableCell>
                                         </TableRow>
                                     ))}
-                                </TableBody>
+                                </PaginatedTableBody>
                             </Table>
                         </div>
                     )}

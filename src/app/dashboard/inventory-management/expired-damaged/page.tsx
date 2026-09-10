@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -340,7 +341,7 @@ export default function ExpiredDamagedPage() {
                                         <TableHead />
                                     </TableRow>
                                 </TableHeader>
-                                <TableBody>
+                                <PaginatedTableBody showSinglePage>
                                     {filtered.map(r => {
                                         const unitCost = r.unit_value ?? r.batch?.buying_price ?? null;
                                         const totalEst = unitCost != null ? unitCost * r.quantity : null;
@@ -428,7 +429,7 @@ export default function ExpiredDamagedPage() {
                                             </TableRow>
                                         );
                                     })}
-                                </TableBody>
+                                </PaginatedTableBody>
                             </Table>
                         </div>
                     )}

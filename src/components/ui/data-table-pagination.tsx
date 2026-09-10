@@ -18,12 +18,13 @@ export function DataTablePagination({
     if (totalItems === 0) return null;
 
     return (
-        <div className="flex items-center justify-between px-4 py-4 border-t">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 border-t">
             <div className="text-sm text-muted-foreground">
                 Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
             </div>
             <div className="flex gap-2">
                 <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
@@ -35,6 +36,7 @@ export function DataTablePagination({
                     {currentPage}
                 </div>
                 <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}

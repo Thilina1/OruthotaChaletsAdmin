@@ -268,6 +268,8 @@ export default function ChaletBookingsPage() {
     };
 
     const confirmDelete = (id: string) => {
+        const booking = bookings.find(b => b.id === id);
+        if (!booking || booking.status === 'checked_in' || booking.status === 'checked_out') return;
         setDeleteId(id);
         setDeleteDialogOpen(true);
     };
@@ -277,7 +279,10 @@ export default function ChaletBookingsPage() {
         setDeleting(true);
         try {
             const res = await fetch(`/api/chalet/bookings?id=${deleteId}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error('Failed to delete');
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to delete');
+            }
             toast({ title: 'Deleted', description: 'Booking removed' });
             window.dispatchEvent(new Event('notifications-changed'));
             setDeleteDialogOpen(false);
@@ -511,9 +516,11 @@ export default function ChaletBookingsPage() {
                                                             <Button size="sm" variant="outline" onClick={() => openEdit(b)}>
                                                                 <Pencil className="h-3 w-3" />
                                                             </Button>
+                                                            {b.status !== 'checked_in' && b.status !== 'checked_out' && (
                                                             <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => confirmDelete(b.id)}>
                                                                 <Trash2 className="h-3 w-3" />
                                                             </Button>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>

@@ -1,0 +1,1226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Oruthota Chalets — Complete User Manual</title>
+<style>
+  @page { size: A4; margin: 19mm 17mm 20mm; }
+  @page:first { margin: 0; }
+  :root { --ink:#26312d; --green:#294f42; --gold:#b5893f; --mist:#edf3ef; --line:#cad7d0; }
+  * { box-sizing: border-box; }
+  html { font-size: 10.3pt; }
+  body { margin: 0; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; line-height: 1.48; }
+  body::before { content:''; display:block; height:297mm; margin:0 0 18mm; background:linear-gradient(150deg,#17392f 0%,#2f6654 58%,#d2a354 58.2%,#eddbc0 100%); page-break-after:always; }
+  body::after { content:'ORUTHOTA CHALETS  •  COMPLETE USER MANUAL'; position:absolute; top:87mm; left:21mm; width:165mm; color:white; font-family:Arial,sans-serif; font-size:28pt; font-weight:800; line-height:1.18; letter-spacing:.04em; white-space:pre-wrap; }
+  h1:first-of-type, h2:first-of-type { display:none; }
+  h1 { color:var(--green); font:700 25pt/1.15 Georgia,serif; border-bottom:3px solid var(--gold); padding-bottom:7mm; margin:0 0 9mm; }
+  h2 { color:var(--green); font:700 17pt/1.2 Georgia,serif; margin:12mm 0 5mm; break-after:avoid; }
+  h2:not(:nth-of-type(1)) { page-break-before:always; }
+  h3 { color:#355d50; font:700 12.5pt/1.25 Arial,sans-serif; margin:7mm 0 2.5mm; break-after:avoid; }
+  p { margin:0 0 3.2mm; orphans:3; widows:3; }
+  ul, ol { margin:2mm 0 4mm 6mm; padding-left:5mm; }
+  li { padding-left:1.5mm; margin-bottom:1.3mm; break-inside:avoid; }
+  strong { color:#213f35; }
+  code { font:8.8pt Menlo,monospace; background:#eef2ef; padding:.2mm 1mm; border-radius:2px; }
+  hr { border:0; border-top:1px solid var(--line); margin:8mm 0; }
+  table { width:100%; border-collapse:collapse; margin:4mm 0 6mm; font-family:Arial,sans-serif; font-size:8.6pt; break-inside:auto; }
+  tr { break-inside:avoid; }
+  th { color:white; background:var(--green); text-align:left; }
+  th, td { border:1px solid var(--line); padding:2.2mm; vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--mist); }
+  h2 + p, h3 + p { break-before:avoid; }
+  .contents { page-break-after:always; }
+  .contents h1 { page-break-before:avoid; }
+  .contents ol { columns:2; column-gap:12mm; list-style:none; margin:0; padding:0; }
+  .contents li { margin:0 0 2.2mm; break-inside:avoid; font-family:Arial,sans-serif; }
+  .contents .toc-2 { color:var(--green); font-weight:700; }
+  .contents .toc-3 { padding-left:4mm; color:#52635c; font-size:8.5pt; }
+  .contents a { color:inherit; text-decoration:none; }
+  @media print { a { color:inherit; text-decoration:none; } }
+</style>
+</head>
+<body><section class="contents"><h1>Contents</h1><ol><li class="toc-2"><a href="#1-purpose-of-this-manual">1. Purpose of this manual</a></li>
+<li class="toc-2"><a href="#2-getting-started">2. Getting started</a></li>
+<li class="toc-3"><a href="#2-1-sign-in">2.1 Sign in</a></li>
+<li class="toc-3"><a href="#2-2-use-the-home-page">2.2 Use the Home page</a></li>
+<li class="toc-3"><a href="#2-3-update-or-review-your-profile">2.3 Update or review your profile</a></li>
+<li class="toc-3"><a href="#2-4-sign-out">2.4 Sign out</a></li>
+<li class="toc-2"><a href="#3-administration-and-security">3. Administration and security</a></li>
+<li class="toc-3"><a href="#3-1-manage-users-and-employees">3.1 Manage users and employees</a></li>
+<li class="toc-3"><a href="#3-2-configure-roles-and-page-permissions">3.2 Configure roles and page permissions</a></li>
+<li class="toc-2"><a href="#4-customer-and-front-desk-operations">4. Customer and front-desk operations</a></li>
+<li class="toc-3"><a href="#4-1-front-desk-overview">4.1 Front Desk overview</a></li>
+<li class="toc-3"><a href="#4-2-check-in-a-guest">4.2 Check in a guest</a></li>
+<li class="toc-3"><a href="#4-3-manage-an-in-house-guest">4.3 Manage an in-house guest</a></li>
+<li class="toc-3"><a href="#4-4-bill-and-check-out-a-guest">4.4 Bill and check out a guest</a></li>
+<li class="toc-3"><a href="#4-5-review-front-desk-history">4.5 Review front-desk history</a></li>
+<li class="toc-3"><a href="#4-6-customers-and-loyalty">4.6 Customers and loyalty</a></li>
+<li class="toc-2"><a href="#5-room-reservation-chalet-and-buffet-booking-management">5. Room, reservation, chalet, and buffet booking management</a></li>
+<li class="toc-3"><a href="#5-1-room-management">5.1 Room Management</a></li>
+<li class="toc-3"><a href="#5-2-reservation-management">5.2 Reservation Management</a></li>
+<li class="toc-3"><a href="#5-3-chalet-rooms">5.3 Chalet rooms</a></li>
+<li class="toc-3"><a href="#5-4-room-rates-and-packages">5.4 Room rates and packages</a></li>
+<li class="toc-3"><a href="#5-5-chalet-bookings">5.5 Chalet bookings</a></li>
+<li class="toc-3"><a href="#5-6-buffet-packages-and-bookings">5.6 Buffet packages and bookings</a></li>
+<li class="toc-2"><a href="#6-restaurant-and-pos-operations">6. Restaurant and POS operations</a></li>
+<li class="toc-3"><a href="#6-1-restaurant-setup-sequence">6.1 Restaurant setup sequence</a></li>
+<li class="toc-3"><a href="#6-2-restaurant-settings">6.2 Restaurant Settings</a></li>
+<li class="toc-3"><a href="#6-3-menu-sections-and-menu-items">6.3 Menu sections and menu items</a></li>
+<li class="toc-3"><a href="#6-4-table-management">6.4 Table Management</a></li>
+<li class="toc-3"><a href="#6-5-waiter-order-workflow">6.5 Waiter order workflow</a></li>
+<li class="toc-3"><a href="#6-6-pos-terminal">6.6 POS Terminal</a></li>
+<li class="toc-3"><a href="#6-7-billing-and-payments">6.7 Billing and payments</a></li>
+<li class="toc-3"><a href="#6-8-restaurant-account-and-analytics">6.8 Restaurant account and analytics</a></li>
+<li class="toc-2"><a href="#7-kitchen-operations">7. Kitchen operations</a></li>
+<li class="toc-3"><a href="#7-1-process-kitchen-orders">7.1 Process kitchen orders</a></li>
+<li class="toc-3"><a href="#7-2-kitchen-stock-requests-and-usage">7.2 Kitchen stock requests and usage</a></li>
+<li class="toc-3"><a href="#7-3-record-kitchen-damage-or-waste">7.3 Record kitchen damage or waste</a></li>
+<li class="toc-3"><a href="#7-4-kitchen-usage-report">7.4 Kitchen usage report</a></li>
+<li class="toc-3"><a href="#7-5-event-food-requirements">7.5 Event food requirements</a></li>
+<li class="toc-2"><a href="#8-inventory-and-procurement">8. Inventory and procurement</a></li>
+<li class="toc-3"><a href="#8-1-recommended-inventory-setup-sequence">8.1 Recommended inventory setup sequence</a></li>
+<li class="toc-3"><a href="#8-2-manage-stores-and-departments">8.2 Manage stores and departments</a></li>
+<li class="toc-3"><a href="#8-3-add-an-inventory-item">8.3 Add an inventory item</a></li>
+<li class="toc-3"><a href="#8-4-manage-items-and-direct-stock-transactions">8.4 Manage items and direct stock transactions</a></li>
+<li class="toc-3"><a href="#8-5-create-an-mrn-stock-request">8.5 Create an MRN stock request</a></li>
+<li class="toc-3"><a href="#8-6-purchase-orders">8.6 Purchase orders</a></li>
+<li class="toc-3"><a href="#8-7-receive-stock-with-a-grn">8.7 Receive stock with a GRN</a></li>
+<li class="toc-3"><a href="#8-8-record-stock-usage">8.8 Record stock usage</a></li>
+<li class="toc-3"><a href="#8-9-expired-and-damaged-stock">8.9 Expired and damaged stock</a></li>
+<li class="toc-3"><a href="#8-10-stock-overview-transaction-log-and-reports">8.10 Stock overview, transaction log, and reports</a></li>
+<li class="toc-2"><a href="#9-cash-requests-finance-and-accounting">9. Cash requests, finance, and accounting</a></li>
+<li class="toc-3"><a href="#9-1-inventory-cash-request-and-settlement-lifecycle">9.1 Inventory cash request and settlement lifecycle</a></li>
+<li class="toc-3"><a href="#9-2-finance-requests">9.2 Finance Requests</a></li>
+<li class="toc-3"><a href="#9-3-inventory-cash">9.3 Inventory Cash</a></li>
+<li class="toc-3"><a href="#9-4-chart-of-accounts-and-accounting">9.4 Chart of accounts and accounting</a></li>
+<li class="toc-3"><a href="#9-5-other-expenses">9.5 Other expenses</a></li>
+<li class="toc-3"><a href="#9-6-other-incomes">9.6 Other incomes</a></li>
+<li class="toc-2"><a href="#10-services-income">10. Services income</a></li>
+<li class="toc-3"><a href="#10-1-services-account">10.1 Services Account</a></li>
+<li class="toc-2"><a href="#11-event-management">11. Event management</a></li>
+<li class="toc-3"><a href="#11-1-create-an-event">11.1 Create an event</a></li>
+<li class="toc-3"><a href="#11-2-build-the-event-workspace">11.2 Build the event workspace</a></li>
+<li class="toc-3"><a href="#11-3-approve-an-event">11.3 Approve an event</a></li>
+<li class="toc-3"><a href="#11-4-calendar-registrations-budget-payments-and-workflows">11.4 Calendar, registrations, budget, payments, and workflows</a></li>
+<li class="toc-3"><a href="#11-5-print-event-documents">11.5 Print event documents</a></li>
+<li class="toc-2"><a href="#12-hrms">12. HRMS</a></li>
+<li class="toc-3"><a href="#12-1-hrms-dashboard">12.1 HRMS Dashboard</a></li>
+<li class="toc-3"><a href="#12-2-employee-management">12.2 Employee Management</a></li>
+<li class="toc-3"><a href="#12-3-job-titles-and-allowance-types">12.3 Job titles and allowance types</a></li>
+<li class="toc-3"><a href="#12-4-leave-schemes">12.4 Leave schemes</a></li>
+<li class="toc-3"><a href="#12-5-request-leave">12.5 Request leave</a></li>
+<li class="toc-3"><a href="#12-6-approve-leave">12.6 Approve leave</a></li>
+<li class="toc-3"><a href="#12-7-working-calendars-and-holidays">12.7 Working calendars and holidays</a></li>
+<li class="toc-3"><a href="#12-8-attendance">12.8 Attendance</a></li>
+<li class="toc-3"><a href="#12-9-daily-reports">12.9 Daily reports</a></li>
+<li class="toc-3"><a href="#12-10-overtime">12.10 Overtime</a></li>
+<li class="toc-3"><a href="#12-11-daily-workers">12.11 Daily workers</a></li>
+<li class="toc-3"><a href="#12-12-payroll-configuration-and-run">12.12 Payroll configuration and run</a></li>
+<li class="toc-3"><a href="#12-13-apit-settings">12.13 APIT settings</a></li>
+<li class="toc-3"><a href="#12-14-petty-cash">12.14 Petty cash</a></li>
+<li class="toc-2"><a href="#13-activities-experiences-inquiries-and-blogs">13. Activities, experiences, inquiries, and blogs</a></li>
+<li class="toc-3"><a href="#13-1-activities-and-experiences">13.1 Activities and experiences</a></li>
+<li class="toc-3"><a href="#13-2-experience-inquiries-and-general-inquiries">13.2 Experience inquiries and general inquiries</a></li>
+<li class="toc-3"><a href="#13-3-blog-management">13.3 Blog Management</a></li>
+<li class="toc-2"><a href="#14-notifications">14. Notifications</a></li>
+<li class="toc-2"><a href="#15-reports-and-exports">15. Reports and exports</a></li>
+<li class="toc-2"><a href="#16-important-end-to-end-workflows">16. Important end-to-end workflows</a></li>
+<li class="toc-3"><a href="#16-1-guest-stay-lifecycle">16.1 Guest stay lifecycle</a></li>
+<li class="toc-3"><a href="#16-2-restaurant-order-to-cash-lifecycle">16.2 Restaurant order-to-cash lifecycle</a></li>
+<li class="toc-3"><a href="#16-3-purchase-to-stock-lifecycle">16.3 Purchase-to-stock lifecycle</a></li>
+<li class="toc-3"><a href="#16-4-employee-to-payroll-lifecycle">16.4 Employee-to-payroll lifecycle</a></li>
+<li class="toc-3"><a href="#16-5-event-lifecycle">16.5 Event lifecycle</a></li>
+<li class="toc-2"><a href="#17-data-entry-and-control-guidelines">17. Data-entry and control guidelines</a></li>
+<li class="toc-2"><a href="#18-troubleshooting">18. Troubleshooting</a></li>
+<li class="toc-3"><a href="#a-menu-or-page-is-missing">A menu or page is missing</a></li>
+<li class="toc-3"><a href="#a-page-shows-no-records">A page shows no records</a></li>
+<li class="toc-3"><a href="#a-room-table-item-cannot-be-selected">A room/table/item cannot be selected</a></li>
+<li class="toc-3"><a href="#event-creation-reports-a-conflict">Event creation reports a conflict</a></li>
+<li class="toc-3"><a href="#print-or-invoice-does-not-open">Print or invoice does not open</a></li>
+<li class="toc-3"><a href="#attendance-says-setup-required">Attendance says Setup Required</a></li>
+<li class="toc-3"><a href="#totals-appear-incorrect">Totals appear incorrect</a></li>
+<li class="toc-3"><a href="#a-save-button-remains-disabled">A save button remains disabled</a></li>
+<li class="toc-2"><a href="#19-feature-route-reference">19. Feature/route reference</a></li>
+<li class="toc-2"><a href="#20-administrator-launch-checklist">20. Administrator launch checklist</a></li></ol></section><h1 id="oruthota-chalets-administration-system">Oruthota Chalets Administration System</h1>
+<h2 id="complete-user-manual-and-feature-guide">Complete User Manual and Feature Guide</h2>
+<p><strong>Document version:</strong> 1.0 <strong>Application reviewed:</strong> Current repository implementation <strong>Audience:</strong> Administrators, front-desk staff, waiters, kitchen staff, payment/accounts staff, HR staff, inventory staff, and temporary staff</p>
+<hr>
+<h2 id="1-purpose-of-this-manual">1. Purpose of this manual</h2>
+<p>This manual explains the features currently implemented in the Oruthota Chalets Administration System and gives practical steps for performing the main tasks. The application combines guest operations, restaurant operations, inventory and procurement, kitchen work, accounting, event management, services income, HR/payroll, and content administration.</p>
+<p>The menu is permission-driven. A user sees only the sections explicitly assigned to the user's role or account. An unrestricted administrator normally sees all sections. If a page described here is missing from your menu, contact an administrator rather than trying to open it directly.</p>
+<h2 id="2-getting-started">2. Getting started</h2>
+<h3 id="2-1-sign-in">2.1 Sign in</h3>
+<ol>
+<li>Open the system login page.</li>
+<li>Enter either your email address or employee number.</li>
+<li>Enter your password.</li>
+<li>Select <strong>Login</strong>.</li>
+<li>After successful authentication, use the application selector or dashboard appropriate to your access.</li>
+</ol>
+<p>If login fails, verify capitalization, employee number formatting, and that the account has been created and enabled by an administrator.</p>
+<h3 id="2-2-use-the-home-page">2.2 Use the Home page</h3>
+<ol>
+<li>Open <strong>Home</strong> from the sidebar.</li>
+<li>Review the tiles for sections assigned to you.</li>
+<li>Use <strong>Search your sections</strong> to filter the available modules.</li>
+<li>Select a tile to open that module.</li>
+<li>If the page says no sections are assigned, ask an administrator to update your permissions.</li>
+</ol>
+<h3 id="2-3-update-or-review-your-profile">2.3 Update or review your profile</h3>
+<ol>
+<li>Open <strong>Profile</strong>, or select your name/avatar at the bottom of the sidebar.</li>
+<li>Review personal and employment information.</li>
+<li>Contact an administrator or HR user if a read-only value is incorrect.</li>
+</ol>
+<h3 id="2-4-sign-out">2.4 Sign out</h3>
+<ol>
+<li>Select <strong>Logout</strong> at the bottom of the sidebar.</li>
+<li>Confirm that the login screen appears before leaving a shared device.</li>
+</ol>
+<h2 id="3-administration-and-security">3. Administration and security</h2>
+<h3 id="3-1-manage-users-and-employees">3.1 Manage users and employees</h3>
+<p>The system supports employee identity, contact data, employment configuration, payroll data, security credentials, and page permissions.</p>
+<p>To add a user:</p>
+<ol>
+<li>Open <strong>User Management</strong> and select <strong>Add New User</strong>.</li>
+<li>On <strong>Employee Details</strong>, enter name, email, phone, gender, NIC, join date, and address. The employee number is assigned automatically when saved.</li>
+<li>On <strong>Employment &amp; Payroll</strong>, select department, job title, role, reporting manager, leave scheme, and working calendar.</li>
+<li>Enter monthly basic salary if payroll is used.</li>
+<li>Enable service charge and enter its rate when applicable.</li>
+<li>Add allowance presets or custom allowance names and amounts as required.</li>
+<li>On <strong>Security</strong>, enter and confirm the initial password.</li>
+<li>On <strong>Permissions</strong>, select the pages the user needs. For administrators, enable restricted access only when the administrator should see selected pages rather than everything.</li>
+<li>Enable <strong>Inventory Admin</strong> if applicable.</li>
+<li>Save the user.</li>
+</ol>
+<p>To edit a user:</p>
+<ol>
+<li>Open <strong>User Management</strong> or <strong>HRMS &gt; Employees</strong>.</li>
+<li>Find the person and select <strong>Edit</strong>.</li>
+<li>Update the relevant tab.</li>
+<li>To change a password, enable the update-password option and enter the new password twice.</li>
+<li>Save changes.</li>
+</ol>
+<p>To change only a role, select the new role in the user list and select <strong>Save</strong>. To remove an account, select <strong>Delete</strong> and carefully confirm the warning.</p>
+<h3 id="3-2-configure-roles-and-page-permissions">3.2 Configure roles and page permissions</h3>
+<ol>
+<li>Open <strong>HRMS &gt; Role Permissions</strong>.</li>
+<li>Select the role tab.</li>
+<li>Select or clear the pages the role should access.</li>
+<li>Use bulk selection controls when appropriate.</li>
+<li>Select <strong>Save</strong> for that role.</li>
+</ol>
+<p>To create a custom role:</p>
+<ol>
+<li>Select <strong>Create New Role</strong>.</li>
+<li>Enter a concise role name, such as <code>receptionist</code>.</li>
+<li>Create the role.</li>
+<li>Open its tab, assign pages, and save.</li>
+</ol>
+<p>Custom roles can also be renamed. Review assigned users before renaming or deleting organizational role data.</p>
+<h2 id="4-customer-and-front-desk-operations">4. Customer and front-desk operations</h2>
+<h3 id="4-1-front-desk-overview">4.1 Front Desk overview</h3>
+<p>The Front Desk workspace has four operational tabs:</p>
+<ul>
+<li><strong>Arrivals &amp; Check-In</strong> — upcoming room/chalet arrivals and room assignment.</li>
+<li><strong>In-House Guests</strong> — currently checked-in guests and guest-pass actions.</li>
+<li><strong>Billing &amp; Check-Out</strong> — guest folios, charges, settlement, and checkout.</li>
+<li><strong>History</strong> — completed guest stays and historical bills.</li>
+</ul>
+<h3 id="4-2-check-in-a-guest">4.2 Check in a guest</h3>
+<ol>
+<li>Open <strong>Customers &gt; Front Desk (Check In/Out)</strong>.</li>
+<li>Select <strong>Arrivals &amp; Check-In</strong>.</li>
+<li>Find the reservation or chalet booking.</li>
+<li>If no room is assigned, select <strong>Assign Room</strong>, choose an eligible room, and confirm.</li>
+<li>Select <strong>Check In</strong>.</li>
+<li>Verify guest, stay, package, occupancy, room, and contact details.</li>
+<li>Complete the check-in action.</li>
+<li>Print or share the guest check-in pass/QR code when required.</li>
+</ol>
+<p>The QR guest pass can later be used to identify the guest when adding service income or guest charges.</p>
+<h3 id="4-3-manage-an-in-house-guest">4.3 Manage an in-house guest</h3>
+<ol>
+<li>Open <strong>In-House Guests</strong>.</li>
+<li>Find the guest by name, room, booking, or other displayed details.</li>
+<li>Select <strong>View Guest</strong> to review the stay.</li>
+<li>Use <strong>Move to Bill</strong> or the available billing action to include guest charges in checkout billing.</li>
+<li>For package bookings, open <strong>Package Meals</strong> to review or manage meals linked to the package.</li>
+<li>Reprint/share the guest pass if required.</li>
+</ol>
+<h3 id="4-4-bill-and-check-out-a-guest">4.4 Bill and check out a guest</h3>
+<ol>
+<li>Open <strong>Billing &amp; Check-Out</strong>.</li>
+<li>Select the guest/room.</li>
+<li>Review room charges, restaurant room charges, activities, facilities, services, payments, and adjustments shown in the folio.</li>
+<li>Verify that all pending charges have been added.</li>
+<li>Use the settlement action and select the payment details required by the dialog.</li>
+<li>Confirm settlement.</li>
+<li>Complete checkout only after the outstanding balance is zero or otherwise valid under the business process.</li>
+<li>Print or share the final bill/receipt.</li>
+</ol>
+<h3 id="4-5-review-front-desk-history">4.5 Review front-desk history</h3>
+<ol>
+<li>Open <strong>History</strong>.</li>
+<li>Search or filter for the completed stay.</li>
+<li>Open the record to review guest and billing history.</li>
+<li>Use the historical-bill function when a past receipt or folio is needed.</li>
+</ol>
+<h3 id="4-6-customers-and-loyalty">4.6 Customers and loyalty</h3>
+<p><strong>All Customers</strong> provides the guest/customer directory. Use it to search and review stored customer data.</p>
+<p>To add a loyalty customer:</p>
+<ol>
+<li>Open <strong>Loyalty Customers</strong>.</li>
+<li>Select <strong>Add Customer</strong>.</li>
+<li>Enter the required identity/contact and loyalty information.</li>
+<li>Save the record.</li>
+<li>Use the row menu to edit an existing member.</li>
+</ol>
+<p><strong>Loyalty Discounts</strong> manages discount tiers. Configure tiers before expecting loyalty discounts to be consistently applied.</p>
+<h2 id="5-room-reservation-chalet-and-buffet-booking-management">5. Room, reservation, chalet, and buffet booking management</h2>
+<h3 id="5-1-room-management">5.1 Room Management</h3>
+<ol>
+<li>Open <strong>Reservations &gt; Room Management</strong>.</li>
+<li>Select the add-room action.</li>
+<li>Enter room title/number, type, nightly price, room count, view, and status.</li>
+<li>Save.</li>
+<li>Use edit to change room details or status.</li>
+</ol>
+<p>Room statuses include <strong>available</strong>, <strong>occupied</strong>, and <strong>maintenance</strong>. Do not assign a maintenance room to a guest.</p>
+<h3 id="5-2-reservation-management">5.2 Reservation Management</h3>
+<ol>
+<li>Open <strong>Reservation Management</strong>.</li>
+<li>Select <strong>Add Reservation</strong>.</li>
+<li>Enter guest details, room, check-in/check-out dates and times, cost, and status.</li>
+<li>Save the reservation.</li>
+<li>Use edit to update dates, room, guest, payment status, or reservation status.</li>
+<li>Use delete only for records that should be permanently removed, and confirm carefully.</li>
+</ol>
+<p>Typical reservation statuses are pending, booked, confirmed, checked-in, checked-out/completed, and cancelled.</p>
+<p>The separate <strong>Booking Management</strong> page provides a list-oriented current/past booking workflow and status actions. Use the booking area established by your organization; avoid entering the same stay in both systems unless the process explicitly requires it.</p>
+<h3 id="5-3-chalet-rooms">5.3 Chalet rooms</h3>
+<ol>
+<li>Open <strong>Chalet Booking &gt; Chalet Rooms</strong>.</li>
+<li>Review totals by room status.</li>
+<li>Add or edit a chalet room.</li>
+<li>Enter the name/room details and operational status.</li>
+<li>Save.</li>
+</ol>
+<h3 id="5-4-room-rates-and-packages">5.4 Room rates and packages</h3>
+<p>To configure rates:</p>
+<ol>
+<li>Open <strong>Room Rates &amp; Packages</strong>.</li>
+<li>Select <strong>Rate Matrix</strong>.</li>
+<li>Enter the nightly LKR rate for each package and occupancy combination.</li>
+<li>Select <strong>Save Rates</strong>.</li>
+<li>Remember that the interface states a 10% service charge applies to these rates.</li>
+</ol>
+<p>To configure a package:</p>
+<ol>
+<li>Select <strong>Packages</strong> and then <strong>New Package</strong>.</li>
+<li>Enter the package name and its included details.</li>
+<li>Add meal/facility inclusions as needed.</li>
+<li>Save.</li>
+<li>Use edit for later changes or delete after confirming that the package is no longer required.</li>
+</ol>
+<h3 id="5-5-chalet-bookings">5.5 Chalet bookings</h3>
+<ol>
+<li>Open <strong>Chalet Bookings</strong>.</li>
+<li>Select <strong>New Booking</strong>.</li>
+<li>Enter guest, dates, occupancy, package, pricing, and contact details.</li>
+<li>Save the booking.</li>
+<li>Use <strong>Assign Room</strong> when a confirmed booking needs a room.</li>
+<li>Use edit to update the booking.</li>
+<li>Use <strong>Activities</strong> to manage booking-related facility/activity usage.</li>
+<li>Use <strong>All Bookings</strong> and <strong>Checked-In Guests</strong> tabs to monitor status.</li>
+</ol>
+<p>The dashboard cards show totals for pending, confirmed, and checked-in bookings.</p>
+<h3 id="5-6-buffet-packages-and-bookings">5.6 Buffet packages and bookings</h3>
+<p>To create a buffet package:</p>
+<ol>
+<li>Open <strong>Buffet Packages</strong>.</li>
+<li>Add a package and enter its name, pricing, and menu/inclusion data.</li>
+<li>Save and verify that the package is available for booking.</li>
+</ol>
+<p>To create a buffet booking:</p>
+<ol>
+<li>Open <strong>Buffet Bookings</strong>.</li>
+<li>Select the create-booking action.</li>
+<li>Enter customer, date/time, guest count, selected package, payment, and other required information.</li>
+<li>Save.</li>
+<li>Open the booking to review it.</li>
+<li>Use <strong>Print</strong> or <strong>Share</strong> for the booking document.</li>
+</ol>
+<h2 id="6-restaurant-and-pos-operations">6. Restaurant and POS operations</h2>
+<h3 id="6-1-restaurant-setup-sequence">6.1 Restaurant setup sequence</h3>
+<p>Before taking orders, an administrator should complete setup in this order:</p>
+<ol>
+<li><strong>Restaurant Settings</strong> — main warehouse, sections, VAT, service charge, and related charges.</li>
+<li><strong>Menu Section Settings</strong> — menu sections/categories and dish varieties.</li>
+<li><strong>Menu Management</strong> — sale items, prices, inventory linkage, and availability.</li>
+<li><strong>Table Management</strong> — table number, capacity, location/section, and initial status.</li>
+</ol>
+<h3 id="6-2-restaurant-settings">6.2 Restaurant Settings</h3>
+<ol>
+<li>Open <strong>Restaurant Settings</strong>.</li>
+<li>Select and save the restaurant warehouse used for stock movements.</li>
+<li>Add restaurant sections such as Main Hall, Poolside, or Rooftop.</li>
+<li>Edit or remove sections as needed; first ensure no active tables/items depend on them.</li>
+<li>Configure VAT and service-charge settings.</li>
+<li>Save each settings area.</li>
+</ol>
+<h3 id="6-3-menu-sections-and-menu-items">6.3 Menu sections and menu items</h3>
+<p>To configure menu organization:</p>
+<ol>
+<li>Open <strong>Menu Section Settings</strong>.</li>
+<li>Add the required sections/categories and dish varieties.</li>
+<li>Edit or remove obsolete values carefully.</li>
+</ol>
+<p>To add a menu item:</p>
+<ol>
+<li>Open <strong>Menu Management</strong>.</li>
+<li>Select <strong>Add Menu Item</strong>.</li>
+<li>Enter name, description, selling price, buying price, category/section, and dish variety.</li>
+<li>Select <strong>Inventoried</strong> or <strong>Non-Inventoried</strong> stock type.</li>
+<li>For an inventoried/direct item, select the linked inventory item and appropriate unit details.</li>
+<li>Select direct or indirect selling behavior as required.</li>
+<li>Set availability and save.</li>
+</ol>
+<p>Use batch pricing when many item prices need the same type of update. Mark unavailable items unavailable instead of deleting historical products.</p>
+<h3 id="6-4-table-management">6.4 Table Management</h3>
+<ol>
+<li>Open <strong>Table Management</strong>.</li>
+<li>Add a table.</li>
+<li>Enter table number, capacity, location/restaurant section, and status.</li>
+<li>Save.</li>
+<li>Edit table configuration when the floor plan changes.</li>
+</ol>
+<p>Statuses include <strong>available</strong>, <strong>occupied</strong>, and <strong>reserved</strong>.</p>
+<h3 id="6-5-waiter-order-workflow">6.5 Waiter order workflow</h3>
+<ol>
+<li>Open the waiter application or <strong>Restaurant Dashboard</strong>.</li>
+<li>Select an available table/section.</li>
+<li>Open the order dialog.</li>
+<li>Search or browse the menu and select items.</li>
+<li>Adjust quantities and add each item to the order.</li>
+<li>Confirm/send the order. Kitchen items appear in Kitchen Orders.</li>
+<li>Add more items later by reopening the occupied table.</li>
+<li>Track prepared/ready items and serve them.</li>
+<li>Send the order to billing when the customer requests the bill.</li>
+</ol>
+<p>For an in-house guest, use the <strong>Add to Bill</strong>/room-charge function, identify the guest or room, verify the amount, and confirm. This changes the order to a room-charge flow rather than normal restaurant payment.</p>
+<h3 id="6-6-pos-terminal">6.6 POS Terminal</h3>
+<ol>
+<li>Open <strong>POS Terminal</strong>.</li>
+<li>Browse or search products/menu items.</li>
+<li>Select items to add them to <strong>Current Order</strong>.</li>
+<li>Use plus/minus controls to adjust quantity.</li>
+<li>Use the trash/clear control to remove unwanted cart contents.</li>
+<li>Review the order total.</li>
+<li>Select the checkout/payment action.</li>
+<li>Choose the payment method and complete the transaction.</li>
+</ol>
+<h3 id="6-7-billing-and-payments">6.7 Billing and payments</h3>
+<ol>
+<li>Open <strong>Restaurant Billing</strong>.</li>
+<li>Select an active table.</li>
+<li>Review every item, quantity, subtotal, discount, tax/service charge, and total.</li>
+<li>Make any permitted adjustment before payment.</li>
+<li>Select the payment action.</li>
+<li>Choose cash or card and enter the requested details.</li>
+<li>Confirm payment.</li>
+<li>Print the receipt if required.</li>
+</ol>
+<p>Paid bills should not be edited. Cancel only under an authorized correction process.</p>
+<h3 id="6-8-restaurant-account-and-analytics">6.8 Restaurant account and analytics</h3>
+<p><strong>Restaurant Account</strong> summarizes restaurant payment/account activity and supports the configured cash/accounting flow. Review transactions, select valid destination accounts, and transfer cash only after reconciling the physical amount.</p>
+<p>To use analytics:</p>
+<ol>
+<li>Open <strong>Restaurant Analytics</strong>.</li>
+<li>Select a date range.</li>
+<li>Apply/refresh the data.</li>
+<li>Review sales totals, order volume, hourly closed-order activity, performance breakdowns, and the latest paid bills.</li>
+</ol>
+<h2 id="7-kitchen-operations">7. Kitchen operations</h2>
+<h3 id="7-1-process-kitchen-orders">7.1 Process kitchen orders</h3>
+<ol>
+<li>Open <strong>Kitchen &gt; Kitchen Orders</strong>.</li>
+<li>Review pending restaurant orders and package meals.</li>
+<li>Open an order and start preparation for the relevant quantities.</li>
+<li>Mark individual items/quantities as preparing or ready using the available controls.</li>
+<li>When fully prepared, mark them done/completed.</li>
+<li>Use refresh when new orders are expected.</li>
+<li>Open <strong>Order History</strong> to review completed cooking activity.</li>
+</ol>
+<p>Order History includes date-range summaries, cooked-by-employee, cooked-by-item, the completed item list, and current Kitchen warehouse stock value.</p>
+<h3 id="7-2-kitchen-stock-requests-and-usage">7.2 Kitchen stock requests and usage</h3>
+<ol>
+<li>Open <strong>Stock Request &amp; Usage</strong>.</li>
+<li>On <strong>Request &amp; Assign Items</strong>, create a request for the required raw materials and quantities.</li>
+<li>Submit the request for inventory approval/fulfilment.</li>
+<li>After stock is assigned to the Kitchen warehouse/section, open <strong>Mark Stock Usage</strong>.</li>
+<li>Select the item and enter the used quantity.</li>
+<li>Save the usage record.</li>
+</ol>
+<h3 id="7-3-record-kitchen-damage-or-waste">7.3 Record kitchen damage or waste</h3>
+<ol>
+<li>Open <strong>Kitchen Stock Usage &amp; Damage</strong>.</li>
+<li>Select the kitchen section and item.</li>
+<li>Enter quantity and the usage/damage reason requested by the form.</li>
+<li>Submit the record.</li>
+<li>Inventory administrators can later process damaged/spoiled value in <strong>Expired &amp; Damaged</strong>.</li>
+</ol>
+<h3 id="7-4-kitchen-usage-report">7.4 Kitchen usage report</h3>
+<ol>
+<li>Open <strong>Kitchen Usage Report</strong>.</li>
+<li>Choose <strong>All Sections</strong> or a specific kitchen section.</li>
+<li>Set any available date filters.</li>
+<li>Refresh.</li>
+<li>Review the usage records and totals.</li>
+</ol>
+<h3 id="7-5-event-food-requirements">7.5 Event food requirements</h3>
+<ol>
+<li>Open <strong>Event Food Requirements</strong>.</li>
+<li>Use <strong>Active</strong> to find an approved event.</li>
+<li>Select <strong>View Details</strong>.</li>
+<li>Review event information and the food-requirement table.</li>
+<li>After all kitchen work is finished, select <strong>Mark Event Complete</strong> and confirm.</li>
+<li>Completed events appear under <strong>Completed</strong>.</li>
+</ol>
+<h2 id="8-inventory-and-procurement">8. Inventory and procurement</h2>
+<h3 id="8-1-recommended-inventory-setup-sequence">8.1 Recommended inventory setup sequence</h3>
+<ol>
+<li>Create departments/warehouses and designate the main store.</li>
+<li>Add inventory items and units of measure.</li>
+<li>Initialize which items belong to each warehouse.</li>
+<li>Create and approve purchase orders where applicable.</li>
+<li>Receive stock through GRN.</li>
+<li>Use MRNs for inter-store requests/transfers.</li>
+<li>Record usage, damage, expiry, and adjustments.</li>
+<li>Reconcile through Stock Overview, Transaction Log, and Inventory Reports.</li>
+</ol>
+<p>Supported units include kg, g, Ltr, Ml, Nos, Box, Btl, Pkt, Can, Roll, Bundle, Crtn, Tin, Ream, Cylinder, and Card.</p>
+<h3 id="8-2-manage-stores-and-departments">8.2 Manage stores and departments</h3>
+<ol>
+<li>Open <strong>Inventory &gt; Manage Store</strong>.</li>
+<li>Add an inventory department/store name.</li>
+<li>Configure store details and main-store designation where shown.</li>
+<li>Save.</li>
+<li>Use the item matrix to initialize which items are held by each store.</li>
+<li>Remove an initialization or department only after checking stock and dependent transactions.</li>
+</ol>
+<h3 id="8-3-add-an-inventory-item">8.3 Add an inventory item</h3>
+<ol>
+<li>Open <strong>Add New Item</strong>.</li>
+<li>Enter primary identification, item name, SKU/barcode if used, unit of measure, category, reorder/stock details, brand/size, and other displayed fields.</li>
+<li>Configure warehouse initialization/starting information if the form requests it.</li>
+<li>Save.</li>
+<li>Confirm the item appears in the item list.</li>
+<li>Use the pencil action to correct an item name.</li>
+</ol>
+<h3 id="8-4-manage-items-and-direct-stock-transactions">8.4 Manage items and direct stock transactions</h3>
+<ol>
+<li>Open <strong>Manage Items</strong>.</li>
+<li>Use <strong>Inventory List</strong> to search, add, edit, or review items.</li>
+<li>Use <strong>Warehouse Items</strong> to review quantities by store.</li>
+<li>Use <strong>Stock In (GRN)</strong> for receiving access.</li>
+<li>Use <strong>Movement History</strong> to review item movements.</li>
+<li>For an authorized manual movement, open <strong>Stock Transaction</strong>, choose transaction type, source/destination, quantity, and notes, then save.</li>
+<li>Use <strong>Create MRN Request</strong> when another store must issue stock rather than using a manual adjustment.</li>
+</ol>
+<h3 id="8-5-create-an-mrn-stock-request">8.5 Create an MRN stock request</h3>
+<ol>
+<li>Open <strong>MRN Requests</strong> or the request action in Manage Items.</li>
+<li>Select requesting and issuing stores/departments as required.</li>
+<li>Add each item and requested quantity.</li>
+<li>Add a reason/notes.</li>
+<li>Submit the request.</li>
+<li>Monitor its status in request history.</li>
+</ol>
+<p>To approve or fulfil an MRN:</p>
+<ol>
+<li>Open <strong>MRN Approvals</strong>.</li>
+<li>Find the pending request.</li>
+<li>Review requested quantities and source stock.</li>
+<li>Approve, or reject and enter a reason.</li>
+<li>For an approved request, select <strong>Fulfill Transfer</strong>.</li>
+<li>Enter actual fulfilled quantities where allowed.</li>
+<li>Confirm the transfer. The system records stock movement between stores.</li>
+</ol>
+<h3 id="8-6-purchase-orders">8.6 Purchase orders</h3>
+<p>To create a PO:</p>
+<ol>
+<li>Open <strong>Purchase Orders</strong> and select <strong>Create Purchase Order</strong>.</li>
+<li>Enter supplier name and delivery notes.</li>
+<li>Search for an existing inventory item or enter a permitted custom item name.</li>
+<li>Enter quantity, estimated/unit price, brand, and size/package where relevant.</li>
+<li>Add all required lines.</li>
+<li>Review the total and submit.</li>
+</ol>
+<p>To approve a PO:</p>
+<ol>
+<li>Open <strong>PO Approvals</strong>.</li>
+<li>Use the new/pending tab.</li>
+<li>Open the PO and review supplier, lines, quantities, pricing, and notes.</li>
+<li>Approve or reject according to authority.</li>
+<li>Review processed items in the history/already-processed tab.</li>
+</ol>
+<p>To edit or delete, use the row actions in Purchase Orders. Deleting permanently removes the PO and its items.</p>
+<h3 id="8-7-receive-stock-with-a-grn">8.7 Receive stock with a GRN</h3>
+<p>For PO-based receipt:</p>
+<ol>
+<li>Open <strong>GRN (Stock In)</strong>.</li>
+<li>Open the <strong>Pending</strong> list and select the approved PO to receive.</li>
+<li>Enter the received quantity for each item.</li>
+<li>Enter unit price if known, batch number, brand, size, supplier, expiry information, and discrepancies where requested.</li>
+<li>Review damaged or missing quantities.</li>
+<li>Confirm stock intake.</li>
+<li>Verify the GRN under <strong>Received</strong> or <strong>History</strong> and confirm warehouse stock increased.</li>
+</ol>
+<p>For a new/multi-item GRN:</p>
+<ol>
+<li>Select <strong>New GRN</strong>.</li>
+<li>Complete the GRN header and supplier/warehouse information.</li>
+<li>Add each received item, quantity, price, batch, and expiry detail.</li>
+<li>Review totals and submit.</li>
+</ol>
+<h3 id="8-8-record-stock-usage">8.8 Record stock usage</h3>
+<ol>
+<li>Open <strong>Stock Usage</strong>.</li>
+<li>Select warehouse/department and item.</li>
+<li>Enter the quantity used and purpose/reference.</li>
+<li>Submit.</li>
+<li>Confirm the movement in Transaction Log.</li>
+</ol>
+<h3 id="8-9-expired-and-damaged-stock">8.9 Expired and damaged stock</h3>
+<ol>
+<li>Open <strong>Expired &amp; Damaged</strong>.</li>
+<li>Refresh and locate unprocessed damage/expiry records.</li>
+<li>Open a record for processing.</li>
+<li>Verify type, warehouse, item, quantity, batch/expiry, and notes.</li>
+<li>Enter or confirm the financial value requested.</li>
+<li>Confirm processing.</li>
+</ol>
+<h3 id="8-10-stock-overview-transaction-log-and-reports">8.10 Stock overview, transaction log, and reports</h3>
+<p><strong>Inventory Stock Overview</strong> offers Card List, Grouped Table, and Cross-Store View. Use search/filter controls to compare total stock across stores and spot low inventory.</p>
+<p><strong>Transaction Log</strong>:</p>
+<ol>
+<li>Set type, warehouse, item, date, or search filters.</li>
+<li>Refresh.</li>
+<li>Open a transaction for full details.</li>
+<li>Use <strong>Export CSV</strong> for a downloadable reconciliation file.</li>
+</ol>
+<p><strong>Inventory Reports</strong>:</p>
+<ol>
+<li>Select This Week, This Month, This Year, or a custom period.</li>
+<li>Review stock received, issued, damaged/spoiled, daily intake versus issue, department consumption, and detailed logs.</li>
+<li>Open the expired/damaged report for type and warehouse breakdowns.</li>
+<li>Use <strong>Print</strong> when a paper/PDF copy is required.</li>
+</ol>
+<h2 id="9-cash-requests-finance-and-accounting">9. Cash requests, finance, and accounting</h2>
+<h3 id="9-1-inventory-cash-request-and-settlement-lifecycle">9.1 Inventory cash request and settlement lifecycle</h3>
+<p>Requester steps:</p>
+<ol>
+<li>Open <strong>Inventory &gt; Cash Requests</strong>.</li>
+<li>Create a request and enter purpose, amount, linked purchasing details, and notes/documents required by the form.</li>
+<li>Submit and monitor it in <strong>Your Requests</strong>.</li>
+<li>After approval and cash issue, make the purchase.</li>
+<li>Open the request and select <strong>Submit Settlement</strong>.</li>
+<li>Enter actual spending, returned balance or additional amount, supplier/receipt details, and supporting evidence.</li>
+<li>Submit settlement.</li>
+</ol>
+<p>Approver steps:</p>
+<ol>
+<li>Open <strong>Cash and Credit Approvals</strong>.</li>
+<li>Use <strong>Pending</strong> to review requests waiting for approval.</li>
+<li>Approve or reject with the appropriate notes.</li>
+<li>Use <strong>Additional</strong> for cases where actual spending exceeded the issued amount.</li>
+<li>Use <strong>History</strong> for completed decisions.</li>
+<li>Review <strong>Credit Liabilities</strong> for supplier-credit obligations.</li>
+</ol>
+<p>Requester and approver pages both include a <strong>Credit Liabilities</strong> tab. Record and clear liabilities according to the displayed payment/settlement options.</p>
+<h3 id="9-2-finance-requests">9.2 Finance Requests</h3>
+<ol>
+<li>Open <strong>Accounting &gt; Finance Requests</strong>.</li>
+<li>Review daily-worker and other-expense funding requests.</li>
+<li>Open a request and verify request number, requester, purpose, and amount.</li>
+<li>Issue the approved amount through <strong>Issue Money</strong>.</li>
+<li>Record the source/account and notes required by the form.</li>
+<li>Confirm issue and monitor remaining/settled amounts.</li>
+</ol>
+<p>Use <strong>Finance Requests Report</strong> for reporting on these flows.</p>
+<h3 id="9-3-inventory-cash">9.3 Inventory Cash</h3>
+<p>Use <strong>Accounting &gt; Inventory Cash</strong> to process the accounts-side stage of inventory funding. Review approved requests, issue funds against the correct account, and reconcile settlements and returned/additional money.</p>
+<h3 id="9-4-chart-of-accounts-and-accounting">9.4 Chart of accounts and accounting</h3>
+<ol>
+<li>Open <strong>Accounting</strong>.</li>
+<li>Create or maintain accounts using the name, code, type, opening/current balance, and other displayed settings.</li>
+<li>Review account transactions and balances.</li>
+<li>Record authorized income/expense/transfer entries through the relevant dialogs.</li>
+<li>Select the correct debit/credit or source/destination accounts.</li>
+<li>Add a reference and description sufficient for audit.</li>
+<li>Save and verify balances.</li>
+</ol>
+<p>Restaurant, services, events, petty cash, and other modules can post or transfer money into configured accounting accounts. Configure destination accounts before operational users begin card or cash processing.</p>
+<h3 id="9-5-other-expenses">9.5 Other expenses</h3>
+<ol>
+<li>Open <strong>Other Expenses</strong>.</li>
+<li>Maintain expense categories if the needed category does not exist.</li>
+<li>Select <strong>Add Expense</strong> and enter category, description, amount, date, payment/funding information, links/documents, and notes.</li>
+<li>Save.</li>
+<li>Select eligible expenses and <strong>Request Funds</strong> where funding is required.</li>
+<li>After fully funded and paid, select <strong>Mark Paid</strong>.</li>
+<li>Edit or delete only before the record becomes locked by payment/accounting status.</li>
+</ol>
+<h3 id="9-6-other-incomes">9.6 Other incomes</h3>
+<ol>
+<li>Open <strong>Other Incomes</strong>.</li>
+<li>Select <strong>Add Income</strong>.</li>
+<li>Enter income category/source, description, amount, date, payment method, account details, and notes.</li>
+<li>Save.</li>
+<li>Review the record in the income list and accounting destination where applicable.</li>
+</ol>
+<h2 id="10-services-income">10. Services income</h2>
+<p>The system has separate income registers for <strong>Laundry</strong>, <strong>Transport &amp; Excursion</strong>, and <strong>Spa &amp; Pool</strong>.</p>
+<p>To add a service charge/income record:</p>
+<ol>
+<li>Open the required service page.</li>
+<li>Select <strong>Add New Record</strong>.</li>
+<li>Enter description/service details and amount.</li>
+<li>Identify an in-house guest by searching, entering/scanning the guest QR pass, or entering room details.</li>
+<li>Choose the payment/charge method shown by the form.</li>
+<li>Save.</li>
+<li>Print the generated invoice if required.</li>
+</ol>
+<p>Unpaid records may be edited. Paid records are intentionally protected from editing. Delete only after confirming the record is incorrect.</p>
+<h3 id="10-1-services-account">10.1 Services Account</h3>
+<ol>
+<li>Open <strong>Services Account</strong>.</li>
+<li>Review summary cards and payment transactions.</li>
+<li>Select the Accounting destination for service card payments and select <strong>Save Card Account</strong>.</li>
+<li>To transfer physical cash, select <strong>Transfer Cash</strong>.</li>
+<li>Select the destination account, enter an amount no greater than available cash, add notes, and confirm.</li>
+<li>Verify the entry in <strong>Cash Transfer History</strong>.</li>
+</ol>
+<h2 id="11-event-management">11. Event management</h2>
+<h3 id="11-1-create-an-event">11.1 Create an event</h3>
+<ol>
+<li>Open <strong>Event Workspace</strong>.</li>
+<li>Add an event location first if the venue is not available; enter location name, address/area, and capacity.</li>
+<li>Select <strong>Create Event</strong>.</li>
+<li>Enter event name/type, location, capacity, start/end date and time, owner name/mobile, and the other owner, company, billing, contact, and notes fields.</li>
+<li>Ensure end time is after start time.</li>
+<li>Save. The system prevents overlapping events at the same location.</li>
+</ol>
+<h3 id="11-2-build-the-event-workspace">11.2 Build the event workspace</h3>
+<p>Select the event, then complete each tab:</p>
+<ul>
+<li><strong>Schedule:</strong> Add title, start/end time, location, and notes.</li>
+<li><strong>Food:</strong> Add category/item, quantity, unit, unit price, and dietary notes.</li>
+<li><strong>Activities:</strong> Add activity, time, provider, cost, status, and notes.</li>
+<li><strong>Payments:</strong> Add payer, amount, payment type/method, date, reference, and notes. Print an invoice/receipt where available.</li>
+<li><strong>Budget:</strong> Add category, description, income/expense type, estimated amount, actual amount, and status.</li>
+<li><strong>Workflows:</strong> Add task title, stage, owner, due date, priority, status, notes, and optional automation rule text.</li>
+</ul>
+<p>Use the delete action only for an erroneous row. Use status actions to reflect operational progress.</p>
+<h3 id="11-3-approve-an-event">11.3 Approve an event</h3>
+<ol>
+<li>Open <strong>Event Approvals</strong>.</li>
+<li>Select a pending event.</li>
+<li>Review venue, schedule, owner/contact, capacity, food, budget, payments, and activities.</li>
+<li>Approve or reject.</li>
+<li>Approved events become available to downstream operational areas such as Kitchen Event Food Requirements.</li>
+</ol>
+<h3 id="11-4-calendar-registrations-budget-payments-and-workflows">11.4 Calendar, registrations, budget, payments, and workflows</h3>
+<ul>
+<li><strong>Event Calendar:</strong> Review events by date and open the relevant event.</li>
+<li><strong>Registration &amp; Booking:</strong> Select an event, add guest name/contact, guest count, amount, and status.</li>
+<li><strong>Event Budget:</strong> Select an event and add/update budget lines.</li>
+<li><strong>Event Payments:</strong> Record and review event payments and refunds.</li>
+<li><strong>Event Workflows:</strong> Assign and update operational tasks.</li>
+<li><strong>Event Account:</strong> Configure payment accounts, review cash/card transactions, and transfer available event cash to Accounting.</li>
+</ul>
+<h3 id="11-5-print-event-documents">11.5 Print event documents</h3>
+<ol>
+<li>Open the event in Event Workspace.</li>
+<li>Use the print/report action.</li>
+<li>Allow browser pop-ups if requested.</li>
+<li>Review the generated event report or payment invoice.</li>
+<li>Print or save as PDF through the browser.</li>
+</ol>
+<h2 id="12-hrms">12. HRMS</h2>
+<h3 id="12-1-hrms-dashboard">12.1 HRMS Dashboard</h3>
+<ol>
+<li>Open <strong>HRMS Dashboard</strong>.</li>
+<li>Select daily or monthly view and the required date/month.</li>
+<li>Review employee attendance/status summaries.</li>
+<li>Review temporary/daily-worker status separately.</li>
+<li>Use the detailed HR pages to correct source records; do not treat a dashboard total as the editable record.</li>
+</ol>
+<h3 id="12-2-employee-management">12.2 Employee Management</h3>
+<ol>
+<li>Open <strong>Employees</strong>.</li>
+<li>Select <strong>New Employee</strong> to create a record using the same details, payroll, security, and permissions workflow described in User Management.</li>
+<li>Use <strong>Edit</strong> to update an employee.</li>
+<li>Open the employee calendar action to review common holidays and personal overrides.</li>
+<li>Open employee leave details to review or add an authorized leave record.</li>
+</ol>
+<h3 id="12-3-job-titles-and-allowance-types">12.3 Job titles and allowance types</h3>
+<p>To manage job titles:</p>
+<ol>
+<li>Open <strong>Job Titles</strong>.</li>
+<li>Add a title and associate it with the appropriate department information.</li>
+<li>Edit or delete only after checking employee assignments.</li>
+</ol>
+<p>To manage allowances:</p>
+<ol>
+<li>Open <strong>Allowance Types</strong>.</li>
+<li>Select <strong>New Allowance Type</strong>.</li>
+<li>Enter name, amount/calculation settings, and active status shown by the form.</li>
+<li>Save.</li>
+<li>Assign allowances in an employee's Employment &amp; Payroll tab.</li>
+</ol>
+<h3 id="12-4-leave-schemes">12.4 Leave schemes</h3>
+<ol>
+<li>Open <strong>Leave Schemes</strong>.</li>
+<li>Create a scheme with name/description.</li>
+<li>Expand the scheme row.</li>
+<li>Select <strong>Add Leave Type</strong>.</li>
+<li>Enter leave type, number of days, reset period, and other rules.</li>
+<li>Repeat for all leave categories.</li>
+<li>Assign the scheme to employees.</li>
+</ol>
+<h3 id="12-5-request-leave">12.5 Request leave</h3>
+<ol>
+<li>Open <strong>My Leaves</strong>.</li>
+<li>Review the current-year balance.</li>
+<li>Select <strong>Request Leave</strong>.</li>
+<li>Choose leave type and dates and enter reason/details.</li>
+<li>Submit.</li>
+<li>Monitor approval status in <strong>My Leave History</strong>.</li>
+</ol>
+<p>If manager approval is configured, the request first goes to the reporting manager and then to final HR/admin approval.</p>
+<h3 id="12-6-approve-leave">12.6 Approve leave</h3>
+<p>Manager:</p>
+<ol>
+<li>Open <strong>Manager Leave Approvals</strong>.</li>
+<li>Review <strong>Pending Team Requests</strong>.</li>
+<li>Open the request, verify dates, balance, and reason.</li>
+<li>Approve or reject and confirm.</li>
+</ol>
+<p>HR/admin:</p>
+<ol>
+<li>Open <strong>Leave Approvals</strong>.</li>
+<li>Use summary cards to filter by status.</li>
+<li>Review a request.</li>
+<li>Approve or reject and confirm the action.</li>
+</ol>
+<h3 id="12-7-working-calendars-and-holidays">12.7 Working calendars and holidays</h3>
+<ol>
+<li>Open <strong>Working Calendar</strong>.</li>
+<li>Create a calendar with name, description, year, and active status.</li>
+<li>Open the calendar.</li>
+<li>Select a day to mark a holiday, half day, or other supported day type.</li>
+<li>Use <strong>Add Holidays</strong> for multiple entries.</li>
+<li>Use <strong>Import Sri Lanka Public Holidays</strong> to import the year's public holidays, then review before final use.</li>
+<li>Open <strong>Employee Overrides</strong> to add personal holidays or exceptions for one employee.</li>
+<li>Assign the calendar to employees.</li>
+</ol>
+<h3 id="12-8-attendance">12.8 Attendance</h3>
+<p>Employee self-service:</p>
+<ol>
+<li>Open <strong>Attendance</strong>.</li>
+<li>Select <strong>Clock In</strong> at the start of work.</li>
+<li>Select <strong>Clock Out</strong> at the end of work.</li>
+<li>Review <strong>My History</strong>.</li>
+</ol>
+<p>Authorized staff:</p>
+<ol>
+<li>Use <strong>Mark for Employee</strong> to select an employee and date and record/update attendance.</li>
+<li>Use <strong>Daily Log (Admin)</strong> to review all staff for a selected day.</li>
+<li>Select <strong>Add Record</strong> or edit an existing record to correct authorized data.</li>
+</ol>
+<p>If the page displays <strong>Setup Required</strong>, the attendance database setup/migration must be completed by a technical administrator.</p>
+<h3 id="12-9-daily-reports">12.9 Daily reports</h3>
+<ol>
+<li>Open <strong>Daily Reports</strong>.</li>
+<li>Select <strong>Submit Daily Report</strong>.</li>
+<li>Enter the report date, work summary, issues, and other displayed details.</li>
+<li>Submit.</li>
+<li>Review prior entries under <strong>Report History</strong>.</li>
+</ol>
+<h3 id="12-10-overtime">12.10 Overtime</h3>
+<p>Employee:</p>
+<ol>
+<li>Open <strong>My OT Requests</strong>.</li>
+<li>Select a date and <strong>Submit OT Request</strong>.</li>
+<li>Enter hours/times and reason.</li>
+<li>Submit and monitor status.</li>
+</ol>
+<p>Manager:</p>
+<ol>
+<li>Open <strong>Manager OT Approvals</strong>.</li>
+<li>Review team requests.</li>
+<li>Approve, or reject with a reason.</li>
+</ol>
+<p>Final approver:</p>
+<ol>
+<li>Open <strong>OT Approvals</strong>.</li>
+<li>Use <strong>Pending</strong> for requests awaiting final approval.</li>
+<li>Approve or reject.</li>
+<li>Use <strong>History</strong> for processed requests.</li>
+</ol>
+<p>Administrator configuration:</p>
+<ol>
+<li>Open <strong>OT Settings</strong>.</li>
+<li>Under <strong>Global Settings</strong>, select the calculation method, approval flow, and default monthly hours limit. A zero limit means no limit.</li>
+<li>Under <strong>Per-Employee Limits</strong>, enter overrides where required.</li>
+<li>Save.</li>
+</ol>
+<h3 id="12-11-daily-workers">12.11 Daily workers</h3>
+<p>To register and roster workers:</p>
+<ol>
+<li>Open <strong>Daily Workers</strong>.</li>
+<li>Under <strong>Manage Workers</strong>, select <strong>Add Worker</strong> and enter identity, department, daily wage, active status, and optional system-access details.</li>
+<li>Under <strong>Assign Workers by Date</strong>, choose the date and select workers for the roster.</li>
+<li>Select <strong>Save Daily Roster</strong>.</li>
+</ol>
+<p>To mark attendance and pay:</p>
+<ol>
+<li>Open <strong>Attendance &amp; Pay</strong> and choose the date.</li>
+<li>Mark each worker's attendance.</li>
+<li>Verify calculated pay.</li>
+<li>Request wage money through <strong>Money Requests</strong> if required.</li>
+<li>At day end, pay individually or use <strong>Pay All</strong> after checking amounts.</li>
+</ol>
+<h3 id="12-12-payroll-configuration-and-run">12.12 Payroll configuration and run</h3>
+<p>Initial configuration:</p>
+<ol>
+<li>Ensure employees have salary, allowances, service-charge settings, calendar, attendance, approved leave, and approved OT data.</li>
+<li>Open <strong>Payroll</strong>.</li>
+<li>Under <strong>Salary Configuration</strong>, verify employee settings.</li>
+<li>Under <strong>Pay Period</strong>, configure the period boundaries; use auto-fill where appropriate and save.</li>
+<li>Configure <strong>APIT Tax Settings</strong> before calculating tax.</li>
+</ol>
+<p>Run payroll:</p>
+<ol>
+<li>Open <strong>Run Payroll</strong>.</li>
+<li>Select the pay period.</li>
+<li>Calculate payroll.</li>
+<li>Review each employee's basic salary, allowances, service charge, OT, deductions, APIT, and net pay.</li>
+<li>Correct source configuration if values are wrong, then recalculate.</li>
+<li>Process/finalize payroll only after review.</li>
+</ol>
+<p>Use <strong>Payroll Summary</strong> for period totals and per-employee breakdown. Employees use <strong>My Payslips</strong> to open and print their finalized payslips.</p>
+<h3 id="12-13-apit-settings">12.13 APIT settings</h3>
+<ol>
+<li>Open <strong>APIT Tax Settings</strong>.</li>
+<li>Enter or update the tax bands, thresholds, rates, and effective settings displayed.</li>
+<li>Save.</li>
+<li>Recalculate any unfinalized payroll that should use the new settings.</li>
+</ol>
+<p>Do not change tax rules without confirmation from authorized payroll/accounting personnel.</p>
+<h3 id="12-14-petty-cash">12.14 Petty cash</h3>
+<p>Employee request:</p>
+<ol>
+<li>Open <strong>My Petty Cash</strong>.</li>
+<li>Select <strong>New Petty Cash Request</strong>.</li>
+<li>Enter amount, purpose, and details.</li>
+<li>Submit.</li>
+<li>After spending, open the request and <strong>Submit Supporting Document</strong> with actual amount and evidence.</li>
+</ol>
+<p>Approver:</p>
+<ol>
+<li>Open <strong>Petty Cash Approvals</strong>.</li>
+<li>Review the request and approve/reject it.</li>
+</ol>
+<p>Accounts:</p>
+<ol>
+<li>Open <strong>Petty Cash (Accounts)</strong>.</li>
+<li>Use <strong>Pending Accounts Approval</strong> to perform the accounts review.</li>
+<li>Use <strong>Ready to Issue</strong> to issue approved cash after checking the daily pool.</li>
+<li>Use <strong>Balance</strong> to collect underspend or issue approved additional overspend.</li>
+<li>Use <strong>All Requests</strong> for history.</li>
+<li>Use <strong>Settings</strong> to configure the daily limit/pool rules.</li>
+</ol>
+<h2 id="13-activities-experiences-inquiries-and-blogs">13. Activities, experiences, inquiries, and blogs</h2>
+<h3 id="13-1-activities-and-experiences">13.1 Activities and experiences</h3>
+<ol>
+<li>Open <strong>Activities</strong> or <strong>Experiences</strong>.</li>
+<li>Select the add action.</li>
+<li>Enter title/name, description, image/media, price, availability, duration, category, or other displayed content fields.</li>
+<li>Save.</li>
+<li>Use edit to update published content and delete only when the offering must be removed.</li>
+</ol>
+<h3 id="13-2-experience-inquiries-and-general-inquiries">13.2 Experience inquiries and general inquiries</h3>
+<ol>
+<li>Open <strong>Experience Inquiries</strong> or <strong>Inquiries</strong>.</li>
+<li>Review the inquiry list and customer/contact information.</li>
+<li>Open a record to read the message and requested experience/service.</li>
+<li>Update its response/status using the available row actions.</li>
+<li>Use any email/contact link to follow up outside the system when appropriate.</li>
+</ol>
+<h3 id="13-3-blog-management">13.3 Blog Management</h3>
+<p>To create a post:</p>
+<ol>
+<li>Open <strong>Blog Management</strong>.</li>
+<li>Select <strong>Create Blog</strong>.</li>
+<li>Enter title, summary/content, image, author/category, publication status, and other displayed fields.</li>
+<li>Preview if available and save/publish.</li>
+</ol>
+<p>To edit, open the row action, update the post, and save. Avoid deleting published content without checking whether public links depend on it.</p>
+<h2 id="14-notifications">14. Notifications</h2>
+<p>The dashboard notification menu reports workflow events generated by modules such as inventory requests and approvals. To use it:</p>
+<ol>
+<li>Select the notification/bell icon in the dashboard header.</li>
+<li>Open an unread notification.</li>
+<li>Follow its link to the relevant request or task.</li>
+<li>Complete the work in the source module.</li>
+<li>Mark/read notifications as supported by the menu.</li>
+</ol>
+<p>Notifications are supporting alerts; the source module remains the authoritative record.</p>
+<h2 id="15-reports-and-exports">15. Reports and exports</h2>
+<p>Active reporting is distributed across the system:</p>
+<ul>
+<li>Restaurant Analytics</li>
+<li>Inventory Reports and Transaction Log CSV export</li>
+<li>Kitchen Order History and Kitchen Usage Report</li>
+<li>HRMS Dashboard, Daily Reports, Payroll Summary, and Payslips</li>
+<li>Finance Requests Report</li>
+<li>Event printable report and invoices</li>
+<li>Front-desk bills, guest passes, and history</li>
+<li>Buffet booking print/share</li>
+<li>Purchase-order print view</li>
+</ul>
+<p>The general <strong>Reports</strong> route currently displays <strong>Under Migration</strong>. Use the specialized reports above until migration is completed.</p>
+<p>For printing:</p>
+<ol>
+<li>Open the report/document.</li>
+<li>Apply filters first.</li>
+<li>Select <strong>Print</strong>.</li>
+<li>If a new window does not appear, allow pop-ups for the site.</li>
+<li>Use the browser print dialog to print or save as PDF.</li>
+</ol>
+<h2 id="16-important-end-to-end-workflows">16. Important end-to-end workflows</h2>
+<h3 id="16-1-guest-stay-lifecycle">16.1 Guest stay lifecycle</h3>
+<ol>
+<li>Configure room/chalet, package, rates, and facilities.</li>
+<li>Create/confirm the booking.</li>
+<li>Assign a room.</li>
+<li>Check in and issue the QR guest pass.</li>
+<li>Add restaurant, laundry, transport, spa/pool, activities, facility, and package-meal activity during the stay.</li>
+<li>Move eligible charges to the guest bill.</li>
+<li>Review the complete folio.</li>
+<li>Settle payment and check out.</li>
+<li>Retrieve the record later from Front Desk History.</li>
+</ol>
+<h3 id="16-2-restaurant-order-to-cash-lifecycle">16.2 Restaurant order-to-cash lifecycle</h3>
+<ol>
+<li>Configure restaurant warehouse, taxes, sections, menu, and tables.</li>
+<li>Waiter opens a table and submits the order.</li>
+<li>Kitchen prepares and completes items.</li>
+<li>Waiter serves and sends the order to billing.</li>
+<li>Payment staff settles by cash/card, or charges it to an in-house room.</li>
+<li>Receipt is produced and table closes.</li>
+<li>Restaurant Account and Analytics reflect the result.</li>
+</ol>
+<h3 id="16-3-purchase-to-stock-lifecycle">16.3 Purchase-to-stock lifecycle</h3>
+<ol>
+<li>Create an inventory cash/MRN requirement or PO.</li>
+<li>Obtain approvals.</li>
+<li>Accounts issues funds when applicable.</li>
+<li>Supplier delivers goods.</li>
+<li>Inventory records GRN with quantities, price, batch, expiry, and discrepancies.</li>
+<li>Warehouse stock increases and transaction history is created.</li>
+<li>Requesting departments obtain stock through MRN transfer.</li>
+<li>Usage/damage/expiry is recorded.</li>
+<li>Finance is settled and inventory reports are reconciled.</li>
+</ol>
+<h3 id="16-4-employee-to-payroll-lifecycle">16.4 Employee-to-payroll lifecycle</h3>
+<ol>
+<li>Create employee and assign role, manager, leave scheme, calendar, salary, allowances, and permissions.</li>
+<li>Employee records attendance and requests leave/OT as needed.</li>
+<li>Manager and final approvers process leave/OT.</li>
+<li>Daily reports and petty-cash evidence are submitted as needed.</li>
+<li>HR reviews attendance/calendar data.</li>
+<li>Payroll calculates earnings, approved OT, allowances, service charge, deductions, and APIT.</li>
+<li>Payroll is reviewed and finalized.</li>
+<li>Employee views the payslip.</li>
+</ol>
+<h3 id="16-5-event-lifecycle">16.5 Event lifecycle</h3>
+<ol>
+<li>Create locations and an event without scheduling conflicts.</li>
+<li>Enter owner/billing details.</li>
+<li>Build schedule, food, activities, budget, payment, and workflow data.</li>
+<li>Obtain event approval.</li>
+<li>Kitchen reviews food requirements.</li>
+<li>Operational owners update workflow/activity status.</li>
+<li>Record payments/refunds and transfer cash to Accounting.</li>
+<li>Mark kitchen/event work complete.</li>
+<li>Print the final event report/invoices.</li>
+</ol>
+<h2 id="17-data-entry-and-control-guidelines">17. Data-entry and control guidelines</h2>
+<ul>
+<li>Fields marked with <code>*</code> are mandatory.</li>
+<li>Search for an existing guest, employee, supplier, item, or account before creating a duplicate.</li>
+<li>Use ISO-consistent dates and verify check-in/check-out and event start/end order.</li>
+<li>Enter money in LKR unless the page explicitly states otherwise.</li>
+<li>Confirm the warehouse and unit before saving stock quantities.</li>
+<li>Enter batch and expiry data during receipt, not later, whenever it is available.</li>
+<li>Add meaningful notes to approvals, rejections, adjustments, cash issues, and transfers.</li>
+<li>Do not edit or delete paid, posted, received, finalized, or historically audited records except through an authorized correction process.</li>
+<li>Reconcile physical cash with system available cash before transferring or issuing money.</li>
+<li>Use status changes to represent real work; do not mark an order/event/booking complete prematurely.</li>
+</ul>
+<h2 id="18-troubleshooting">18. Troubleshooting</h2>
+<h3 id="a-menu-or-page-is-missing">A menu or page is missing</h3>
+<p>Your role/account lacks access. Ask an administrator to review <strong>Role Permissions</strong> and your personal <strong>Permissions</strong> tab. Restricted administrators also require explicit selections.</p>
+<h3 id="a-page-shows-no-records">A page shows no records</h3>
+<p>Check date/status/store filters, clear search text, refresh, and verify that prerequisite records exist. For example, an approved event is required before Kitchen sees event food requirements.</p>
+<h3 id="a-room-table-item-cannot-be-selected">A room/table/item cannot be selected</h3>
+<p>It may be occupied, unavailable, in maintenance, uninitialized in that warehouse, out of stock, or blocked by another record. Review its master-data status.</p>
+<h3 id="event-creation-reports-a-conflict">Event creation reports a conflict</h3>
+<p>Another event overlaps at the same location. Change the location or start/end time.</p>
+<h3 id="print-or-invoice-does-not-open">Print or invoice does not open</h3>
+<p>Allow pop-ups for the application and retry.</p>
+<h3 id="attendance-says-setup-required">Attendance says Setup Required</h3>
+<p>A technical administrator must apply the required database setup/migration and then retry the page.</p>
+<h3 id="totals-appear-incorrect">Totals appear incorrect</h3>
+<p>Check source records and configuration: prices, quantities, dates, tax/service charge, payment status, salary, allowances, attendance, approved OT/leave, and APIT settings. Refresh or recalculate only after correcting the source.</p>
+<h3 id="a-save-button-remains-disabled">A save button remains disabled</h3>
+<p>Complete all required fields, choose a valid status/account/item, enter a positive amount/quantity, and resolve validation messages. Some actions are intentionally disabled once a record is paid or finalized.</p>
+<h2 id="19-feature-route-reference">19. Feature/route reference</h2>
+<table><thead><tr>
+<th>Area</th>
+<th>Main application route(s)</th>
+</tr></thead><tbody>
+<tr>
+<td>Login and app selection</td>
+<td><code>/</code>, <code>/app</code></td>
+</tr>
+<tr>
+<td>Waiter and POS apps</td>
+<td><code>/app/waiter</code>, <code>/app/pos</code></td>
+</tr>
+<tr>
+<td>Home/profile</td>
+<td><code>/dashboard/home</code>, <code>/dashboard/profile</code></td>
+</tr>
+<tr>
+<td>Customers/front desk</td>
+<td><code>/dashboard/customers</code>, <code>/dashboard/front-desk</code>, <code>/dashboard/loyalty</code></td>
+</tr>
+<tr>
+<td>Restaurant</td>
+<td><code>/dashboard</code>, <code>/dashboard/billing</code>, <code>/dashboard/restaurant-account</code>, <code>/dashboard/restaurant-analytics</code></td>
+</tr>
+<tr>
+<td>Restaurant configuration</td>
+<td><code>/dashboard/menu-management</code>, <code>/dashboard/menu-settings</code>, <code>/dashboard/table-management</code>, <code>/dashboard/restaurant-settings</code></td>
+</tr>
+<tr>
+<td>Rooms/reservations</td>
+<td><code>/dashboard/room-management</code>, <code>/dashboard/reservations</code>, <code>/dashboard/bookings</code></td>
+</tr>
+<tr>
+<td>Chalet</td>
+<td><code>/dashboard/chalet/rooms</code>, <code>/dashboard/chalet/rates</code>, <code>/dashboard/chalet/bookings</code></td>
+</tr>
+<tr>
+<td>Buffet</td>
+<td><code>/dashboard/buffet-packages</code>, <code>/dashboard/buffet-bookings</code></td>
+</tr>
+<tr>
+<td>Inventory setup/items</td>
+<td><code>/dashboard/inventory-management/warehouses</code>, <code>/dashboard/inventory-management/add-item</code>, <code>/dashboard/inventory-management</code></td>
+</tr>
+<tr>
+<td>MRN</td>
+<td><code>/dashboard/inventory-requests</code>, <code>/dashboard/inventory-requests/history</code></td>
+</tr>
+<tr>
+<td>Purchasing/GRN</td>
+<td><code>/dashboard/purchase-orders</code>, <code>/dashboard/purchase-orders/approvals</code>, <code>/dashboard/inventory-management/grn</code></td>
+</tr>
+<tr>
+<td>Inventory controls/reports</td>
+<td><code>/dashboard/inventory-stock-overview</code>, <code>/dashboard/inventory-management/stock-usage</code>, <code>/dashboard/inventory-management/expired-damaged</code>, <code>/dashboard/inventory-management/transaction-log</code>, <code>/dashboard/inventory-reports</code></td>
+</tr>
+<tr>
+<td>Inventory finance</td>
+<td><code>/dashboard/inventory-cash-requests</code>, <code>/dashboard/inventory-cash-approvals</code>, <code>/dashboard/accounting/inventory-cash</code></td>
+</tr>
+<tr>
+<td>Kitchen</td>
+<td><code>/dashboard/kitchen/orders</code>, <code>/dashboard/kitchen/orders/history</code>, <code>/dashboard/kitchen/inventory-requests</code>, <code>/dashboard/kitchen/stock-usage</code>, <code>/dashboard/kitchen/stock-usage/report</code>, <code>/dashboard/kitchen/events</code></td>
+</tr>
+<tr>
+<td>Accounting/finance</td>
+<td><code>/dashboard/accounting</code>, <code>/dashboard/accounting/daily-workers-finance</code>, <code>/dashboard/accounting/finance-requests-report</code></td>
+</tr>
+<tr>
+<td>Other income/expense</td>
+<td><code>/dashboard/expenses</code>, <code>/dashboard/other-incomes</code></td>
+</tr>
+<tr>
+<td>Services</td>
+<td><code>/dashboard/services/laundry</code>, <code>/dashboard/services/transport</code>, <code>/dashboard/services/spa</code>, <code>/dashboard/services/account</code></td>
+</tr>
+<tr>
+<td>Events</td>
+<td><code>/dashboard/event-management/events</code>, <code>/dashboard/event-management/approvals</code>, <code>/dashboard/event-management/calendar</code>, <code>/dashboard/event-management/registrations</code>, <code>/dashboard/event-management/budget</code>, <code>/dashboard/event-management/payments</code>, <code>/dashboard/event-management/workflows</code>, <code>/dashboard/event-management/account</code></td>
+</tr>
+<tr>
+<td>HR employee setup</td>
+<td><code>/dashboard/hrms/employees</code>, <code>/dashboard/hrms/job-titles</code>, <code>/dashboard/hrms/allowance-types</code></td>
+</tr>
+<tr>
+<td>Leave/calendar</td>
+<td><code>/dashboard/hrms/leaves</code>, <code>/dashboard/hrms/leave-schemes</code>, <code>/dashboard/hrms/leave-approvals</code>, <code>/dashboard/hrms/manager-leave-approvals</code>, <code>/dashboard/hrms/working-calendar</code></td>
+</tr>
+<tr>
+<td>Attendance/reports</td>
+<td><code>/dashboard/hrms/attendance</code>, <code>/dashboard/hrms/reports</code>, <code>/dashboard/hrms/dashboard</code></td>
+</tr>
+<tr>
+<td>OT</td>
+<td><code>/dashboard/hrms/ot</code>, <code>/dashboard/hrms/manager-ot-approvals</code>, <code>/dashboard/hrms/ot-approvals</code>, <code>/dashboard/hrms/ot-settings</code></td>
+</tr>
+<tr>
+<td>Daily workers</td>
+<td><code>/dashboard/hrms/daily-workers</code>, <code>/dashboard/hrms/daily-workers/requests</code></td>
+</tr>
+<tr>
+<td>Payroll</td>
+<td><code>/dashboard/hrms/payroll</code>, <code>/dashboard/hrms/payroll-summary</code>, <code>/dashboard/hrms/payslip</code>, <code>/dashboard/hrms/apit-settings</code></td>
+</tr>
+<tr>
+<td>Petty cash</td>
+<td><code>/dashboard/hrms/petty-cash</code>, <code>/dashboard/hrms/petty-cash-approvals</code>, <code>/dashboard/hrms/petty-cash-accounts</code></td>
+</tr>
+<tr>
+<td>Roles/users</td>
+<td><code>/dashboard/settings/roles</code>, <code>/dashboard/user-management</code></td>
+</tr>
+<tr>
+<td>Content/inquiries</td>
+<td><code>/dashboard/activities</code>, <code>/dashboard/experiences</code>, <code>/dashboard/blogs</code>, <code>/dashboard/experience-inquiries</code>, <code>/dashboard/inquiries</code></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="20-administrator-launch-checklist">20. Administrator launch checklist</h2>
+<p>Before production use, confirm all of the following:</p>
+<ul>
+<li>Users, departments, job titles, reporting managers, and roles are correct.</li>
+<li>Role and personal permissions follow least-privilege access.</li>
+<li>Working calendars, leave schemes, salary, allowances, OT, APIT, and petty-cash limits are configured.</li>
+<li>Accounting chart and destination accounts are configured.</li>
+<li>Restaurant warehouse, sections, taxes, charges, menu, and tables are configured.</li>
+<li>Inventory stores, main-store designation, items, units, and item/store initialization are complete.</li>
+<li>Rooms, chalet rooms, occupancy rates, packages, buffet packages, and booking rules are configured.</li>
+<li>Event locations are configured.</li>
+<li>Staff have tested printing, QR scanning, notifications, and their full assigned workflow.</li>
+<li>Opening balances and stock have been independently checked.</li>
+<li>A backup, audit, and correction procedure is agreed before live transactions begin.</li>
+</ul></body>
+</html>

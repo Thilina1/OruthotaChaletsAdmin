@@ -25,7 +25,7 @@ const menuGroups: { title: string; description: string; items: MenuItem[] }[] = 
     { title: 'Finance', description: 'Accounting, cash, expenses, and other income.', items: otherMenue },
     { title: 'Services', description: 'Income from guest services and excursions.', items: servicesMenuItems },
     { title: 'Human Resources', description: 'Employee, attendance, leave, payroll, and approvals.', items: hrmsMenuItems },
-    { title: 'Content & Reports', description: 'Activities, experiences, blog content, and reporting.', items: otherMenuItems },
+    { title: 'Content & Reports', description: 'Reports and business insights.', items: otherMenuItems },
 ];
 
 export default function HomeDashboardPage() {
@@ -37,7 +37,7 @@ export default function HomeDashboardPage() {
     }
 
     const canAccess = (item: MenuItem) => {
-        if (item.href === '/dashboard/home') return false;
+        if (item.hidden || item.href === '/dashboard/home') return false;
         if ((user.role === 'admin' && !user.restrict_admin_permissions) || user.inventory_admin === true) return true;
         return hasPathAccess(item.href);
     };

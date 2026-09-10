@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Select,
@@ -52,6 +53,7 @@ export default function KitchenOrdersPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
     const [printTicket, setPrintTicket] = useState<{ order: Order; cookItems: OrderItem[] } | null>(null);
+    const [ticketSection, setTicketSection] = useState('restaurant');
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
     const [collapsedOrders, setCollapsedOrders] = useState<Record<string, boolean>>({});
@@ -210,7 +212,10 @@ export default function KitchenOrdersPage() {
         return [...regular, ...grouped.values()];
     })();
 
-    const filteredTickets = tickets.filter(({ order, cookItems }) => {
+    const roomTickets = tickets.filter(ticket => !!packageMeal(ticket.order));
+    const restaurantTickets = tickets.filter(ticket => !packageMeal(ticket.order));
+    const sectionTickets = ticketSection === 'rooms' ? roomTickets : restaurantTickets;
+    const filteredTickets = sectionTickets.filter(({ order, cookItems }) => {
         const query = searchQuery.trim().toLowerCase();
         if (!query) return true;
         return getKotNumber(order).toLowerCase().includes(query)
@@ -267,6 +272,16 @@ export default function KitchenOrdersPage() {
                 </Button>
             </div>
 
+            <Tabs value={ticketSection} onValueChange={section => {
+                setTicketSection(section);
+                setExpandedOrderId(null);
+                setSearchQuery('');
+            }} className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="restaurant" className="gap-2">Restaurant <Badge variant="secondary">{restaurantTickets.length}</Badge></TabsTrigger>
+                    <TabsTrigger value="rooms" className="gap-2">Rooms <Badge variant="secondary">{roomTickets.length}</Badge></TabsTrigger>
+                </TabsList>
+                <TabsContent value={ticketSection} className="space-y-6">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="relative w-full max-w-xl">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -276,7 +291,7 @@ export default function KitchenOrdersPage() {
                             setSearchQuery(event.target.value);
                             setExpandedOrderId(null);
                         }}
-                        placeholder="Search KOT, table, waiter, or item..."
+                        placeholder={ticketSection === 'rooms' ? "Search KOT, room, meal, or item..." : "Search KOT, table, waiter, or item..."}
                         className="pl-9"
                     />
                 </div>
@@ -505,15 +520,17 @@ export default function KitchenOrdersPage() {
                 <div className="text-center py-16 border-2 border-dashed rounded-lg">
                     <ChefHat className="mx-auto h-12 w-12 text-muted-foreground" />
                     <h3 className="mt-2 text-sm font-medium text-foreground">
-                        {tickets.length === 0 ? 'Nothing to cook' : 'No matching KOT found'}
+                        {sectionTickets.length === 0 ? `No ${ticketSection === 'rooms' ? 'room' : 'restaurant'} tickets` : 'No matching KOT found'}
                     </h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                        {tickets.length === 0
-                            ? 'Cooked-to-order items from new table orders will appear here.'
-                            : 'Try another ticket number, table, waiter, or item name.'}
+                        {sectionTickets.length === 0
+                            ? ticketSection === 'rooms' ? 'Confirmed room package meals will appear here.' : 'Cooked-to-order items from restaurant orders will appear here.'
+                            : 'Try another ticket number, room, table, or item name.'}
                     </p>
                 </div>
             )}
+                </TabsContent>
+            </Tabs>
         </div>
 
         {printTicket && (

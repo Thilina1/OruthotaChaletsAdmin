@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Banknote, BedDouble, Bell, CalendarCheck, ChefHat, CheckCheck, ClipboardCheck, CreditCard, MessageSquare, ReceiptText, ShoppingCart, Utensils } from 'lucide-react';
+import { Banknote, BedDouble, Bell, CalendarCheck, ChefHat, CheckCheck, ClipboardCheck, CreditCard, MessageSquare, ReceiptText, ShoppingCart, Star, Utensils } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ import {
     DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { createClient } from '@/lib/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import { useUserContext } from '@/context/user-context';
 
 type Notification = {
@@ -21,10 +22,13 @@ type Notification = {
     type: string;
     read_at: string | null;
     created_at: string;
+    inventory_request_id?: string | null;
+    rejection_through?: string;
 };
 
 export function NotificationMenu() {
     const router = useRouter();
+    const { toast } = useToast();
     const { user } = useUserContext();
     const supabase = useMemo(() => createClient(), []);
     const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -71,32 +75,43 @@ export function NotificationMenu() {
             ? '/dashboard/event-management/approvals'
             : notification.href;
 
-        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(notification.type)) {
+        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(notification.type)) {
             if (destination) router.push(destination);
             return;
         }
 
         if (!notification.read_at) {
-            await fetch('/api/notifications', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: notification.id }),
-            });
-            setNotifications(current => current.map(item =>
-                item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item
-            ));
+            try {
+                const response = await fetch('/api/notifications', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: notification.id, rejection_through: notification.rejection_through }),
+                });
+                if (!response.ok) throw new Error('Could not mark this notification as read. Please try again.');
+                setNotifications(current => notification.id === 'mrn-rejections'
+                    ? current.filter(item => item.id !== notification.id || item.rejection_through !== notification.rejection_through)
+                    : current.map(item => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item)
+                );
+            } catch (error) {
+                toast({ title: 'Notification not marked as read', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                return;
+            }
         }
         if (destination) router.push(destination);
     };
 
     const markAllRead = async () => {
-        await fetch('/api/notifications', {
+        const response = await fetch('/api/notifications', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mark_all: true }),
         });
-        setNotifications(current => current.map(item =>
-            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(item.type)
+        if (!response.ok) {
+            toast({ title: 'Unable to mark notifications as read', description: 'Please try again.', variant: 'destructive' });
+            return;
+        }
+        setNotifications(current => current.filter(item => item.id !== 'mrn-rejections').map(item =>
+            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(item.type)
                 ? item
                 : { ...item, read_at: item.read_at ?? new Date().toISOString() }
         ));
@@ -142,6 +157,8 @@ export function NotificationMenu() {
                             <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'buffet_booking' ? (
                             <Utensils className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        ) : notification.type === 'experience_inquiry' ? (
+                            <Star className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'general_inquiry' ? (
                             <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'inventory_cash_issuance' ? (
@@ -161,7 +178,12 @@ export function NotificationMenu() {
                         )}
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                                <p className="text-sm font-semibold">{notification.title}</p>
+                                <p className="text-sm font-semibold">
+                                    {notification.title}
+                                    {notification.type === 'mrn_result' && notification.inventory_request_id && (
+                                        <span className="ml-2 font-mono text-xs">#{notification.inventory_request_id.slice(0, 8).toUpperCase()}</span>
+                                    )}
+                                </p>
                                 {!notification.read_at && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
                             </div>
                             <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal">{notification.message}</p>

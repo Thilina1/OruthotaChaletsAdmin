@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Download, ChevronDown, ChevronUp, Building2 } from "lucide-react";
 import type { PayrollRecord, PayrollCalculationSnapshot } from "@/lib/types";
+import { usePagination } from "@/hooks/use-pagination";
+import { DataTablePagination } from "@/components/ui/data-table-pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type EnrichedRecord = PayrollRecord & {
     users?: { name: string; email: string; job_title?: string; department?: string };
@@ -173,6 +176,7 @@ export default function PayslipPage() {
     const [records, setRecords] = useState<EnrichedRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState<string | null>(null);
+    const [yearFilter, setYearFilter] = useState('all');
 
     useEffect(() => {
         fetch('/api/hrms/payroll/process')
@@ -253,11 +257,58 @@ export default function PayslipPage() {
     const fmt = (r: EnrichedRecord) =>
         new Date(r.month + '-01').toLocaleString('en-LK', { month: 'long', year: 'numeric' });
 
+    const availableYears = useMemo(
+        () => Array.from(new Set(records.map(record => record.month.slice(0, 4))))
+            .filter(Boolean)
+            .sort((a, b) => Number(b) - Number(a)),
+        [records]
+    );
+
+    const filteredRecords = useMemo(
+        () => yearFilter === 'all'
+            ? records
+            : records.filter(record => record.month.startsWith(`${yearFilter}-`)),
+        [records, yearFilter]
+    );
+
+    const {
+        currentPage,
+        totalPages,
+        totalItems,
+        paginatedItems,
+        itemsPerPage,
+        setCurrentPage,
+    } = usePagination(filteredRecords, 10);
+
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-headline font-bold">My Payslips</h1>
-                <p className="text-muted-foreground">View and download your released payslips.</p>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <h1 className="text-3xl font-headline font-bold">My Payslips</h1>
+                    <p className="text-muted-foreground">View and download your released payslips.</p>
+                </div>
+                {records.length > 0 && (
+                    <div className="w-full sm:w-40">
+                        <Select
+                            value={yearFilter}
+                            onValueChange={value => {
+                                setYearFilter(value);
+                                setCurrentPage(1);
+                                setExpanded(null);
+                            }}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder="Filter by year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All years</SelectItem>
+                                {availableYears.map(year => (
+                                    <SelectItem key={year} value={year}>{year}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
             </div>
 
             {loading ? (
@@ -270,45 +321,60 @@ export default function PayslipPage() {
                         No payslips have been released yet. Contact HR if you expect one.
                     </CardContent>
                 </Card>
+            ) : filteredRecords.length === 0 ? (
+                <Card className="border-dashed">
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                        No payslips found for {yearFilter}.
+                    </CardContent>
+                </Card>
             ) : (
-                <div className="space-y-3">
-                    {records.map(record => (
-                        <Card key={record.id} className="overflow-hidden">
-                            {/* Row header */}
-                            <CardHeader
-                                className="cursor-pointer select-none py-4"
-                                onClick={() => setExpanded(expanded === record.id ? null : record.id)}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <CardTitle className="text-base">{fmt(record)}</CardTitle>
-                                        <Badge className="bg-blue-500 text-white text-xs">Released</Badge>
+                <div className="overflow-hidden rounded-lg border bg-card">
+                    <div className="space-y-3 p-3">
+                        {paginatedItems.map(record => (
+                            <Card key={record.id} className="overflow-hidden">
+                                {/* Row header */}
+                                <CardHeader
+                                    className="cursor-pointer select-none py-4"
+                                    onClick={() => setExpanded(expanded === record.id ? null : record.id)}
+                                >
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <CardTitle className="text-base">{fmt(record)}</CardTitle>
+                                            <Badge className="bg-blue-500 text-white text-xs">Released</Badge>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <span className="font-bold text-primary">
+                                                LKR {(record.snap?.net_salary ?? record.net_salary).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                            </span>
+                                            {expanded === record.id
+                                                ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                                : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                            }
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="font-bold text-primary">
-                                            LKR {(record.snap?.net_salary ?? record.net_salary).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
-                                        </span>
-                                        {expanded === record.id
-                                            ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                                            : <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                        }
-                                    </div>
-                                </div>
-                            </CardHeader>
+                                </CardHeader>
 
-                            {/* Expanded payslip */}
-                            {expanded === record.id && (
-                                <CardContent className="pt-0">
-                                    <div id={`payslip-${record.id}`}>
-                                        <PayslipView
-                                            record={record}
-                                            onPrint={() => handlePrint(record)}
-                                        />
-                                    </div>
-                                </CardContent>
-                            )}
-                        </Card>
-                    ))}
+                                {/* Expanded payslip */}
+                                {expanded === record.id && (
+                                    <CardContent className="pt-0">
+                                        <div id={`payslip-${record.id}`}>
+                                            <PayslipView
+                                                record={record}
+                                                onPrint={() => handlePrint(record)}
+                                            />
+                                        </div>
+                                    </CardContent>
+                                )}
+                            </Card>
+                        ))}
+                    </div>
+                    <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        itemsPerPage={itemsPerPage}
+                        onPageChange={setCurrentPage}
+                    />
                 </div>
             )}
         </div>

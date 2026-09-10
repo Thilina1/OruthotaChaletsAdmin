@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
 import { Calendar as CalendarIcon, FileBarChart, ArrowUpCircle, ArrowDownCircle, AlertCircle, TrendingUp, Download, Loader2, AlertTriangle, History, ArrowRight } from 'lucide-react';
@@ -521,7 +522,7 @@ export default function InventoryReportsPage() {
                       <TableHead className="text-right">Total Value</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody>
                     {departmentIssues.map((dept, index) => (
                       <TableRow key={index} className="hover:bg-slate-50/50">
                         <TableCell className="font-semibold text-slate-800">{dept.name}</TableCell>
@@ -531,7 +532,7 @@ export default function InventoryReportsPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               </div>
             )}
@@ -731,7 +732,7 @@ export default function InventoryReportsPage() {
                       <TableHead className="text-right">Confirmed Loss</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody>
                     {(dmgTotals.byWarehouse as any[]).map((w, i) => (
                       <TableRow key={i}>
                         <TableCell className="font-semibold text-sm">{w.name}</TableCell>
@@ -743,7 +744,7 @@ export default function InventoryReportsPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               )}
             </CardContent>
@@ -780,7 +781,7 @@ export default function InventoryReportsPage() {
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody>
                     {filteredDmg.map((r: any) => {
                       const unitCost = r.unit_value ?? r.batch?.buying_price ?? null;
                       const totalVal = r.total_loss_value ?? (unitCost != null ? unitCost * r.quantity : null);
@@ -822,7 +823,7 @@ export default function InventoryReportsPage() {
                         </TableRow>
                       );
                     })}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               </div>
             )}

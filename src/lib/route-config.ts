@@ -7,6 +7,7 @@ export interface MenuItem {
     icon: React.ElementType;
     label: string;
     roles: UserRole[];
+    hidden?: boolean;
 }
 
 export const generalMenuItems: MenuItem[] = [
@@ -34,15 +35,15 @@ export const restaurantMenuItems: MenuItem[] = [
 export const inventoryMenuItems: MenuItem[] = [
     { href: '/dashboard/inventory-management/warehouses', icon: Warehouse, label: 'Manage Store', roles: ['admin'] },
     { href: '/dashboard/inventory-management/add-item', icon: PackagePlus, label: 'Add New Item', roles: ['admin'] },
+    { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
     { href: '/dashboard/inventory-requests', icon: Boxes, label: 'MRN Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-requests/history', icon: History, label: 'MRN Approvals', roles: ['admin'] },
     { href: '/dashboard/inventory-cash-requests', icon: Wallet, label: 'Cash Requests', roles: ['admin'] },
     { href: '/dashboard/inventory-cash-approvals', icon: CheckSquare, label: 'Cash and Credit Approvals', roles: ['admin'] },
     { href: '/dashboard/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: ['admin'] },
     { href: '/dashboard/purchase-orders/approvals', icon: ClipboardCheck, label: 'PO Approvals', roles: ['admin'] },
-    { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
     { href: '/dashboard/inventory-management/grn', icon: Truck, label: 'GRN (Stock In)', roles: ['admin'] },
-    { href: '/dashboard/inventory-management', icon: Boxes, label: 'Manage Items', roles: ['admin'] },
+    { href: '/dashboard/inventory-stock-overview', icon: BarChart, label: 'Stock Overview', roles: ['admin'] },
     { href: '/dashboard/inventory-management/stock-usage', icon: PackageOpen, label: 'Stock Usage', roles: ['admin', 'waiter', 'payment'] },
     { href: '/dashboard/inventory-management/expired-damaged', icon: AlertTriangle, label: 'Expired & Damaged', roles: ['admin'] },
     { href: '/dashboard/inventory-management/transaction-log', icon: History, label: 'Transaction Log', roles: ['admin'] },
@@ -50,8 +51,6 @@ export const inventoryMenuItems: MenuItem[] = [
 ];
 
 export const roomBookingMenuItems: MenuItem[] = [
-    { href: '/dashboard/room-management', icon: BedDouble, label: 'Room Management', roles: ['admin'] },
-    { href: '/dashboard/reservations', icon: BedDouble, label: 'Reservation Management', roles: ['admin'] },
     { href: '/dashboard/experience-inquiries', icon: Star, label: 'Experience Inquiries', roles: ['admin'] },
     { href: '/dashboard/inquiries', icon: MessageSquare, label: 'Inquiries', roles: ['admin'] },
     { href: '/dashboard/buffet-bookings', icon: Utensils, label: 'Buffet Bookings', roles: ['admin'] },
@@ -84,10 +83,10 @@ export const hrmsMenuItems: MenuItem[] = [
     { href: '/dashboard/hrms/attendance', icon: Clock, label: 'Attendance', roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'] },
     { href: '/dashboard/hrms/daily-workers/requests', icon: Banknote, label: 'Daily Worker Requests', roles: ['admin'] },
     { href: '/dashboard/hrms/daily-workers', icon: HardHat, label: 'Daily Workers', roles: ['admin'] },
-    { href: '/dashboard/hrms/ot', icon: AlarmClock, label: 'My OT Requests', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
-    { href: '/dashboard/hrms/manager-ot-approvals', icon: CheckSquare, label: 'Manager OT Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
-    { href: '/dashboard/hrms/ot-approvals', icon: CheckSquare, label: 'OT Approvals', roles: ['admin'] },
-    { href: '/dashboard/hrms/ot-settings', icon: SlidersHorizontal, label: 'OT Settings', roles: ['admin'] },
+    { href: '/dashboard/hrms/ot', icon: AlarmClock, label: 'My OT Requests', hidden: true, roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/manager-ot-approvals', icon: CheckSquare, label: 'Manager OT Approvals', hidden: true, roles: ['admin', 'waiter', 'kitchen', 'payment'] },
+    { href: '/dashboard/hrms/ot-approvals', icon: CheckSquare, label: 'OT Approvals', hidden: true, roles: ['admin'] },
+    { href: '/dashboard/hrms/ot-settings', icon: SlidersHorizontal, label: 'OT Settings', hidden: true, roles: ['admin'] },
     { href: '/dashboard/settings/roles', icon: ShieldCheck, label: 'Role Permissions', roles: ['admin'] },
     { href: '/dashboard/hrms/petty-cash', icon: Wallet, label: 'My Petty Cash', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
     { href: '/dashboard/hrms/petty-cash-approvals', icon: CheckSquare, label: 'Petty Cash Approvals', roles: ['admin', 'waiter', 'kitchen', 'payment'] },
@@ -95,9 +94,9 @@ export const hrmsMenuItems: MenuItem[] = [
 ];
 
 export const otherMenuItems: MenuItem[] = [
-    { href: '/dashboard/activities', icon: Star, label: 'Activities', roles: ['admin'] },
-    { href: '/dashboard/experiences', icon: Zap, label: 'Experiences', roles: ['admin'] },
-    { href: '/dashboard/blogs', icon: Newspaper, label: 'Blog Management', roles: ['admin'] },
+    { href: '/dashboard/activities', icon: Star, label: 'Activities', hidden: true, roles: ['admin'] },
+    { href: '/dashboard/experiences', icon: Zap, label: 'Experiences', hidden: true, roles: ['admin'] },
+    { href: '/dashboard/blogs', icon: Newspaper, label: 'Blog Management', hidden: true, roles: ['admin'] },
     { href: '/dashboard/reports', icon: BarChart, label: 'Reports', roles: ['admin', 'payment'] },
 ];
 

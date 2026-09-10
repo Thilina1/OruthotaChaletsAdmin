@@ -227,6 +227,9 @@ export default function InventoryManagementPage() {
           <p className="text-muted-foreground">Manage centralized hotel inventory, stores, and stock limits.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/inventory-management/item-masters"><Tag className="mr-2 h-4 w-4" /> Inventory Item Masters</Link>
+          </Button>
           {activeTab === 'inventory' && (
             <Button onClick={() => handleOpenDialog()} variant="secondary">
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Item

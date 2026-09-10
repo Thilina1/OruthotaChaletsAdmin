@@ -25,19 +25,30 @@ export async function GET(request: Request) {
             const search = (searchParams.get('search') || '').trim().toLowerCase();
             const [customersResult, reservationsResult, chaletResult, ordersResult, servicesResult] = await Promise.all([
                 supabase.from('customers').select('*'),
-                supabase.from('reservations').select('customer_id,total_cost,payment_status').in('status', ['checked-in', 'confirmed']),
-                supabase.from('chalet_bookings').select('customer_name,grand_total,payment_status').in('status', ['checked_in', 'confirmed']),
+                supabase.from('reservations').select('customer_id,total_cost,payment_status,check_out_date').in('status', ['checked-in', 'confirmed']),
+                supabase.from('chalet_bookings').select('customer_name,grand_total,payment_status,check_out_date').in('status', ['checked_in', 'confirmed']),
                 supabase.from('orders').select('customer_id,total_price,confirmed_total').in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
                 supabase.from('service_incomes').select('customer_id,amount').eq('payment_status', 'add_to_bill'),
             ]);
             const firstError = [customersResult.error, reservationsResult.error, chaletResult.error, ordersResult.error, servicesResult.error].find(Boolean);
             if (firstError) throw firstError;
 
+            const checkoutDates = new Map<string, string[]>();
+            const addCheckoutDate = (id: string | null, date: string | null) => {
+                if (id && date) checkoutDates.set(id, [...(checkoutDates.get(id) || []), date.slice(0, 10)]);
+            };
             const totals = new Map<string, number>();
+            // Keep checked-in guests available in Find Customer Bill even
+            // after payment reduces their balance to zero. They still need
+            // to remain selectable for printing and the separate checkout
+            // step, and should disappear only once their stay is checked out.
+            const activeStayCustomerIds = new Set<string>();
             const add = (id: string | null, amount: unknown) => {
                 if (id) totals.set(id, (totals.get(id) || 0) + Number(amount || 0));
             };
             reservationsResult.data?.forEach((item: any) => {
+                addCheckoutDate(item.customer_id, item.check_out_date);
+                if (item.customer_id) activeStayCustomerIds.add(item.customer_id);
                 if (item.payment_status !== 'paid') add(item.customer_id, item.total_cost);
             });
             ordersResult.data?.forEach((item: any) => add(item.customer_id, item.confirmed_total ?? item.total_price));
@@ -45,14 +56,17 @@ export async function GET(request: Request) {
 
             const customersByName = new Map((customersResult.data || []).map((customer: any) => [customer.name?.trim().toLowerCase(), customer.id]));
             chaletResult.data?.forEach((item: any) => {
-                if (item.payment_status !== 'paid') add(customersByName.get(item.customer_name?.trim().toLowerCase()) || null, item.grand_total);
+                const customerId = customersByName.get(item.customer_name?.trim().toLowerCase()) || null;
+                addCheckoutDate(customerId, item.check_out_date);
+                if (customerId) activeStayCustomerIds.add(customerId);
+                if (item.payment_status !== 'paid') add(customerId, item.grand_total);
             });
 
             const customers = (customersResult.data || [])
-                .filter((customer: any) => (totals.get(customer.id) || 0) > 0)
+                .filter((customer: any) => (totals.get(customer.id) || 0) > 0 || activeStayCustomerIds.has(customer.id))
                 .filter((customer: any) => !search || [customer.name, customer.id_number, customer.phone, customer.email]
                     .some((value) => String(value || '').toLowerCase().includes(search)))
-                .map((customer: any) => ({ ...customer, outstanding_total: totals.get(customer.id) || 0 }))
+                .map((customer: any) => ({ ...customer, checkout_dates: checkoutDates.get(customer.id) || [], outstanding_total: totals.get(customer.id) || 0 }))
                 .sort((a: any, b: any) => b.outstanding_total - a.outstanding_total);
 
             return NextResponse.json({ customers });

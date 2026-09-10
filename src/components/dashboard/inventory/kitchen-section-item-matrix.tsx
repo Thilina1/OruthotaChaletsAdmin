@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Plus, Search, UtensilsCrossed, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -68,7 +69,7 @@ export function KitchenSectionItemMatrix({
                         <TableHead className="min-w-[260px] font-bold">Kitchen Item</TableHead>
                         {sections.map(section => <TableHead key={section} className="min-w-[135px] text-center font-bold">{section}</TableHead>)}
                     </TableRow></TableHeader>
-                    <TableBody>
+                    <PaginatedTableBody>
                         {filtered.length === 0 ? <TableRow><TableCell colSpan={sections.length + 1} className="h-32 text-center text-muted-foreground">No initialized Kitchen items found.</TableCell></TableRow> : filtered.map(item =>
                             <TableRow key={item.id}>
                                 <TableCell>
@@ -99,7 +100,7 @@ export function KitchenSectionItemMatrix({
                                 })}
                             </TableRow>
                         )}
-                    </TableBody>
+                    </PaginatedTableBody>
                 </Table>
             </div>
         </div>

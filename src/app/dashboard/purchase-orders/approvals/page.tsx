@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -382,7 +383,7 @@ export default function POApprovalsPage() {
                                             <TableHead className="text-right">Subtotal</TableHead>
                                         </TableRow>
                                     </TableHeader>
-                                    <TableBody>
+                                    <PaginatedTableBody>
                                         {viewPO.purchase_order_items.map((item) => (
                                             <TableRow key={item.id}>
                                                 <TableCell>
@@ -416,7 +417,7 @@ export default function POApprovalsPage() {
                                                 LKR {viewPO.purchase_order_items.reduce((sum, item) => sum + (item.total_price || 0), 0).toLocaleString()}
                                             </TableCell>
                                         </TableRow>
-                                    </TableBody>
+                                    </PaginatedTableBody>
                                 </Table>
                             </div>
                         </div>

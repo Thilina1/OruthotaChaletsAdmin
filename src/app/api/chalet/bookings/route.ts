@@ -325,8 +325,17 @@ export async function DELETE(request: Request) {
             .single();
         if (bookingError) throw bookingError;
 
-        const { error } = await supabase.from('chalet_bookings').delete().eq('id', id);
+        if (booking.status === 'checked_in' || booking.status === 'checked_out') {
+            return NextResponse.json({ error: 'Checked-in and checked-out bookings cannot be deleted.' }, { status: 409 });
+        }
+
+        // Check status again in the delete itself in case check-in happened after the read.
+        const { data: deleted, error } = await supabase.from('chalet_bookings')
+            .delete().eq('id', id).not('status', 'in', '(checked_in,checked_out)').select('id');
         if (error) throw error;
+        if (!deleted?.length) {
+            return NextResponse.json({ error: 'This booking could not be deleted. Refresh the bookings to see its current status.' }, { status: 409 });
+        }
         if (booking.status === 'pending') await syncChaletBookingNotifications();
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error: any) {

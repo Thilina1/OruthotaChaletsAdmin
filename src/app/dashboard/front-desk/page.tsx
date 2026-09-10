@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,12 @@ export default function FrontDeskPage() {
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
 
   // Arrivals search & filter
+  const [arrivalFrom, setArrivalFrom] = useState('');
+  const [arrivalTo, setArrivalTo] = useState('');
+  const [inHouseFrom, setInHouseFrom] = useState('');
+  const [inHouseTo, setInHouseTo] = useState('');
+  const [billingFrom, setBillingFrom] = useState('');
+  const [billingTo, setBillingTo] = useState('');
   const [arrivalSearch, setArrivalSearch] = useState('');
   const [arrivalTypeFilter, setArrivalTypeFilter] = useState<'all' | 'reservation' | 'chalet'>('all');
 
@@ -612,6 +619,11 @@ export default function FrontDeskPage() {
         totalPaid: current.totalPaid + current.totalOutstanding,
         totalOutstanding: 0,
       } : current);
+      setCustomers(current => current.map(customer =>
+        customer.id === billData.customer.id
+          ? { ...customer, outstanding_total: 0 }
+          : customer
+      ));
     } catch (error: any) {
       toast({ variant: 'destructive', title: "Error", description: error.message });
     } finally {
@@ -734,7 +746,8 @@ export default function FrontDeskPage() {
     ...chaletArrivals.map((item): ArrivalRow => ({ type: 'chalet', item })),
   ]
     .sort((a, b) => new Date(a.item.check_in_date).getTime() - new Date(b.item.check_in_date).getTime())
-    .filter((row) => matchesRow(row, arrivalSearch, arrivalTypeFilter));
+    .filter((row) => matchesRow(row, arrivalSearch, arrivalTypeFilter))
+    .filter(row => matchesDateRange(row.item.check_in_date, arrivalFrom, arrivalTo));
 
   // Only show guests we can actually check out / bill — i.e. ones with a
   // resolvable customers-table record (reservations always get one during
@@ -747,7 +760,12 @@ export default function FrontDeskPage() {
       .map((item): ArrivalRow => ({ type: 'chalet', item })),
   ]
     .sort((a, b) => new Date(a.item.check_in_date).getTime() - new Date(b.item.check_in_date).getTime())
-    .filter((row) => matchesRow(row, inHouseSearch, inHouseTypeFilter));
+    .filter((row) => matchesRow(row, inHouseSearch, inHouseTypeFilter))
+    .filter(row => (!inHouseFrom || row.item.check_out_date.slice(0, 10) >= inHouseFrom)
+      && (!inHouseTo || row.item.check_in_date.slice(0, 10) <= inHouseTo));
+
+  const billingCustomers = customers.filter(customer => (!billingFrom && !billingTo)
+    || (customer.checkout_dates || []).some((date: string) => matchesDateRange(date, billingFrom, billingTo)));
 
   const rowPrice = (row: ArrivalRow) => row.type === 'reservation' ? Number(row.item.total_cost || 0) : Number(row.item.grand_total || 0);
 
@@ -801,6 +819,7 @@ export default function FrontDeskPage() {
           </TabsList>
 
           <TabsContent value="check-in">
+            <DateRangeFilter label="Arrival date" from={arrivalFrom} to={arrivalTo} onFromChange={setArrivalFrom} onToChange={setArrivalTo} />
             <div className="bg-white rounded-lg shadow border p-4">
               <h2 className="text-lg font-semibold mb-4">
                 Pending Arrivals
@@ -848,7 +867,7 @@ export default function FrontDeskPage() {
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody showSinglePage key={JSON.stringify([arrivalSearch, arrivalTypeFilter, arrivalFrom, arrivalTo])}>
                     {arrivalRows.map((row) => row.type === 'reservation' ? (
                       <TableRow key={`res-${row.item.id}`}>
                         <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
@@ -897,13 +916,14 @@ export default function FrontDeskPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               )}
             </div>
           </TabsContent>
 
           <TabsContent value="in-house">
+            <DateRangeFilter label="Stay overlaps dates" from={inHouseFrom} to={inHouseTo} onFromChange={setInHouseFrom} onToChange={setInHouseTo} />
             <div className="bg-white rounded-lg shadow border p-4">
               <h2 className="text-lg font-semibold mb-4">
                 Checked-In Guests
@@ -951,7 +971,7 @@ export default function FrontDeskPage() {
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody showSinglePage key={JSON.stringify([inHouseSearch, inHouseTypeFilter, inHouseFrom, inHouseTo])}>
                     {inHouseRows.map((row) => row.type === 'reservation' ? (
                       <TableRow key={`res-${row.item.id}`}>
                         <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
@@ -1062,13 +1082,14 @@ export default function FrontDeskPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               )}
             </div>
           </TabsContent>
 
           <TabsContent value="check-out">
+            <DateRangeFilter label="Scheduled checkout date" from={billingFrom} to={billingTo} onFromChange={setBillingFrom} onToChange={setBillingTo} />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="col-span-1 bg-white rounded-lg shadow border p-4">
                 <h2 className="text-lg font-semibold mb-4">Find Customer Bill</h2>
@@ -1091,7 +1112,7 @@ export default function FrontDeskPage() {
                   />
                 </div>
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {customers.map(c => (
+                  {billingCustomers.map(c => (
                     <div 
                       key={c.id} 
                       className={`p-3 border rounded-md cursor-pointer hover:bg-muted ${selectedCustomerForBill?.id === c.id ? 'bg-muted border-primary' : ''}`}
@@ -1104,9 +1125,9 @@ export default function FrontDeskPage() {
                       <div className="mt-2 font-semibold text-primary">LKR {Number(c.outstanding_total || 0).toFixed(2)} due</div>
                     </div>
                   ))}
-                  {customers.length === 0 && (
+                  {billingCustomers.length === 0 && (
                     <div className="py-8 text-center text-sm text-muted-foreground">
-                      {customerSearch ? 'No outstanding customer bills match your search.' : 'No outstanding customer bills.'}
+                      {customerSearch || billingFrom || billingTo ? 'No customer bills match your search or checkout dates.' : 'No outstanding customer bills.'}
                     </div>
                   )}
                 </div>
@@ -1139,14 +1160,14 @@ export default function FrontDeskPage() {
                         <div>
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Room Charges</h3>
                           <Table>
-                            <TableBody>
+                            <PaginatedTableBody showSinglePage>
                               {billData.reservations.map(res => (
                                 <TableRow key={res.id}>
                                   <TableCell>{res.room?.title || 'Room'} ({new Date(res.check_in_date).toLocaleDateString()} to {new Date(res.check_out_date).toLocaleDateString()})</TableCell>
                                   <TableCell className="text-right">LKR {Number(res.total_cost || 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
-                            </TableBody>
+                            </PaginatedTableBody>
                           </Table>
                         </div>
                       )}
@@ -1155,7 +1176,7 @@ export default function FrontDeskPage() {
                         <div>
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Chalet Charges</h3>
                           <Table>
-                            <TableBody>
+                            <PaginatedTableBody showSinglePage>
                               {billData.chaletBookings.map(cb => (
                                 <TableRow key={cb.id}>
                                   <TableCell>
@@ -1170,7 +1191,7 @@ export default function FrontDeskPage() {
                                   <TableCell className="text-right">LKR {Number(cb.grand_total || 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
-                            </TableBody>
+                            </PaginatedTableBody>
                           </Table>
                         </div>
                       )}
@@ -1179,14 +1200,14 @@ export default function FrontDeskPage() {
                         <div>
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Restaurant Orders</h3>
                           <Table>
-                            <TableBody>
+                            <PaginatedTableBody showSinglePage>
                               {billData.orders.map(ord => (
                                 <TableRow key={ord.id}>
                                   <TableCell>Order #{ord.id.substring(0,8).toUpperCase()} ({new Date(ord.created_at || '').toLocaleDateString()})</TableCell>
                                   <TableCell className="text-right">LKR {Number(ord.confirmed_total ?? ord.total_price ?? 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
-                            </TableBody>
+                            </PaginatedTableBody>
                           </Table>
                         </div>
                       )}
@@ -1195,7 +1216,7 @@ export default function FrontDeskPage() {
                         <div>
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Extra Services</h3>
                           <Table>
-                            <TableBody>
+                            <PaginatedTableBody showSinglePage>
                               {billData.serviceIncomes.map(svc => (
                                 <TableRow key={svc.id}>
                                   <TableCell>
@@ -1211,7 +1232,7 @@ export default function FrontDeskPage() {
                                   <TableCell className="text-right">LKR {Number(svc.amount || 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
-                            </TableBody>
+                            </PaginatedTableBody>
                           </Table>
                         </div>
                       )}
@@ -1374,7 +1395,7 @@ export default function FrontDeskPage() {
                       <TableHead className="text-right">Bill</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <PaginatedTableBody showSinglePage key={JSON.stringify([historySearch, historyTypeFilter, historyFrom, historyTo])}>
                     {historyRows.map((row) => row.type === 'reservation' ? (
                       <TableRow key={`res-${row.item.id}`}>
                         <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
@@ -1413,7 +1434,7 @@ export default function FrontDeskPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
+                  </PaginatedTableBody>
                 </Table>
               )}
             </div>
@@ -1975,6 +1996,32 @@ export default function FrontDeskPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function matchesDateRange(date: string, from: string, to: string) {
+  const day = date?.slice(0, 10);
+  return (!from && !to) || (!!day && (!from || day >= from) && (!to || day <= to));
+}
+
+function DateRangeFilter({ label, from, to, onFromChange, onToChange }: {
+  label: string; from: string; to: string;
+  onFromChange: (value: string) => void; onToChange: (value: string) => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-3">
+      <div className="space-y-1">
+        <Label className="block text-xs">{label} — From
+          <Input aria-label={`${label} from`} type="date" className="mt-1 w-44" value={from} max={to || undefined} onChange={event => onFromChange(event.target.value)} />
+        </Label>
+      </div>
+      <div className="space-y-1">
+        <Label className="block text-xs">To
+          <Input aria-label={`${label} to`} type="date" className="mt-1 w-44" value={to} min={from || undefined} onChange={event => onToChange(event.target.value)} />
+        </Label>
+      </div>
+      <Button type="button" variant="outline" disabled={!from && !to} onClick={() => { onFromChange(''); onToChange(''); }}>Clear Dates</Button>
     </div>
   );
 }
