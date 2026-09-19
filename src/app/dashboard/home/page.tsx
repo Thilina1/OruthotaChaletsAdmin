@@ -38,6 +38,7 @@ export default function HomeDashboardPage() {
 
     const canAccess = (item: MenuItem) => {
         if (item.hidden || item.href === '/dashboard/home') return false;
+        if (item.href === '/dashboard/academy') return true;
         if ((user.role === 'admin' && !user.restrict_admin_permissions) || user.inventory_admin === true) return true;
         return hasPathAccess(item.href);
     };

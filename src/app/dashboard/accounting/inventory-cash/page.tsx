@@ -17,9 +17,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
     Banknote, Loader2, RefreshCw, ShoppingCart, CheckCircle2,
-    AlertTriangle, Clock, User, RotateCcw, TrendingUp, Eye, PackageCheck,
+    AlertTriangle, Clock, User, TrendingUp, Eye, PackageCheck,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { InventoryCashPrintButton } from '@/components/dashboard/inventory-cash-print-document';
 
 type LinkedPurchaseOrder = {
     id: string;
@@ -36,7 +37,11 @@ type LinkedPurchaseOrder = {
         unit: string;
         quantity: number;
         unit_price: number | null;
+        received_unit_price?: number | null;
         total_price: number | null;
+        received_total_price?: number | null;
+        discount_amount?: number | null;
+        discount?: number | null;
         received_quantity?: number | null;
         batch_number?: string | null;
         expiry_date?: string | null;
@@ -53,6 +58,9 @@ type CashRequest = {
     issued_amount: number | null;
     spent_amount: number | null;
     returned_amount: number | null;
+    returned_account_id?: string | null;
+    returned_account_transaction_id?: string | null;
+    returned_moved_at?: string | null;
     additional_requested_amount: number | null;
     additional_reason: string | null;
     additional_status: string | null;
@@ -97,9 +105,65 @@ type CreditLiability =
 const fmt = (n: number | null | undefined) =>
     n != null ? `Rs ${Number(n).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
 
+const ROWS_PER_PAGE = 20;
+
+const getReceivedQuantity = (item: LinkedPurchaseOrder['purchase_order_items'][number]) => Number(item.received_quantity ?? item.quantity ?? 0);
+const getReceivedUnitPrice = (item: LinkedPurchaseOrder['purchase_order_items'][number]) => {
+    if (item.received_unit_price != null) return Number(item.received_unit_price);
+    const receivedTotal = item.received_total_price ?? item.total_price;
+    const quantity = getReceivedQuantity(item);
+    if (receivedTotal != null && quantity > 0) return Number(receivedTotal) / quantity;
+    return Number(item.unit_price ?? 0);
+};
+const getGRNGrossTotal = (item: LinkedPurchaseOrder['purchase_order_items'][number]) => getReceivedUnitPrice(item) * getReceivedQuantity(item);
+const getGRNDiscount = (item: LinkedPurchaseOrder['purchase_order_items'][number]) => Math.max(0, Number(item.discount_amount ?? item.discount ?? 0));
+const getGRNLineTotal = (item: LinkedPurchaseOrder['purchase_order_items'][number]) =>
+    Number(item.received_total_price ?? item.total_price ?? Math.max(0, getGRNGrossTotal(item) - getGRNDiscount(item)));
+const getGRNSpentTotal = (po: LinkedPurchaseOrder | null | undefined) =>
+    po?.status === 'received'
+        ? po.purchase_order_items.reduce((sum, item) => sum + getGRNLineTotal(item), 0)
+        : null;
+const getGRNDiscountTotal = (po: LinkedPurchaseOrder | null | undefined) =>
+    po?.status === 'received'
+        ? po.purchase_order_items.reduce((sum, item) => sum + getGRNDiscount(item), 0)
+        : null;
+
+function paginate<T>(items: T[], page: number) {
+    const start = (page - 1) * ROWS_PER_PAGE;
+    return items.slice(start, start + ROWS_PER_PAGE);
+}
+
+function PaginationFooter({
+    page,
+    total,
+    onPageChange,
+    label,
+}: {
+    page: number;
+    total: number;
+    onPageChange: (page: number) => void;
+    label: string;
+}) {
+    if (total <= ROWS_PER_PAGE) return null;
+    const totalPages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
+    const start = (page - 1) * ROWS_PER_PAGE + 1;
+    const end = Math.min(page * ROWS_PER_PAGE, total);
+
+    return (
+        <div className="flex flex-col gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span>Showing {start}-{end} of {total} {label}</span>
+            <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))}>Previous</Button>
+                <span className="min-w-20 text-center font-medium">Page {page} of {totalPages}</span>
+                <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))}>Next</Button>
+            </div>
+        </div>
+    );
+}
+
 function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
     const total = po.purchase_order_items.reduce(
-        (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
+        (sum, item) => sum + Number(item.unit_price ?? 0) * Number(item.quantity),
         0
     );
 
@@ -127,7 +191,7 @@ function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
                     </TableHeader>
                     <TableBody>
                         {po.purchase_order_items.map(item => {
-                            const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
+                            const lineTotal = Number(item.unit_price ?? 0) * Number(item.quantity);
                             return (
                                 <TableRow key={item.id}>
                                     <TableCell>
@@ -154,7 +218,7 @@ function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
 
 function PurchaseOrderGRNPreview({ po }: { po: LinkedPurchaseOrder }) {
     const total = po.purchase_order_items.reduce(
-        (sum, item) => sum + Number(item.unit_price ?? 0) * Number(item.received_quantity ?? item.quantity), 0
+        (sum, item) => sum + getGRNLineTotal(item), 0
     );
     return (
         <div className="overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/30">
@@ -166,21 +230,28 @@ function PurchaseOrderGRNPreview({ po }: { po: LinkedPurchaseOrder }) {
                 <Table>
                     <TableHeader><TableRow>
                         <TableHead>Item</TableHead><TableHead>Batch</TableHead><TableHead>Expiry</TableHead>
-                        <TableHead className="text-right">Received Qty</TableHead><TableHead className="text-right">Unit Price</TableHead><TableHead className="text-right">Line Total</TableHead>
+                        <TableHead className="text-right">Received Qty</TableHead><TableHead className="text-right">PO Unit</TableHead><TableHead className="text-right">GRN Unit</TableHead><TableHead className="text-right">Gross</TableHead><TableHead className="text-right">Discount</TableHead><TableHead className="text-right">Line Total</TableHead>
                     </TableRow></TableHeader>
                     <TableBody>
                         {po.purchase_order_items.map(item => {
-                            const quantity = Number(item.received_quantity ?? item.quantity);
+                            const quantity = getReceivedQuantity(item);
+                            const grnUnitPrice = getReceivedUnitPrice(item);
+                            const gross = getGRNGrossTotal(item);
+                            const discount = getGRNDiscount(item);
+                            const net = getGRNLineTotal(item);
                             return <TableRow key={item.id}>
                                 <TableCell><div className="text-xs font-medium">{item.item_name}</div><div className="text-[10px] text-muted-foreground">{item.unit}</div></TableCell>
                                 <TableCell className="text-xs">{item.batch_number || '—'}</TableCell>
                                 <TableCell className="whitespace-nowrap text-xs">{item.expiry_date ? format(new Date(item.expiry_date), 'dd MMM yyyy') : '—'}</TableCell>
                                 <TableCell className="text-right text-xs">{quantity}</TableCell>
                                 <TableCell className="text-right text-xs">{fmt(item.unit_price)}</TableCell>
-                                <TableCell className="text-right text-xs font-medium">{fmt(Number(item.unit_price ?? 0) * quantity)}</TableCell>
+                                <TableCell className="text-right text-xs">{fmt(grnUnitPrice)}</TableCell>
+                                <TableCell className="text-right text-xs">{fmt(gross)}</TableCell>
+                                <TableCell className="text-right text-xs text-amber-700">{discount > 0 ? `-${fmt(discount)}` : fmt(0)}</TableCell>
+                                <TableCell className="text-right text-xs font-medium">{fmt(net)}</TableCell>
                             </TableRow>;
                         })}
-                        <TableRow className="bg-emerald-50"><TableCell colSpan={5} className="text-right text-xs font-semibold">GRN Total</TableCell><TableCell className="text-right font-bold text-emerald-800">{fmt(total)}</TableCell></TableRow>
+                        <TableRow className="bg-emerald-50"><TableCell colSpan={8} className="text-right text-xs font-semibold">GRN Total</TableCell><TableCell className="text-right font-bold text-emerald-800">{fmt(total)}</TableCell></TableRow>
                     </TableBody>
                 </Table>
             </div>
@@ -231,10 +302,17 @@ export default function AccountingInventoryCashPage() {
     const [purchaseOrders, setPurchaseOrders] = useState<LinkedPurchaseOrder[]>([]);
     const [directGRNs, setDirectGRNs] = useState<DirectGRN[]>([]);
     const [viewingLiability, setViewingLiability] = useState<CreditLiability | null>(null);
+    const [viewingSettledRequest, setViewingSettledRequest] = useState<CashRequest | null>(null);
     const [settlingLiabilityId, setSettlingLiabilityId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('all');
     const [issuanceType, setIssuanceType] = useState<'cash' | 'credit'>('cash');
+    const [cashToIssuePage, setCashToIssuePage] = useState(1);
+    const [creditLiabilitiesPage, setCreditLiabilitiesPage] = useState(1);
+    const [issuedPage, setIssuedPage] = useState(1);
+    const [additionalPage, setAdditionalPage] = useState(1);
+    const [settledPage, setSettledPage] = useState(1);
+    const [settledCreditPage, setSettledCreditPage] = useState(1);
 
     // Issue cash dialog
     const [issueReq, setIssueReq] = useState<CashRequest | null>(null);
@@ -248,6 +326,9 @@ export default function AccountingInventoryCashPage() {
     const [issueAddAccount, setIssueAddAccount] = useState('');
     const [issuingAdd, setIssuingAdd] = useState(false);
     const [accounts, setAccounts] = useState<Account[]>([]);
+    const [moveReturnReq, setMoveReturnReq] = useState<CashRequest | null>(null);
+    const [moveReturnAccount, setMoveReturnAccount] = useState('');
+    const [movingReturn, setMovingReturn] = useState(false);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -292,6 +373,28 @@ export default function AccountingInventoryCashPage() {
             toast({ variant: 'destructive', title: 'Settlement Failed', description: error.message });
         } finally {
             setSettlingLiabilityId(null);
+        }
+    };
+
+    const doMoveReturn = async () => {
+        if (!moveReturnReq) return;
+        setMovingReturn(true);
+        try {
+            const res = await fetch(`/api/admin/inventory-cash-requests/${moveReturnReq.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'move_return', account_id: moveReturnAccount }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to move returned amount.');
+            toast({ title: 'Returned Cash Moved', description: `${fmt(moveReturnReq.returned_amount)} credited to the selected account.` });
+            setMoveReturnReq(null);
+            setMoveReturnAccount('');
+            await fetchData();
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Move Failed', description: error.message });
+        } finally {
+            setMovingReturn(false);
         }
     };
 
@@ -385,11 +488,16 @@ export default function AccountingInventoryCashPage() {
     const cashToIssue = toIssue.filter(request => request.purchase_order?.payment_type !== 'credit');
     const creditLiabilities = useMemo<CreditLiability[]>(() => {
         const poLiabilities: CreditLiability[] = purchaseOrders
-            .filter(po => po.payment_type === 'credit' && ['approved', 'sent', 'received'].includes(po.status))
+            .filter(po => po.payment_type === 'credit' && po.status === 'received')
             .map(po => ({
                 id: `po-${po.id}`, kind: 'po', reference: po.po_number,
                 supplier: po.supplier_name, created_at: po.created_at,
-                amount: po.purchase_order_items.reduce((sum, item) => sum + (item.total_price ?? Number(item.unit_price ?? 0) * Number(item.quantity)), 0),
+                amount: po.purchase_order_items.reduce((sum, item) => {
+                    const quantity = Number(item.received_quantity ?? item.quantity);
+                    const receivedTotal = item.received_total_price ?? item.total_price;
+                    const derivedUnit = receivedTotal != null && quantity > 0 ? Number(receivedTotal) / quantity : Number(item.received_unit_price ?? item.unit_price ?? 0);
+                    return sum + Number(receivedTotal ?? derivedUnit * quantity);
+                }, 0),
                 settled_at: po.liability_settled_at ?? null,
                 po,
             }));
@@ -420,6 +528,32 @@ export default function AccountingInventoryCashPage() {
     const totalSettledCreditDisbursed = settledCreditLiabilities.reduce((sum, liability) => sum + liability.amount, 0);
     const totalDisbursed = totalCashDisbursed + totalSettledCreditDisbursed;
     const totalReturned = settled.reduce((s, r) => s + (r.returned_amount ?? 0), 0);
+    const toIssueActionCount = cashToIssue.length + outstandingCreditLiabilities.length;
+    const settledTotalCount = settled.length + settledCreditLiabilities.length;
+    const paginatedCashToIssue = useMemo(() => paginate(displayedToIssue, cashToIssuePage), [displayedToIssue, cashToIssuePage]);
+    const paginatedCreditLiabilities = useMemo(() => paginate(outstandingCreditLiabilities, creditLiabilitiesPage), [outstandingCreditLiabilities, creditLiabilitiesPage]);
+    const paginatedIssued = useMemo(() => paginate(issued, issuedPage), [issued, issuedPage]);
+    const paginatedAdditionalToIssue = useMemo(() => paginate(additionalToIssue, additionalPage), [additionalToIssue, additionalPage]);
+    const paginatedSettled = useMemo(() => paginate(settled, settledPage), [settled, settledPage]);
+    const paginatedSettledCreditLiabilities = useMemo(() => paginate(settledCreditLiabilities, settledCreditPage), [settledCreditLiabilities, settledCreditPage]);
+
+    useEffect(() => {
+        setCashToIssuePage(1);
+        setCreditLiabilitiesPage(1);
+        setIssuedPage(1);
+        setAdditionalPage(1);
+        setSettledPage(1);
+        setSettledCreditPage(1);
+    }, [dateFilter]);
+
+    useEffect(() => {
+        setCashToIssuePage(page => Math.min(page, Math.max(1, Math.ceil(displayedToIssue.length / ROWS_PER_PAGE))));
+        setCreditLiabilitiesPage(page => Math.min(page, Math.max(1, Math.ceil(outstandingCreditLiabilities.length / ROWS_PER_PAGE))));
+        setIssuedPage(page => Math.min(page, Math.max(1, Math.ceil(issued.length / ROWS_PER_PAGE))));
+        setAdditionalPage(page => Math.min(page, Math.max(1, Math.ceil(additionalToIssue.length / ROWS_PER_PAGE))));
+        setSettledPage(page => Math.min(page, Math.max(1, Math.ceil(settled.length / ROWS_PER_PAGE))));
+        setSettledCreditPage(page => Math.min(page, Math.max(1, Math.ceil(settledCreditLiabilities.length / ROWS_PER_PAGE))));
+    }, [displayedToIssue.length, outstandingCreditLiabilities.length, issued.length, additionalToIssue.length, settled.length, settledCreditLiabilities.length]);
 
     return (
         <div className="space-y-6">
@@ -458,22 +592,22 @@ export default function AccountingInventoryCashPage() {
             </div>
 
             <Tabs defaultValue="to-issue">
-                <TabsList>
+                <TabsList className="flex h-auto flex-wrap justify-start gap-1">
                     <TabsTrigger value="to-issue" className="gap-1">
                         To Issue
-                        {toIssue.length > 0 && <Badge className="h-4 min-w-4 text-[10px] bg-blue-500 text-white">{toIssue.length}</Badge>}
+                        <Badge className="h-4 min-w-4 text-[10px] bg-blue-500 text-white">{toIssueActionCount}</Badge>
                     </TabsTrigger>
                     <TabsTrigger value="issued" className="gap-1">
                         Issued
-                        {issued.length > 0 && <Badge className="h-4 min-w-4 text-[10px] bg-purple-500 text-white">{issued.length}</Badge>}
+                        <Badge className="h-4 min-w-4 text-[10px] bg-purple-500 text-white">{issued.length}</Badge>
                     </TabsTrigger>
                     <TabsTrigger value="additional" className="gap-1">
                         Additional Requests
-                        {additionalToIssue.length > 0 && <Badge className="h-4 min-w-4 text-[10px] bg-orange-500 text-white">{additionalToIssue.length}</Badge>}
+                        <Badge className="h-4 min-w-4 text-[10px] bg-orange-500 text-white">{additionalToIssue.length}</Badge>
                     </TabsTrigger>
                     <TabsTrigger value="settled" className="gap-1">
                         Settled
-                        {(settled.length + settledCreditLiabilities.length) > 0 && <Badge className="h-4 min-w-4 text-[10px] bg-green-600 text-white">{settled.length + settledCreditLiabilities.length}</Badge>}
+                        <Badge className="h-4 min-w-4 text-[10px] bg-green-600 text-white">{settledTotalCount}</Badge>
                     </TabsTrigger>
                 </TabsList>
 
@@ -513,7 +647,7 @@ export default function AccountingInventoryCashPage() {
                                 <div className="flex items-center justify-between gap-4 border-b bg-orange-50 px-4 py-3 text-sm">
                                     <div>
                                         <div className="font-semibold text-orange-800">Outstanding Supplier Liability</div>
-                                        <div className="text-xs text-orange-700">Credit orders are liabilities and do not require cash issuance.</div>
+                                        <div className="text-xs text-orange-700">Only received Credit POs appear here. Approved or sent POs become liabilities after GRN stock-in.</div>
                                     </div>
                                     <div className="text-lg font-bold text-orange-700">{fmt(outstandingCreditLiability)}</div>
                                 </div>
@@ -525,7 +659,7 @@ export default function AccountingInventoryCashPage() {
                             ) : issuanceType === 'credit' ? (
                                 outstandingCreditLiabilities.length === 0 ? (
                                     <div className="py-10 text-center text-muted-foreground text-sm border-t">
-                                        No outstanding Credit POs or direct Credit GRNs found.
+                                        No received Credit POs or direct Credit GRNs are outstanding.
                                     </div>
                                 ) : (
                                     <div className="overflow-x-auto">
@@ -542,7 +676,7 @@ export default function AccountingInventoryCashPage() {
                                                 <TableHead className="text-right">Actions</TableHead>
                                             </TableRow></TableHeader>
                                             <TableBody>
-                                                {outstandingCreditLiabilities.map(liability => (
+                                                {paginatedCreditLiabilities.map(liability => (
                                                     <TableRow key={liability.id}>
                                                         <TableCell>
                                                             <Badge className={liability.kind === 'po' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-orange-100 text-orange-800 border border-orange-200'}>
@@ -592,6 +726,7 @@ export default function AccountingInventoryCashPage() {
                                                 ))}
                                             </TableBody>
                                         </Table>
+                                        <PaginationFooter page={creditLiabilitiesPage} total={outstandingCreditLiabilities.length} onPageChange={setCreditLiabilitiesPage} label="liabilities" />
                                     </div>
                                 )
                             ) : displayedToIssue.length === 0 ? (
@@ -614,7 +749,7 @@ export default function AccountingInventoryCashPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {displayedToIssue.map(req => (
+                                            {paginatedCashToIssue.map(req => (
                                                 <TableRow key={req.id}>
                                                     <TableCell className="font-mono text-xs font-bold">{req.request_number}</TableCell>
                                                     <TableCell>
@@ -642,7 +777,11 @@ export default function AccountingInventoryCashPage() {
                                                         {format(new Date(req.created_at), 'dd MMM yyyy')}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        <Button size="sm" className="h-7 px-3 text-xs" onClick={() => openIssue(req)}>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-7 px-3 text-xs"
+                                                            onClick={() => openIssue(req)}
+                                                        >
                                                             <Banknote className="h-3 w-3 mr-1" />
                                                             Issue Cash
                                                         </Button>
@@ -651,6 +790,7 @@ export default function AccountingInventoryCashPage() {
                                             ))}
                                         </TableBody>
                                     </Table>
+                                    <PaginationFooter page={cashToIssuePage} total={displayedToIssue.length} onPageChange={setCashToIssuePage} label="requests" />
                                 </div>
                             )}
                         </CardContent>
@@ -688,7 +828,7 @@ export default function AccountingInventoryCashPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {issued.map(req => (
+                                            {paginatedIssued.map(req => (
                                                 <TableRow key={req.id}>
                                                     <TableCell className="font-mono text-xs font-bold">{req.request_number}</TableCell>
                                                     <TableCell>
@@ -735,6 +875,7 @@ export default function AccountingInventoryCashPage() {
                                             ))}
                                         </TableBody>
                                     </Table>
+                                    <PaginationFooter page={issuedPage} total={issued.length} onPageChange={setIssuedPage} label="issued requests" />
                                 </div>
                             )}
                         </CardContent>
@@ -775,7 +916,7 @@ export default function AccountingInventoryCashPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {additionalToIssue.map(req => {
+                                            {paginatedAdditionalToIssue.map(req => {
                                                 const overspend = (req.spent_amount ?? 0) - ((req.issued_amount ?? 0));
                                                 return (
                                                     <TableRow key={req.id}>
@@ -796,7 +937,11 @@ export default function AccountingInventoryCashPage() {
                                                             {fmt(req.additional_approved_amount)}
                                                         </TableCell>
                                                         <TableCell className="text-right">
-                                                            <Button size="sm" className="h-7 px-3 text-xs" onClick={() => openIssueAdditional(req)}>
+                                                            <Button
+                                                            size="sm"
+                                                            className="h-7 px-3 text-xs"
+                                                            onClick={() => openIssueAdditional(req)}
+                                                        >
                                                                 <Banknote className="h-3 w-3 mr-1" />
                                                                 Issue Additional
                                                             </Button>
@@ -806,6 +951,7 @@ export default function AccountingInventoryCashPage() {
                                             })}
                                         </TableBody>
                                     </Table>
+                                    <PaginationFooter page={additionalPage} total={additionalToIssue.length} onPageChange={setAdditionalPage} label="additional requests" />
                                 </div>
                             )}
                         </CardContent>
@@ -815,7 +961,7 @@ export default function AccountingInventoryCashPage() {
                 {/* SETTLED */}
                 <TabsContent value="settled">
                     <Tabs defaultValue="settled-requests" className="space-y-4">
-                        <TabsList>
+                        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
                             <TabsTrigger value="settled-requests" className="gap-2">
                                 Settled Requests
                                 <Badge variant="secondary" className="h-5 min-w-5 px-1.5">{settled.length}</Badge>
@@ -851,10 +997,11 @@ export default function AccountingInventoryCashPage() {
                                                 <TableHead className="text-right">Spent</TableHead>
                                                 <TableHead className="text-right">Returned</TableHead>
                                                 <TableHead>Settled On</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {settled.map(req => (
+                                            {paginatedSettled.map(req => (
                                                 <TableRow key={req.id}>
                                                     <TableCell className="font-mono text-xs font-bold">{req.request_number}</TableCell>
                                                     <TableCell>
@@ -872,16 +1019,50 @@ export default function AccountingInventoryCashPage() {
                                                     <TableCell className="text-right text-sm font-medium">
                                                         {fmt(req.spent_amount)}
                                                     </TableCell>
-                                                    <TableCell className="text-right text-sm font-medium text-green-700">
-                                                        {fmt(req.returned_amount)}
+                                                    <TableCell className="text-right text-sm font-medium">
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <span className="text-green-700">{fmt(req.returned_amount)}</span>
+                                                            {Number(req.returned_amount || 0) > 0 && req.returned_account_transaction_id && (
+                                                                <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Moved</Badge>
+                                                            )}
+                                                        </div>
                                                     </TableCell>
                                                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                                         {req.settled_at ? format(new Date(req.settled_at), 'dd MMM yyyy') : '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            {Number(req.returned_amount || 0) > 0 && !req.returned_account_transaction_id && (
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    className="h-7 gap-1 px-2 text-xs"
+                                                                    onClick={() => {
+                                                                        setMoveReturnReq(req);
+                                                                        setMoveReturnAccount('');
+                                                                    }}
+                                                                >
+                                                                    <Banknote className="h-3 w-3" />
+                                                                    Move Return
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                type="button"
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 gap-1 px-2 text-xs"
+                                                                onClick={() => setViewingSettledRequest(req)}
+                                                            >
+                                                                <Eye className="h-3 w-3" />
+                                                                View
+                                                            </Button>
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
                                     </Table>
+                                    <PaginationFooter page={settledPage} total={settled.length} onPageChange={setSettledPage} label="settled requests" />
                                 </div>
                             )}
                         </CardContent>
@@ -889,9 +1070,51 @@ export default function AccountingInventoryCashPage() {
                         </TabsContent>
                         <TabsContent value="settled-credit-liabilities">
                     <Card>
-                        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Settled Credit Liabilities</CardTitle><CardDescription>Credit POs and direct Credit GRNs that have been paid and settled.</CardDescription></CardHeader>
+                        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Settled Credit Liabilities</CardTitle><CardDescription>Received Credit POs and direct Credit GRNs that have been paid and settled.</CardDescription></CardHeader>
                         <CardContent className="p-0">
-                            {loading ? <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div> : settledCreditLiabilities.length === 0 ? <div className="border-t py-10 text-center text-sm text-muted-foreground">No settled credit liabilities yet.</div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Source</TableHead><TableHead>Reference</TableHead><TableHead>Related PO</TableHead><TableHead>Supplier</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Settled On</TableHead><TableHead className="text-right">Details</TableHead></TableRow></TableHeader><TableBody>{settledCreditLiabilities.map(liability => <TableRow key={liability.id}><TableCell><Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">{liability.kind === 'po' ? 'Credit PO' : 'Direct Credit GRN'}</Badge></TableCell><TableCell className="font-mono text-xs font-bold">{liability.reference}</TableCell><TableCell className="font-mono text-xs">{liability.kind === 'po' ? liability.po.po_number : '—'}</TableCell><TableCell className="text-sm">{liability.supplier || '—'}</TableCell><TableCell className="text-right text-sm font-bold text-emerald-700">{fmt(liability.amount)}</TableCell><TableCell className="whitespace-nowrap text-xs text-muted-foreground">{liability.settled_at ? format(new Date(liability.settled_at), 'dd MMM yyyy, HH:mm') : '—'}</TableCell><TableCell className="text-right"><Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => setViewingLiability(liability)}><Eye className="h-3 w-3" /> View</Button></TableCell></TableRow>)}</TableBody></Table></div>}
+                            {loading ? (
+                                <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+                                    <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+                                </div>
+                            ) : settledCreditLiabilities.length === 0 ? (
+                                <div className="border-t py-10 text-center text-sm text-muted-foreground">No settled credit liabilities yet.</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Source</TableHead>
+                                                <TableHead>Reference</TableHead>
+                                                <TableHead>Related PO</TableHead>
+                                                <TableHead>Supplier</TableHead>
+                                                <TableHead className="text-right">Amount</TableHead>
+                                                <TableHead>Settled On</TableHead>
+                                                <TableHead className="text-right">Details</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {paginatedSettledCreditLiabilities.map(liability => (
+                                                <TableRow key={liability.id}>
+                                                    <TableCell>
+                                                        <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">{liability.kind === 'po' ? 'Credit PO' : 'Direct Credit GRN'}</Badge>
+                                                    </TableCell>
+                                                    <TableCell className="font-mono text-xs font-bold">{liability.reference}</TableCell>
+                                                    <TableCell className="font-mono text-xs">{liability.kind === 'po' ? liability.po.po_number : '—'}</TableCell>
+                                                    <TableCell className="text-sm">{liability.supplier || '—'}</TableCell>
+                                                    <TableCell className="text-right text-sm font-bold text-emerald-700">{fmt(liability.amount)}</TableCell>
+                                                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{liability.settled_at ? format(new Date(liability.settled_at), 'dd MMM yyyy, HH:mm') : '—'}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => setViewingLiability(liability)}>
+                                                            <Eye className="h-3 w-3" /> View
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                    <PaginationFooter page={settledCreditPage} total={settledCreditLiabilities.length} onPageChange={setSettledCreditPage} label="settled liabilities" />
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                         </TabsContent>
@@ -921,6 +1144,94 @@ export default function AccountingInventoryCashPage() {
                         )}
                         {viewingLiability?.kind === 'grn' && <DirectGRNPreview grn={viewingLiability.grn} />}
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!viewingSettledRequest} onOpenChange={open => { if (!open) setViewingSettledRequest(null); }}>
+                <DialogContent className="flex h-[80vh] w-[calc(100vw-2rem)] max-w-[920px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]">
+                    <DialogHeader className="shrink-0 border-b bg-slate-50/80 px-5 py-4 pr-12">
+                        <DialogTitle className="flex items-center gap-2 text-base">
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            Settled Request Details
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                            {viewingSettledRequest?.request_number}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-xs [&_td]:py-2 [&_td]:text-xs [&_th]:h-8 [&_th]:py-1 [&_th]:text-[10px] [&_p]:leading-tight">
+                        {viewingSettledRequest && <div className="flex justify-end"><InventoryCashPrintButton request={viewingSettledRequest} /></div>}
+                        <div className="grid gap-3 rounded-lg border bg-slate-50 p-3 sm:grid-cols-4 lg:grid-cols-6">
+                            <div><div className="text-[10px] uppercase text-muted-foreground">Issued</div><div className="font-semibold">{fmt(((viewingSettledRequest?.issued_amount ?? 0) + (viewingSettledRequest?.additional_issued_amount ?? 0)) || null)}</div></div>
+                            <div><div className="text-[10px] uppercase text-muted-foreground">Spent</div><div className="font-semibold">{fmt(viewingSettledRequest?.spent_amount)}</div></div>
+                            <div><div className="text-[10px] uppercase text-muted-foreground">Returned</div><div className="font-semibold">{fmt(viewingSettledRequest?.returned_amount)}</div></div>
+                            <div><div className="text-[10px] uppercase text-muted-foreground">Settled On</div><div className="font-semibold">{viewingSettledRequest?.settled_at ? format(new Date(viewingSettledRequest.settled_at), 'dd MMM yyyy') : '—'}</div></div>
+                            {viewingSettledRequest?.purchase_order?.status === 'received' && (
+                                <>
+                                    <div><div className="text-[10px] uppercase text-muted-foreground">GRN Spent</div><div className="font-semibold text-blue-700">{fmt(getGRNSpentTotal(viewingSettledRequest.purchase_order))}</div></div>
+                                    <div><div className="text-[10px] uppercase text-muted-foreground">Discounts</div><div className="font-semibold text-amber-700">{fmt(getGRNDiscountTotal(viewingSettledRequest.purchase_order))}</div></div>
+                                </>
+                            )}
+                        </div>
+                        {viewingSettledRequest?.purchase_order ? (
+                            <>
+                                <PurchaseOrderPreview po={viewingSettledRequest.purchase_order} />
+                                {viewingSettledRequest.purchase_order.status === 'received' && (
+                                    <PurchaseOrderGRNPreview po={viewingSettledRequest.purchase_order} />
+                                )}
+                            </>
+                        ) : (
+                            <div className="rounded-lg border py-10 text-center text-sm text-muted-foreground">
+                                No purchase order is linked to this settled request.
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!moveReturnReq} onOpenChange={open => { if (!open && !movingReturn) { setMoveReturnReq(null); setMoveReturnAccount(''); } }}>
+                <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Banknote className="h-5 w-5 text-green-600" />
+                            Move Returned Cash
+                        </DialogTitle>
+                        <DialogDescription>
+                            {moveReturnReq?.request_number} — returned amount {fmt(moveReturnReq?.returned_amount)}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        {issueReq && <div className="flex justify-end"><InventoryCashPrintButton request={issueReq} /></div>}
+                        <div className="rounded-lg border bg-green-50 p-3 text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Employee</span>
+                                <span className="font-medium">{moveReturnReq?.requested_by_user?.name ?? '—'}</span>
+                            </div>
+                            <div className="mt-1 flex justify-between">
+                                <span className="text-muted-foreground">Returned</span>
+                                <span className="font-bold text-green-700">{fmt(moveReturnReq?.returned_amount)}</span>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Destination Account</Label>
+                            <Select value={moveReturnAccount} onValueChange={setMoveReturnAccount}>
+                                <SelectTrigger><SelectValue placeholder="Select account to receive returned cash" /></SelectTrigger>
+                                <SelectContent>
+                                    {accounts.map(account => (
+                                        <SelectItem key={account.id} value={account.id}>
+                                            {account.name} — {fmt(account.current_balance)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setMoveReturnReq(null); setMoveReturnAccount(''); }} disabled={movingReturn}>Cancel</Button>
+                        <Button onClick={doMoveReturn} disabled={movingReturn || !moveReturnAccount}>
+                            {movingReturn && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                            Move {moveReturnReq?.returned_amount ? fmt(moveReturnReq.returned_amount) : ''}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 

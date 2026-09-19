@@ -46,7 +46,7 @@ function assignDepartment(category: string, source?: string): string {
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
 );
 
 export async function GET(request: Request) {
@@ -85,19 +85,22 @@ export async function GET(request: Request) {
             payrollRes,
             dailyPaymentsRes,
             inventoryIssuesRes,
+            accountTransactionsRes,
+            guestBillsRes,
+            eventPaymentsRes,
         ] = await Promise.all([
             applyDate(supabase.from('expenses').select('id,description,amount,category,date').order('date', { ascending: false }), 'date'),
             applyDate(supabase.from('other_incomes').select('id,description,amount,source,date').order('date', { ascending: false }), 'date'),
             applyDate(
-                supabase.from('service_incomes').select('id,description,amount,service_type,date,customer_name,payment_status').eq('payment_status', 'paid').order('date', { ascending: false }),
+                supabase.from('service_incomes').select('id,description,amount,service_type,date,customer_name,payment_status,payment_method').eq('payment_status', 'paid').order('date', { ascending: false }),
                 'date'
             ),
             applyDate(
-                supabase.from('reservations').select('id,guest_name,total_cost,check_out_date,status').eq('status', 'completed').order('check_out_date', { ascending: false }),
+                supabase.from('reservations').select('id,guest_name,total_cost,check_out_date,status,payment_method').eq('status', 'completed').order('check_out_date', { ascending: false }),
                 'check_out_date'
             ),
             applyDate(
-                supabase.from('orders').select('id,total_price,confirmed_total,table_number,status,created_at').eq('status', 'closed').order('created_at', { ascending: false }),
+                supabase.from('orders').select('id,total_price,confirmed_total,table_number,status,created_at,payment_method').eq('status', 'closed').order('created_at', { ascending: false }),
                 'created_at'
             ),
             // Payroll: true employer cost = net_salary + epf_employee_8 + epf_employer_12 + etf_employer_3
@@ -119,9 +122,57 @@ export async function GET(request: Request) {
                     .order('created_at', { ascending: false }),
                 'created_at'
             ),
+            applyDate(
+                supabase.from('account_transactions')
+                    .select('id,account_id,type,amount,description,reference,date,balance_after,created_at,account:accounts(name,type)')
+                    .order('date', { ascending: false })
+                    .order('created_at', { ascending: false }),
+                'date'
+            ),
+            applyDate(
+                supabase.from('guest_bill_history')
+                    .select('id,bill_number,total,payment_method,items,paid_at,customer:customers(name)')
+                    .order('paid_at', { ascending: false }),
+                'paid_at'
+            ),
+            applyDate(
+                supabase.from('event_payments')
+                    .select('id,receipt_number,payer_name,amount,payment_method,payment_type,paid_at,event:events(name)')
+                    .order('paid_at', { ascending: false }),
+                'paid_at'
+            ),
         ]);
 
         // --- Income ---
+        const guestBillSourceIds = new Set<string>();
+        const frontDeskIncomes = (guestBillsRes.data || []).flatMap((bill: any) => {
+            if (bill.payment_method === 'card') return [];
+            const paidDate = (bill.paid_at || '').split('T')[0];
+            const items = Array.isArray(bill.items) ? bill.items : [];
+            return items.map((item: any, index: number) => {
+                if (item.source_id) guestBillSourceIds.add(String(item.source_id));
+                const category = item.category === 'Room'
+                    ? 'Room Income'
+                    : item.category === 'Restaurant'
+                        ? 'Restaurant Income'
+                        : item.category === 'Chalet'
+                            ? 'Room Income'
+                            : 'Service Income';
+                const source = item.category === 'Chalet' ? 'Chalet' : item.category || 'Front Desk';
+                return {
+                    id: `${bill.id}-${index}`,
+                    type: 'income' as const,
+                    description: item.description || `Front Desk ${source}`,
+                    amount: Number(item.amount || 0),
+                    category,
+                    date: paidDate,
+                    source: `Front Desk ${source}`,
+                    meta: `${bill.bill_number} · ${bill.payment_method}${bill.customer?.name ? ` · ${bill.customer.name}` : ''}`,
+                    department: assignDepartment(category, source),
+                };
+            });
+        }).filter((row: any) => row.amount !== 0);
+
         const otherIncomes = (otherIncomesRes.data || []).map((r: any) => ({
             id: r.id, type: 'income' as const,
             description: r.description, amount: Number(r.amount),
@@ -129,7 +180,55 @@ export async function GET(request: Request) {
             department: assignDepartment('Other Income', r.source),
         }));
 
-        const serviceIncomes = (serviceIncomesRes.data || []).map((r: any) => {
+        const eventIncomes = (eventPaymentsRes.data || []).map((r: any) => {
+            if (r.payment_method === 'card') return null;
+            const amount = Number(r.amount || 0) * (r.payment_type === 'refund' ? -1 : 1);
+            return {
+                id: `event-${r.id}`,
+                type: 'income' as const,
+                description: `Event: ${r.event?.name || r.receipt_number || 'Payment'}`,
+                amount,
+                category: 'Event Income',
+                date: (r.paid_at || '').split('T')[0],
+                source: 'Event',
+                meta: `${r.receipt_number || 'Receipt'} · ${r.payment_method || 'payment'}${r.payer_name ? ` · ${r.payer_name}` : ''}`,
+                department: 'Events',
+            };
+        }).filter((row: any) => row && row.amount !== 0);
+
+        const cardPaymentIncomes = (accountTransactionsRes.data || []).filter((tx: any) =>
+            tx.type === 'credit' && String(tx.description || '').toLowerCase().includes('card payment')
+        ).map((tx: any) => {
+            const description = String(tx.description || '');
+            const lower = description.toLowerCase();
+            const category = lower.includes('restaurant')
+                ? 'Restaurant Income'
+                : lower.includes('front desk')
+                    ? 'Room Income'
+                    : lower.includes('event')
+                        ? 'Event Income'
+                        : 'Service Income';
+            const source = lower.includes('restaurant')
+                ? 'Restaurant Card'
+                : lower.includes('front desk')
+                    ? 'Front Desk Card'
+                    : lower.includes('event')
+                        ? 'Event Card'
+                        : 'Services Card';
+            return {
+                id: `card-${tx.id}`,
+                type: 'income' as const,
+                description,
+                amount: Number(tx.amount || 0),
+                category,
+                date: tx.date,
+                source,
+                meta: `${tx.reference || 'Card payment'} · ${tx.account?.name || 'Account'}`,
+                department: assignDepartment(category, source),
+            };
+        });
+
+        const serviceIncomes = (serviceIncomesRes.data || []).filter((r: any) => r.payment_method !== 'card' && !guestBillSourceIds.has(String(r.id))).map((r: any) => {
             const source = r.service_type ? r.service_type.replace(/_/g, ' ') : 'Service';
             return {
                 id: r.id, type: 'income' as const,
@@ -140,7 +239,7 @@ export async function GET(request: Request) {
             };
         });
 
-        const reservationIncomes = (reservationsRes.data || []).map((r: any) => ({
+        const reservationIncomes = (reservationsRes.data || []).filter((r: any) => r.payment_method !== 'card' && !guestBillSourceIds.has(String(r.id))).map((r: any) => ({
             id: r.id, type: 'income' as const,
             description: `Room: ${r.guest_name || 'Guest'}`, amount: Number(r.total_cost || 0),
             category: 'Room Income', date: r.check_out_date || new Date().toISOString().split('T')[0],
@@ -148,7 +247,7 @@ export async function GET(request: Request) {
             department: 'Rooms',
         }));
 
-        const orderIncomes = (ordersRes.data || []).map((r: any) => ({
+        const orderIncomes = (ordersRes.data || []).filter((r: any) => r.payment_method !== 'card' && !guestBillSourceIds.has(String(r.id))).map((r: any) => ({
             id: r.id, type: 'income' as const,
             description: r.table_number ? `Restaurant — Table ${r.table_number}` : 'Restaurant Order',
             amount: Number(r.confirmed_total || r.total_price || 0),
@@ -308,7 +407,7 @@ export async function GET(request: Request) {
             // Column not yet migrated — skip silently
         }
 
-        const allIncomes = [...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
+        const allIncomes = [...cardPaymentIncomes, ...frontDeskIncomes, ...eventIncomes, ...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
         const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs, ...cashPurchaseExpenses, ...inventoryLossExpenses];
 
         const totalIncome = allIncomes.reduce((s, r) => s + r.amount, 0);
@@ -342,12 +441,13 @@ export async function GET(request: Request) {
             .sort((a, b) => b.income - a.income);
 
         return NextResponse.json({
-            summary: { totalIncome, totalExpenses, netPL },
+            summary: { totalIncome, totalEarnings: totalIncome, totalExpenses, netPL },
             incomeByCategory,
             expenseByCategory,
             departmentPL,
             incomes: allIncomes,
             expenses: allExpenses,
+            accountTransactions: accountTransactionsRes.data || [],
         });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-type Line = { id: string; name: string; code?: string | null; unit?: string; quantity: number; unit_price: number | null; batch_number?: string | null; expiry_date?: string | null };
+type Line = { id: string; name: string; code?: string | null; unit?: string; quantity: number; unit_price: number | null; received_unit_price?: number | null; total_price?: number | null; received_total_price?: number | null; discount_amount?: number | null; batch_number?: string | null; expiry_date?: string | null };
 type Liability = {
     id: string; kind: 'po' | 'grn'; reference: string; relatedPO: string | null;
     supplier: string | null; createdAt: string; settledAt: string | null; status?: string;
@@ -37,7 +37,7 @@ export function CreditLiabilitiesPanel() {
             ]);
             const [poData, grnData] = await Promise.all([poRes.json(), grnRes.json()]);
             const creditPOs: Liability[] = (poData.purchase_orders ?? [])
-                .filter((po: any) => po.payment_type === 'credit' && ['approved', 'sent', 'received'].includes(po.status))
+                .filter((po: any) => po.payment_type === 'credit' && po.status === 'received')
                 .map((po: any) => ({
                     id: `po-${po.id}`, kind: 'po', reference: po.po_number, relatedPO: po.po_number,
                     supplier: po.supplier_name, createdAt: po.created_at, settledAt: po.liability_settled_at ?? null,
@@ -45,6 +45,10 @@ export function CreditLiabilitiesPanel() {
                     lines: (po.purchase_order_items ?? []).map((item: any) => ({
                         id: item.id, name: item.item_name, unit: item.unit,
                         quantity: Number(item.received_quantity ?? item.quantity), unit_price: item.unit_price,
+                        received_unit_price: item.received_unit_price,
+                        total_price: item.total_price,
+                        received_total_price: item.received_total_price,
+                        discount_amount: item.discount_amount,
                         batch_number: item.batch_number, expiry_date: item.expiry_date,
                     })),
                 }));
@@ -57,6 +61,7 @@ export function CreditLiabilitiesPanel() {
                     lines: (grn.items ?? []).map((item: any) => ({
                         id: item.id, name: item.item?.name || 'Unknown item', code: item.item?.code,
                         quantity: Number(item.quantity), unit_price: item.unit_price,
+                        total_price: item.total_price,
                         batch_number: item.batch_number, expiry_date: item.expiry_date,
                     })),
                 }));
@@ -67,7 +72,16 @@ export function CreditLiabilitiesPanel() {
     }, []);
 
     useEffect(() => { load(); }, [load]);
-    const total = (liability: Liability) => liability.lines.reduce((sum, line) => sum + Number(line.unit_price ?? 0) * line.quantity, 0);
+    const receivedUnitPrice = (line: Line) => {
+        if (line.received_unit_price != null) return Number(line.received_unit_price);
+        const receivedTotal = line.received_total_price ?? line.total_price;
+        if (receivedTotal != null && line.quantity > 0) return Number(receivedTotal) / line.quantity;
+        return Number(line.unit_price ?? 0);
+    };
+    const gross = (line: Line) => receivedUnitPrice(line) * line.quantity;
+    const discount = (line: Line) => Math.max(0, Number(line.discount_amount ?? 0));
+    const net = (line: Line) => Number(line.received_total_price ?? line.total_price ?? Math.max(0, gross(line) - discount(line)));
+    const total = (liability: Liability) => liability.lines.reduce((sum, line) => sum + net(line), 0);
     const outstanding = useMemo(() => liabilities.filter(item => !item.settledAt), [liabilities]);
     const settled = useMemo(() => liabilities.filter(item => !!item.settledAt), [liabilities]);
     const displayedLiabilities = useMemo(() => {
@@ -91,7 +105,7 @@ export function CreditLiabilitiesPanel() {
             <Card>
                 <CardHeader className="pb-3">
                     <div className="flex items-center justify-between gap-3">
-                        <div><CardTitle className="text-base text-orange-800">Credit Liabilities</CardTitle><CardDescription>Credit POs and standalone Credit GRNs.</CardDescription></div>
+                        <div><CardTitle className="text-base text-orange-800">Credit Liabilities</CardTitle><CardDescription>Received Credit POs and standalone Credit GRNs.</CardDescription></div>
                         <div className="flex items-center gap-2">
                             <Badge className="bg-orange-100 text-orange-800 border border-orange-200">{outstanding.length} Outstanding · {money(outstanding.reduce((sum, item) => sum + total(item), 0))}</Badge>
                             <Button size="sm" variant="outline" className="h-8" onClick={load} disabled={loading}><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /></Button>
@@ -144,9 +158,9 @@ export function CreditLiabilitiesPanel() {
                             <div><div className="text-[10px] uppercase text-muted-foreground">Date</div><div className="font-semibold">{format(new Date(selected.createdAt), 'dd MMM yyyy')}</div></div>
                             <div><div className="text-[10px] uppercase text-muted-foreground">Status</div><div className="font-semibold">{selected.settledAt ? `Settled ${format(new Date(selected.settledAt), 'dd MMM yyyy')}` : 'Outstanding'}</div></div>
                         </div>
-                        <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Batch</TableHead><TableHead>Expiry</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Unit Price</TableHead><TableHead className="text-right">Line Total</TableHead></TableRow></TableHeader><TableBody>
-                            {selected.lines.map(line => <TableRow key={line.id}><TableCell className="py-2 text-xs font-medium">{line.name}<div className="text-[10px] text-muted-foreground">{line.code || line.unit || ''}</div></TableCell><TableCell className="py-2 text-xs">{line.batch_number || '—'}</TableCell><TableCell className="py-2 text-xs">{line.expiry_date ? format(new Date(line.expiry_date), 'dd MMM yyyy') : '—'}</TableCell><TableCell className="py-2 text-right text-xs">{line.quantity}</TableCell><TableCell className="py-2 text-right text-xs">{money(line.unit_price)}</TableCell><TableCell className="py-2 text-right text-xs font-bold">{money(Number(line.unit_price ?? 0) * line.quantity)}</TableCell></TableRow>)}
-                            <TableRow className="bg-orange-50"><TableCell colSpan={5} className="text-right text-xs font-bold">Total Liability</TableCell><TableCell className="text-right font-bold text-orange-800">{money(total(selected))}</TableCell></TableRow>
+                        <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Batch</TableHead><TableHead>Expiry</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">PO Unit</TableHead><TableHead className="text-right">GRN Unit</TableHead><TableHead className="text-right">Gross</TableHead><TableHead className="text-right">Discount</TableHead><TableHead className="text-right">Line Total</TableHead></TableRow></TableHeader><TableBody>
+                            {selected.lines.map(line => <TableRow key={line.id}><TableCell className="py-2 text-xs font-medium">{line.name}<div className="text-[10px] text-muted-foreground">{line.code || line.unit || ''}</div></TableCell><TableCell className="py-2 text-xs">{line.batch_number || '—'}</TableCell><TableCell className="py-2 text-xs">{line.expiry_date ? format(new Date(line.expiry_date), 'dd MMM yyyy') : '—'}</TableCell><TableCell className="py-2 text-right text-xs">{line.quantity}</TableCell><TableCell className="py-2 text-right text-xs">{money(line.unit_price)}</TableCell><TableCell className="py-2 text-right text-xs">{money(receivedUnitPrice(line))}</TableCell><TableCell className="py-2 text-right text-xs">{money(gross(line))}</TableCell><TableCell className="py-2 text-right text-xs text-amber-700">{discount(line) > 0 ? `-${money(discount(line))}` : money(0)}</TableCell><TableCell className="py-2 text-right text-xs font-bold">{money(net(line))}</TableCell></TableRow>)}
+                            <TableRow className="bg-orange-50"><TableCell colSpan={8} className="text-right text-xs font-bold">Total Liability</TableCell><TableCell className="text-right font-bold text-orange-800">{money(total(selected))}</TableCell></TableRow>
                         </TableBody></Table></div>
                         {selected.notes && <div className="mt-3 rounded border p-3 text-xs text-muted-foreground">Notes: {selected.notes}</div>}
                     </div>}

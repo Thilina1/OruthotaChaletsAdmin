@@ -112,6 +112,10 @@ export default function FrontDeskPage() {
   const [otherChargeDesc, setOtherChargeDesc] = useState('');
   const [otherChargeAmount, setOtherChargeAmount] = useState('');
   const [isAddingCharge, setIsAddingCharge] = useState(false);
+  const [discountDesc, setDiscountDesc] = useState('');
+  const [discountAmount, setDiscountAmount] = useState('');
+  const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('fixed');
+  const [isAddingDiscount, setIsAddingDiscount] = useState(false);
 
   // Quick check-out from the Checked-In Guests list
   const [checkoutRow, setCheckoutRow] = useState<ArrivalRow | null>(null);
@@ -464,6 +468,60 @@ export default function FrontDeskPage() {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
     } finally {
       setIsAddingCharge(false);
+    }
+  };
+
+  const handleAddDiscount = async () => {
+    if (!billData || !discountDesc.trim() || !discountAmount) return;
+    const value = parseFloat(discountAmount);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast({ variant: 'destructive', title: 'Invalid Discount', description: 'Enter a discount amount greater than zero.' });
+      return;
+    }
+
+    const resolvedAmount = discountType === 'percentage'
+      ? billData.totalOutstanding * value / 100
+      : value;
+
+    if (discountType === 'percentage' && value > 100) {
+      toast({ variant: 'destructive', title: 'Invalid Discount', description: 'Percentage discount cannot be more than 100%.' });
+      return;
+    }
+
+    if (resolvedAmount > billData.totalOutstanding) {
+      toast({ variant: 'destructive', title: 'Invalid Discount', description: 'Discount cannot be greater than the current outstanding bill.' });
+      return;
+    }
+
+    setIsAddingDiscount(true);
+    try {
+      const res = await fetch('/api/admin/service-incomes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: discountType === 'percentage'
+            ? `${discountDesc.trim()} (${value}% discount)`
+            : discountDesc.trim(),
+          amount: -Math.abs(resolvedAmount),
+          service_type: 'Discount',
+          date: new Date().toISOString().split('T')[0],
+          customer_id: billData.customer.id,
+          customer_name: billData.customer.name,
+          payment_status: 'add_to_bill',
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      toast({ title: 'Discount Added', description: `${discountDesc.trim()} applied to the bill.` });
+      setDiscountDesc('');
+      setDiscountAmount('');
+      setDiscountType('fixed');
+      handleSelectCustomerForBill(billData.customer);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+    } finally {
+      setIsAddingDiscount(false);
     }
   };
 
@@ -1261,6 +1319,45 @@ export default function FrontDeskPage() {
                             disabled={isAddingCharge || !otherChargeDesc.trim() || !otherChargeAmount}
                           >
                             {isAddingCharge ? 'Adding...' : 'Add to Bill'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="pt-6 border-t print:hidden">
+                        <h3 className="font-semibold text-lg mb-3">Add Discount</h3>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
+                          <Input
+                            placeholder="Discount name (e.g. Loyalty Discount)"
+                            value={discountDesc}
+                            onChange={(e) => setDiscountDesc(e.target.value)}
+                            className="sm:col-span-5"
+                          />
+                          <Select value={discountType} onValueChange={(value) => setDiscountType(value as 'fixed' | 'percentage')}>
+                            <SelectTrigger className="sm:col-span-3">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="fixed">Fixed (LKR)</SelectItem>
+                              <SelectItem value="percentage">Percentage</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={discountType === 'percentage' ? 100 : undefined}
+                            step="0.01"
+                            placeholder={discountType === 'percentage' ? '%' : 'Amount'}
+                            value={discountAmount}
+                            onChange={(e) => setDiscountAmount(e.target.value)}
+                            className="sm:col-span-2"
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={handleAddDiscount}
+                            disabled={isAddingDiscount || !discountDesc.trim() || !discountAmount || billData.totalOutstanding <= 0}
+                            className="sm:col-span-2"
+                          >
+                            {isAddingDiscount ? 'Adding...' : 'Add Discount'}
                           </Button>
                         </div>
                       </div>

@@ -8,7 +8,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
-    : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
 export async function GET(request: Request) {
     try {
@@ -108,6 +108,19 @@ export async function POST(request: Request) {
         const userId = decoded.userId || decoded.id || decoded.sub;
         const isImmediate = body.immediate && ['transfer', 'audit_adjustment', 'issue', 'damage', 'expired', 'initial_stock'].includes(request_type);
 
+        if (request_type === 'TRANSFER_REQUEST' && action_metadata?.requesting_department_id) {
+            const { data: requestingDept, error: deptError } = await supabase
+                .from('inventory_departments')
+                .select('name')
+                .eq('id', action_metadata.requesting_department_id)
+                .maybeSingle();
+            if (deptError) throw deptError;
+            const deptName = requestingDept?.name?.toLowerCase() || '';
+            if (deptName.includes('store') || deptName.includes('warehouse')) {
+                return NextResponse.json({ error: 'Main Store cannot create MRN requests. Select another requesting department.' }, { status: 400 });
+            }
+        }
+
         const dataToSave: any = {
             request_type,
             item_id: request_type === 'NEW_ITEM' ? null : item_id,
@@ -140,6 +153,10 @@ export async function POST(request: Request) {
             const source_warehouse_id = body.warehouse_id;
             const target_warehouse_id = body.to_warehouse_id || action_metadata?.transfer_to_warehouse_id;
             const selected_batch_id = batch_id || null;
+
+            if (request_type === 'transfer' && target_warehouse_id && source_warehouse_id === target_warehouse_id) {
+                return NextResponse.json({ error: 'Source and destination warehouses must be different.' }, { status: 400 });
+            }
 
             if (!item_id || !source_warehouse_id) {
                 return NextResponse.json({ error: 'Missing metadata for immediate processing' }, { status: 400 });

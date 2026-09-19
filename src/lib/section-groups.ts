@@ -9,8 +9,10 @@ export const APP_SECTION_GROUPS = [
     name: 'Customers',
     sections: [
       { path: '/dashboard/front-desk', label: 'Front Desk (Check In/Out)' },
+      { path: '/dashboard/front-desk-account', label: 'Front Desk Account' },
       { path: '/dashboard/customers', label: 'All Customers' },
       { path: '/dashboard/loyalty', label: 'Loyalty Customers' },
+      { path: '/dashboard/loyalty-discounts', label: 'Loyalty Discounts' },
     ],
   },
   {
@@ -98,11 +100,14 @@ export const APP_SECTION_GROUPS = [
   {
     name: 'Event Management',
     sections: [
-      { path: '/dashboard/event-management/account', label: 'Event Account' },
       { path: '/dashboard/event-management/events', label: 'Event Workspace' },
       { path: '/dashboard/event-management/approvals', label: 'Event Approvals' },
       { path: '/dashboard/event-management/calendar', label: 'Event Calendar' },
       { path: '/dashboard/event-management/registrations', label: 'Registration & Booking' },
+      { path: '/dashboard/event-management/budget', label: 'Event Budget' },
+      { path: '/dashboard/event-management/workflows', label: 'Event Workflows' },
+      { path: '/dashboard/event-management/payments', label: 'Event Payments' },
+      { path: '/dashboard/event-management/account', label: 'Event Account' },
     ],
   },
   {

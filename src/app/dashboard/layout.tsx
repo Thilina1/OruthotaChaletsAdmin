@@ -18,7 +18,7 @@ function DashboardContent({ children }: { children: ReactNode }) {
         if (!user || loading) return true;
         // The dashboard is the authenticated landing page and only displays
         // links that the current user is allowed to open.
-        if (pathname === '/dashboard/home') return true;
+        if (pathname === '/dashboard/home' || pathname === '/dashboard/academy') return true;
 
         return hasPathAccess(pathname);
     }, [user, loading, hasPathAccess, pathname]);

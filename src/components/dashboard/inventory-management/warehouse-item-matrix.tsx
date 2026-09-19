@@ -126,10 +126,10 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
 
             <div className="rounded-xl border bg-white overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                    <Table>
+                    <Table className="min-w-max">
                         <TableHeader>
                             <TableRow className="bg-slate-50/50">
-                                <TableHead className="w-[300px] font-bold">Item Details</TableHead>
+                                <TableHead className="sticky left-0 z-20 w-[300px] min-w-[300px] bg-slate-50 font-bold shadow-[4px_0_8px_-6px_rgba(15,23,42,0.35)]">Item Details</TableHead>
                                 {warehouses.map(wh => (
                                     <TableHead key={wh.id} className="text-center font-bold min-w-[150px]">
                                         <div className="flex flex-col items-center gap-1">
@@ -161,7 +161,7 @@ export function WarehouseItemMatrix({ items, warehouses, onRefresh, isLoading }:
                             ) : (
                                 filteredItems.map(item => (
                                     <TableRow key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <TableCell>
+                                        <TableCell className="sticky left-0 z-10 min-w-[300px] bg-white shadow-[4px_0_8px_-6px_rgba(15,23,42,0.2)]">
                                             <div className="flex flex-col">
                                                 <span className="font-bold text-slate-900">{item.name}</span>
                                                 <span className="text-[10px] font-mono text-muted-foreground">{item.code} • {item.unit?.name}</span>

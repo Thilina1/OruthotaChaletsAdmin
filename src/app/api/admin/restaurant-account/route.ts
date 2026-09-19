@@ -3,18 +3,34 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 async function auth() { const token = (await cookies()).get('auth_token')?.value; return token ? verifyToken(token) : null; }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = await auth() as any;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!['admin', 'payment'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const { searchParams } = new URL(request.url);
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    let cashQuery = supabase.from('orders').select('id,confirmed_total,total_price,paid_at').eq('status', 'closed').eq('payment_method', 'cash').order('paid_at', { ascending: false });
+    let cardQuery = supabase.from('orders').select('id,confirmed_total,total_price,paid_at,card_account_transaction_id').eq('status', 'closed').eq('payment_method', 'card').order('paid_at', { ascending: false });
+    let transferQuery = supabase.from('restaurant_cash_transfers').select('id,amount,notes,created_at,account:accounts(id,name,type),user:users(name)').order('created_at', { ascending: false }).limit(200);
+    if (from) {
+      cashQuery = cashQuery.gte('paid_at', `${from}T00:00:00`);
+      cardQuery = cardQuery.gte('paid_at', `${from}T00:00:00`);
+      transferQuery = transferQuery.gte('created_at', `${from}T00:00:00`);
+    }
+    if (to) {
+      cashQuery = cashQuery.lte('paid_at', `${to}T23:59:59.999`);
+      cardQuery = cardQuery.lte('paid_at', `${to}T23:59:59.999`);
+      transferQuery = transferQuery.lte('created_at', `${to}T23:59:59.999`);
+    }
     const [ordersResult, cardOrdersResult, transfersResult, accountsResult, settingsResult] = await Promise.all([
-      supabase.from('orders').select('id,confirmed_total,total_price,paid_at').eq('status', 'closed').eq('payment_method', 'cash').order('paid_at', { ascending: false }),
-      supabase.from('orders').select('id,confirmed_total,total_price,paid_at,card_account_transaction_id').eq('status', 'closed').eq('payment_method', 'card').order('paid_at', { ascending: false }),
-      supabase.from('restaurant_cash_transfers').select('id,amount,notes,created_at,account:accounts(id,name,type),user:users(name)').order('created_at', { ascending: false }).limit(200),
+      cashQuery,
+      cardQuery,
+      transferQuery,
       supabase.from('accounts').select('id,name,type,current_balance').eq('is_active', true).order('name'),
       supabase.from('restaurant_account_settings').select('card_account_id').eq('singleton', true).maybeSingle(),
     ]);

@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth-utils';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
 );
 
 async function getUser(userId: string) {
@@ -15,6 +15,154 @@ async function getUser(userId: string) {
         .eq('id', userId)
         .single();
     return data;
+}
+
+async function syncInventoryCashApprovalNotifications() {
+    const approvalPath = '/dashboard/inventory-cash-approvals';
+    const [usersResult, pendingResult, additionalResult] = await Promise.all([
+        supabase.from('users').select('id, role, restrict_admin_permissions, inventory_admin, permissions'),
+        supabase.from('inventory_cash_requests').select('id', { count: 'exact', head: true }).eq('status', 'PENDING'),
+        supabase.from('inventory_cash_requests').select('id', { count: 'exact', head: true }).eq('additional_status', 'PENDING'),
+    ]);
+
+    if (usersResult.error || pendingResult.error || additionalResult.error) {
+        console.error(
+            'Failed to synchronize inventory cash approval notifications:',
+            usersResult.error?.message || pendingResult.error?.message || additionalResult.error?.message
+        );
+        return;
+    }
+
+    const pendingCount = (pendingResult.count ?? 0) + (additionalResult.count ?? 0);
+    const recipients = (usersResult.data ?? []).filter(user => {
+        const hasPermission = Array.isArray(user.permissions) && user.permissions.includes(approvalPath);
+        const isAdmin = user.role === 'admin' && !user.restrict_admin_permissions;
+        return hasPermission || isAdmin || user.inventory_admin === true;
+    });
+
+    const { error: clearError } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('type', 'inventory_cash_approval');
+
+    if (clearError) {
+        console.error('Failed to clear inventory cash approval notifications:', clearError.message);
+        return;
+    }
+
+    if (recipients.length > 0 && pendingCount > 0) {
+        const { error } = await supabase.from('notifications').insert(recipients.map(user => ({
+            user_id: user.id,
+            type: 'inventory_cash_approval',
+            title: 'Inventory Cash and Credit Approvals',
+            message: `${pendingCount} cash or credit request${pendingCount === 1 ? '' : 's'} awaiting your approval.`,
+            href: approvalPath,
+        })));
+        if (error) console.error('Failed to create inventory cash approval notifications:', error.message);
+    }
+}
+
+async function syncInventoryCashIssuanceNotifications() {
+    const issuancePath = '/dashboard/accounting/inventory-cash';
+    const [usersResult, approvedResult, additionalResult] = await Promise.all([
+        supabase.from('users').select('id, role, restrict_admin_permissions, permissions'),
+        supabase
+            .from('inventory_cash_requests')
+            .select('id, purchase_order:purchase_orders(payment_type)', { count: 'exact' })
+            .eq('status', 'APPROVED'),
+        supabase
+            .from('inventory_cash_requests')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'ISSUED')
+            .eq('additional_status', 'APPROVED'),
+    ]);
+
+    if (usersResult.error || approvedResult.error || additionalResult.error) {
+        console.error(
+            'Failed to synchronize inventory cash issuance notifications:',
+            usersResult.error?.message || approvedResult.error?.message || additionalResult.error?.message
+        );
+        return;
+    }
+
+    const approvedCashCount = (approvedResult.data ?? []).filter((request: any) =>
+        request.purchase_order?.payment_type !== 'credit'
+    ).length;
+    const pendingCount = approvedCashCount + (additionalResult.count ?? 0);
+    const recipients = (usersResult.data ?? []).filter(user => {
+        const hasPermission = Array.isArray(user.permissions) && user.permissions.includes(issuancePath);
+        const isAdmin = user.role === 'admin' && !user.restrict_admin_permissions;
+        return hasPermission || isAdmin || user.role === 'payment';
+    });
+
+    const { error: clearError } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('type', 'inventory_cash_issuance');
+
+    if (clearError) {
+        console.error('Failed to clear inventory cash issuance notifications:', clearError.message);
+        return;
+    }
+
+    if (recipients.length > 0 && pendingCount > 0) {
+        const { error } = await supabase.from('notifications').insert(recipients.map(user => ({
+            user_id: user.id,
+            type: 'inventory_cash_issuance',
+            title: 'Inventory Cash Awaiting Issuance',
+            message: `${pendingCount} cash request${pendingCount === 1 ? '' : 's'} ready to issue.`,
+            href: issuancePath,
+        })));
+        if (error) console.error('Failed to create inventory cash issuance notifications:', error.message);
+    }
+}
+
+async function createCashRequestStatusNotification(existing: any, type: string, title: string, message: string) {
+    if (!existing?.requested_by) return;
+    const { error } = await supabase.from('notifications').insert({
+        user_id: existing.requested_by,
+        type,
+        title,
+        message,
+        href: '/dashboard/inventory-cash-requests',
+    });
+    if (error) console.error('Failed to create inventory cash request notification:', error.message);
+}
+
+async function creditReturnedInventoryCash(requestNumber: string, purpose: string, returnedAmount: number, accountId: string) {
+    if (!Number.isFinite(returnedAmount) || returnedAmount <= 0) return;
+
+    const { data: account, error: accountError } = await supabase
+        .from('accounts')
+        .select('current_balance')
+        .eq('id', accountId)
+        .eq('is_active', true)
+        .single();
+    if (accountError || !account) throw accountError || new Error('Return destination account not found');
+
+    const newBalance = Number(account.current_balance || 0) + returnedAmount;
+    const { data: transaction, error: transactionError } = await supabase
+        .from('account_transactions')
+        .insert({
+            account_id: accountId,
+            type: 'credit',
+            amount: returnedAmount,
+            description: `Inventory cash return - ${purpose}`,
+            reference: requestNumber,
+            date: new Date().toISOString().split('T')[0],
+            balance_after: newBalance,
+        })
+        .select('id')
+        .single();
+    if (transactionError) throw transactionError;
+
+    const { error: updateError } = await supabase
+        .from('accounts')
+        .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+        .eq('id', accountId);
+    if (updateError) throw updateError;
+
+    return transaction.id as string;
 }
 
 export async function PATCH(
@@ -95,6 +243,14 @@ export async function PATCH(
                     p_issued_by: payload.userId, p_is_additional: false,
                 });
                 if (issueError) return NextResponse.json({ error: issueError.message }, { status: 422 });
+                await createCashRequestStatusNotification(
+                    existing,
+                    'inventory_cash_request',
+                    'Inventory Cash Issued',
+                    `${existing.request_number} has been issued for Rs ${issueAmount.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+                );
+                await syncInventoryCashApprovalNotifications();
+                await syncInventoryCashIssuanceNotifications();
                 return NextResponse.json({ success: true });
             }
 
@@ -184,7 +340,47 @@ export async function PATCH(
                     p_issued_by: payload.userId, p_is_additional: true,
                 });
                 if (issueError) return NextResponse.json({ error: issueError.message }, { status: 422 });
+                await createCashRequestStatusNotification(
+                    existing,
+                    'inventory_cash_request',
+                    'Additional Cash Issued',
+                    `Additional cash for ${existing.request_number} has been issued for Rs ${Number(addIssued).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+                );
+                await syncInventoryCashApprovalNotifications();
+                await syncInventoryCashIssuanceNotifications();
                 return NextResponse.json({ success: true });
+            }
+
+            case 'move_return': {
+                if (!isAdmin && !isPayment) {
+                    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+                }
+                if (existing.status !== 'SETTLED') {
+                    return NextResponse.json({ error: 'Can only move returns for SETTLED requests' }, { status: 400 });
+                }
+                if (!body.account_id) return NextResponse.json({ error: 'Destination account is required' }, { status: 400 });
+                const returnedAmount = Number(existing.returned_amount || 0);
+                if (!Number.isFinite(returnedAmount) || returnedAmount <= 0) {
+                    return NextResponse.json({ error: 'No returned amount to move' }, { status: 400 });
+                }
+                if (existing.returned_account_transaction_id) {
+                    return NextResponse.json({ error: 'Returned amount has already been moved to an account' }, { status: 400 });
+                }
+                const transactionId = await creditReturnedInventoryCash(existing.request_number, existing.purpose, returnedAmount, body.account_id);
+                const { data, error } = await supabase
+                    .from('inventory_cash_requests')
+                    .update({
+                        returned_account_id: body.account_id,
+                        returned_account_transaction_id: transactionId,
+                        returned_moved_by: payload.userId,
+                        returned_moved_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', id)
+                    .select()
+                    .single();
+                if (error) throw error;
+                return NextResponse.json({ request: data });
             }
 
             default:
@@ -199,6 +395,41 @@ export async function PATCH(
             .single();
 
         if (error) throw error;
+        if (action === 'approve') {
+            await createCashRequestStatusNotification(
+                existing,
+                'inventory_cash_request',
+                'Cash Request Approved',
+                `${existing.request_number} has been approved for Rs ${Number(data.approved_amount ?? existing.requested_amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+            );
+        } else if (action === 'reject') {
+            await createCashRequestStatusNotification(
+                existing,
+                'inventory_cash_request',
+                'Cash Request Rejected',
+                `${existing.request_number} has been rejected.${data.rejection_reason ? ` Reason: ${data.rejection_reason}` : ''}`
+            );
+        } else if (action === 'settle') {
+            if (data.additional_status === 'PENDING') {
+                await syncInventoryCashApprovalNotifications();
+            }
+        } else if (action === 'approve_additional') {
+            await createCashRequestStatusNotification(
+                existing,
+                'inventory_cash_request',
+                'Additional Cash Approved',
+                `Additional cash for ${existing.request_number} has been approved for Rs ${Number(data.additional_approved_amount ?? existing.additional_requested_amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+            );
+        } else if (action === 'reject_additional') {
+            await createCashRequestStatusNotification(
+                existing,
+                'inventory_cash_request',
+                'Additional Cash Rejected',
+                `Additional cash for ${existing.request_number} has been rejected.`
+            );
+        }
+        await syncInventoryCashApprovalNotifications();
+        await syncInventoryCashIssuanceNotifications();
         return NextResponse.json({ request: data });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

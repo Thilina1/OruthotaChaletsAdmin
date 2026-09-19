@@ -9,7 +9,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Use service role to bypass RLS
 const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
-    : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
 export async function GET(request: Request) {
     try {
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { description, amount, service_type, date, customer_name, room_number, payment_status, payment_method, line_items } = body;
+        const { description, amount, service_type, date, customer_id: providedCustomerId, customer_name, room_number, payment_status, payment_method, line_items } = body;
 
         let finalDescription = description;
         let finalAmount = amount;
@@ -72,10 +72,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
-        let customer_id = null;
+        let customer_id = providedCustomerId || null;
         let finalCustomerName = customer_name;
 
-        if (customer_name && customer_name.trim() !== '') {
+        if (customer_id) {
+            const { data: existingCustomer } = await supabase
+                .from('customers')
+                .select('name')
+                .eq('id', customer_id)
+                .single();
+            if (existingCustomer && !finalCustomerName) {
+                finalCustomerName = existingCustomer.name;
+            }
+        } else if (customer_name && customer_name.trim() !== '') {
             const { data: existingCustomer } = await supabase
                 .from('customers')
                 .select('id')

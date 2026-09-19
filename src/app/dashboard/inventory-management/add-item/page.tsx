@@ -584,7 +584,7 @@ export default function RegisterItemPage() {
     };
 
     return (
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="w-full max-w-none mx-auto space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
                     <h1 className="text-3xl font-headline font-bold flex items-center gap-3">
@@ -814,6 +814,7 @@ export default function RegisterItemPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead className="w-[56px]">No.</TableHead>
                                     <TableHead>Name</TableHead>
                                     <TableHead>Code</TableHead>
                                     <TableHead>Category</TableHead>
@@ -826,17 +827,18 @@ export default function RegisterItemPage() {
                             <TableBody>
                                 {isLoadingMetadata ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading...</TableCell>
+                                        <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading...</TableCell>
                                     </TableRow>
                                 ) : filteredItemsList.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                                        <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                                             {itemSearch ? 'No items match your search.' : 'No items registered yet.'}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    paginatedRegisteredItems.map(item => (
+                                    paginatedRegisteredItems.map((item, index) => (
                                         <TableRow key={item.id}>
+                                            <TableCell className="text-sm font-semibold text-muted-foreground">{(registeredItemsPage - 1) * registeredItemsPerPage + index + 1}</TableCell>
                                             <TableCell className="font-medium">
                                                 {editingItemId === item.id ? (
                                                     <div className="flex items-center gap-2">

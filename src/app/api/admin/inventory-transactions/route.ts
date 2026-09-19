@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
     );
 
     const { searchParams } = new URL(req.url);
@@ -87,6 +87,8 @@ export async function GET(req: NextRequest) {
         const whIds = [...new Set([
             ...(data ?? []).map((r: any) => r.department_id),
             ...(data ?? []).map((r: any) => r.reference_department),
+            ...(data ?? []).map((r: any) => r.from_department_id),
+            ...(data ?? []).map((r: any) => r.to_department_id),
         ].filter(Boolean))];
         let whMap: Record<string, string> = {};
         if (whIds.length > 0) {
@@ -106,6 +108,8 @@ export async function GET(req: NextRequest) {
                 user: r.created_by ? { id: r.created_by, name: userMap[r.created_by] ?? '—' } : null,
                 warehouse_name: r.department_id ? (whMap[r.department_id] ?? null) : null,
                 reference_warehouse_name: r.reference_department ? (whMap[r.reference_department] ?? null) : null,
+                from_warehouse_name: r.from_department_id ? (whMap[r.from_department_id] ?? null) : null,
+                to_warehouse_name: r.to_department_id ? (whMap[r.to_department_id] ?? null) : null,
             };
         });
 

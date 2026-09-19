@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { OrderItem } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -27,6 +28,15 @@ import { ArrowLeft, ChefHat, ClipboardList, Trophy, Utensils, Package, Link as L
 
 function formatCurrency(n: number) {
     return n.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const PAGE_SIZE = 10;
+function usePageSlice<T>(rows: T[], pageSize = PAGE_SIZE) {
+    const [page, setPage] = useState(1);
+    useEffect(() => setPage(1), [rows.length, pageSize]);
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    return { pageRows: rows.slice((currentPage - 1) * pageSize, currentPage * pageSize), currentPage, totalPages, setPage, pageSize };
 }
 
 type HistoryRow = OrderItem & {
@@ -147,6 +157,9 @@ export default function KitchenOrderHistoryPage() {
 
     const topEmployee = byEmployee[0];
     const topItem = byItem[0];
+    const employeePage = usePageSlice(byEmployee);
+    const itemPage = usePageSlice(byItem);
+    const rowPage = usePageSlice(filteredRows);
 
     return (
         <div className="space-y-6">
@@ -279,7 +292,7 @@ export default function KitchenOrderHistoryPage() {
                             <TableBody>
                                 {byEmployee.length === 0 ? (
                                     <TableRow><TableCell colSpan={2} className="text-center py-8 text-muted-foreground">No data.</TableCell></TableRow>
-                                ) : byEmployee.map(e => (
+                                ) : employeePage.pageRows.map(e => (
                                     <TableRow key={e.name}>
                                         <TableCell className="font-medium">{e.name}</TableCell>
                                         <TableCell className="text-right font-bold">{e.qty}</TableCell>
@@ -287,6 +300,7 @@ export default function KitchenOrderHistoryPage() {
                                 ))}
                             </TableBody>
                         </Table>
+                        <DataTablePagination currentPage={employeePage.currentPage} totalPages={employeePage.totalPages} totalItems={byEmployee.length} itemsPerPage={employeePage.pageSize} onPageChange={employeePage.setPage} />
                     </CardContent>
                 </Card>
 
@@ -306,7 +320,7 @@ export default function KitchenOrderHistoryPage() {
                             <TableBody>
                                 {byItem.length === 0 ? (
                                     <TableRow><TableCell colSpan={2} className="text-center py-8 text-muted-foreground">No data.</TableCell></TableRow>
-                                ) : byItem.map(i => (
+                                ) : itemPage.pageRows.map(i => (
                                     <TableRow key={i.name}>
                                         <TableCell className="font-medium">{i.name}</TableCell>
                                         <TableCell className="text-right font-bold">{i.qty}</TableCell>
@@ -314,6 +328,7 @@ export default function KitchenOrderHistoryPage() {
                                 ))}
                             </TableBody>
                         </Table>
+                        <DataTablePagination currentPage={itemPage.currentPage} totalPages={itemPage.totalPages} totalItems={byItem.length} itemsPerPage={itemPage.pageSize} onPageChange={itemPage.setPage} />
                     </CardContent>
                 </Card>
             </div>
@@ -343,7 +358,7 @@ export default function KitchenOrderHistoryPage() {
                                 ) : filteredRows.length === 0 ? (
                                     <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">No completed items in this range.</TableCell></TableRow>
                                 ) : (
-                                    filteredRows.map(row => (
+                                    rowPage.pageRows.map(row => (
                                         <TableRow key={row.id}>
                                             <TableCell className="text-sm whitespace-nowrap">
                                                 {row.prepared_at ? new Date(row.prepared_at).toLocaleString() : '—'}
@@ -359,6 +374,7 @@ export default function KitchenOrderHistoryPage() {
                             </TableBody>
                         </Table>
                     </div>
+                    <DataTablePagination currentPage={rowPage.currentPage} totalPages={rowPage.totalPages} totalItems={filteredRows.length} itemsPerPage={rowPage.pageSize} onPageChange={rowPage.setPage} />
                 </CardContent>
             </Card>
         </div>

@@ -10,6 +10,7 @@ import {
   Settings,
   ChefHat,
   BookOpenCheck,
+  GraduationCap,
     CreditCard,
     PackagePlus,
     ShoppingCart,
@@ -32,6 +33,12 @@ const navItems: NavItem[] = [
     label: 'Dashboard',
     icon: LayoutDashboard,
     roles: ['admin', 'waiter', 'kitchen', 'payment'],
+  },
+  {
+    href: '/dashboard/academy',
+    label: 'උදව් සහ පුහුණුව',
+    icon: GraduationCap,
+    roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'],
   },
   {
     href: '/dashboard/tables',

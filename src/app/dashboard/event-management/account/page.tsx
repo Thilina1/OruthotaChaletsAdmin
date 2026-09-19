@@ -7,6 +7,8 @@ export default function EventAccountPage() {
       title="Event Account"
       description="Cash and card payments collected through Event Management."
       entityLabel="Event"
+      showBreakdown={false}
+      enableEventFilter
     />
   );
 }

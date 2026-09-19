@@ -31,12 +31,14 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import {
     Tabs,
     TabsContent,
     TabsList,
     TabsTrigger,
 } from '@/components/ui/tabs';
+import { usePagination } from '@/hooks/use-pagination';
 import { useToast } from '@/hooks/use-toast';
 import type { ChaletBooking, ChaletPackage, ChaletOccupancyType, ChaletRoom, ChaletRate, ChaletBookingStatus } from '@/lib/types';
 import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList } from 'lucide-react';
@@ -333,6 +335,8 @@ export default function ChaletBookingsPage() {
             if (checkedInDate && !(b.check_in_date <= checkedInDate && checkedInDate <= b.check_out_date)) return false;
             return true;
         });
+    const allBookingsPagination = usePagination(bookings, 20);
+    const checkedInPagination = usePagination(checkedInGuests, 20);
 
     const openActivities = async (booking: ChaletBooking) => {
         setActivityBooking(booking);
@@ -481,7 +485,7 @@ export default function ChaletBookingsPage() {
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            bookings.map(b => (
+                                            allBookingsPagination.paginatedItems.map(b => (
                                                 <TableRow key={b.id}>
                                                     <TableCell className="font-mono text-xs font-medium">{b.booking_ref}</TableCell>
                                                     <TableCell>
@@ -529,6 +533,15 @@ export default function ChaletBookingsPage() {
                                     </TableBody>
                                 </Table>
                             </div>
+                            {!loading && bookings.length > 0 && (
+                                <DataTablePagination
+                                    currentPage={allBookingsPagination.currentPage}
+                                    totalPages={allBookingsPagination.totalPages}
+                                    totalItems={allBookingsPagination.totalItems}
+                                    itemsPerPage={allBookingsPagination.itemsPerPage}
+                                    onPageChange={allBookingsPagination.setCurrentPage}
+                                />
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -584,7 +597,7 @@ export default function ChaletBookingsPage() {
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            checkedInGuests.map(b => (
+                                            checkedInPagination.paginatedItems.map(b => (
                                                 <TableRow key={b.id}>
                                                     <TableCell>
                                                         <div className="font-medium">{b.customer_name}</div>
@@ -612,6 +625,15 @@ export default function ChaletBookingsPage() {
                                     </TableBody>
                                 </Table>
                             </div>
+                            {!loading && checkedInGuests.length > 0 && (
+                                <DataTablePagination
+                                    currentPage={checkedInPagination.currentPage}
+                                    totalPages={checkedInPagination.totalPages}
+                                    totalItems={checkedInPagination.totalItems}
+                                    itemsPerPage={checkedInPagination.itemsPerPage}
+                                    onPageChange={checkedInPagination.setCurrentPage}
+                                />
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>

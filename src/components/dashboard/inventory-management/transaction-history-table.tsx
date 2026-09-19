@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { ArrowUpCircle, ArrowDownCircle, AlertCircle, History, Eye, Calendar, Package, User, Hash, Info, Truck } from 'lucide-react';
-import type { InventoryTransaction } from '@/lib/types';
+import type { InventoryTransaction, InventoryWarehouse } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import {
@@ -31,13 +31,22 @@ interface TransactionHistoryTableProps {
   itemId?: string;
   title?: string;
   refreshKey?: number;
+  warehouses?: InventoryWarehouse[];
+  showFilters?: boolean;
+  showWarehouseFilters?: boolean;
+  destinationWarehouseId?: string;
+  externalOnly?: boolean;
 }
 
-export function TransactionHistoryTable({ type, itemId, title, refreshKey }: TransactionHistoryTableProps) {
+export function TransactionHistoryTable({ type, itemId, title, refreshKey, warehouses = [], showFilters = false, showWarehouseFilters = true, destinationWarehouseId, externalOnly = false }: TransactionHistoryTableProps) {
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<InventoryTransaction | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [fromWarehouse, setFromWarehouse] = useState('all');
+  const [toWarehouse, setToWarehouse] = useState('all');
 
   const fetchTransactions = async () => {
     setIsLoading(true);
@@ -45,11 +54,13 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
       let url = `/api/admin/inventory-transactions?limit=100`;
       if (type) url += `&type=${type}`;
       if (itemId) url += `&itemId=${itemId}`;
+      if (startDate) url += `&startDate=${startDate}`;
+      if (endDate) url += `&endDate=${endDate}`;
 
       const res = await fetch(url);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setTransactions(data.transactions || []);
+    setTransactions(data.transactions || []);
     } catch (error) {
       console.error("Error fetching transactions:", error);
     } finally {
@@ -59,7 +70,18 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
 
   useEffect(() => {
     fetchTransactions();
-  }, [type, itemId, refreshKey]);
+  }, [type, itemId, refreshKey, startDate, endDate]);
+
+  const filteredTransactions = transactions.filter(tx => {
+    const row = tx as any;
+    if (destinationWarehouseId && (row.to_department_id || row.department_id) !== destinationWarehouseId) return false;
+    if (externalOnly && (row.from_department_id || row.reference_department)) return false;
+    const fromName = row.from_warehouse_name || row.reference_warehouse_name;
+    const toName = row.to_warehouse_name || row.warehouse_name;
+    if (fromWarehouse !== 'all' && fromName !== warehouses.find(warehouse => warehouse.id === fromWarehouse)?.name) return false;
+    if (toWarehouse !== 'all' && toName !== warehouses.find(warehouse => warehouse.id === toWarehouse)?.name) return false;
+    return true;
+  });
 
   const {
     currentPage,
@@ -68,7 +90,7 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
     paginatedItems,
     itemsPerPage,
     setCurrentPage,
-  } = usePagination(transactions, 20);
+  } = usePagination(filteredTransactions, 20);
 
   const handleViewDetails = (tx: InventoryTransaction) => {
     setSelectedTransaction(tx);
@@ -103,6 +125,18 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
   return (
     <div className="space-y-4">
       {title && <h2 className="text-xl font-semibold mb-4">{title}</h2>}
+
+      {showFilters && (
+        <div className="flex flex-wrap items-end gap-3 rounded-md border bg-white p-4">
+          <div className="grid gap-1"><label className="text-xs font-semibold text-muted-foreground">Date From</label><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" /></div>
+          <div className="grid gap-1"><label className="text-xs font-semibold text-muted-foreground">Date To</label><input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" /></div>
+          {showWarehouseFilters && <>
+            <div className="grid min-w-44 gap-1"><label className="text-xs font-semibold text-muted-foreground">Warehouse From</label><select value={fromWarehouse} onChange={event => setFromWarehouse(event.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm"><option value="all">All warehouses</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id} disabled={warehouse.id === toWarehouse}>{warehouse.name}{warehouse.id === toWarehouse ? ' (same as To)' : ''}</option>)}</select></div>
+            <div className="grid min-w-44 gap-1"><label className="text-xs font-semibold text-muted-foreground">Warehouse To</label><select value={toWarehouse} onChange={event => setToWarehouse(event.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm"><option value="all">All warehouses</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id} disabled={warehouse.id === fromWarehouse}>{warehouse.name}{warehouse.id === fromWarehouse ? ' (same as From)' : ''}</option>)}</select></div>
+          </>}
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setStartDate(''); setEndDate(''); setFromWarehouse('all'); setToWarehouse('all'); }}>Clear</Button>
+        </div>
+      )}
       
       <div className="rounded-md border bg-white overflow-x-auto">
         <Table className="min-w-[1100px]">
@@ -126,7 +160,7 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
               <TableRow>
                 <TableCell colSpan={11} className="h-24 text-center">Loading history...</TableCell>
               </TableRow>
-            ) : transactions.length === 0 ? (
+            ) : filteredTransactions.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No transaction history found.</TableCell>
               </TableRow>
@@ -226,7 +260,7 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
         </Table>
       </div>
       
-      {!isLoading && transactions.length > 0 && (
+      {!isLoading && filteredTransactions.length > 0 && (
         <DataTablePagination
           currentPage={currentPage}
           totalPages={totalPages}
@@ -327,14 +361,20 @@ export function TransactionHistoryTable({ type, itemId, title, refreshKey }: Tra
                 </div>
               </div>
 
-              {((selectedTransaction as any).reference_warehouse_name || (selectedTransaction as any).warehouse_name || selectedTransaction.remarks) && (
+              {((selectedTransaction as any).reference_warehouse_name || (selectedTransaction as any).warehouse_name || (selectedTransaction as any).from_warehouse_name || (selectedTransaction as any).to_warehouse_name || selectedTransaction.remarks) && (
                 <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 space-y-1">
                   <div className="flex items-center gap-2 text-[10px] font-bold text-amber-700 uppercase mb-1">
                     <Info className="h-3 w-3" />
                     Remarks / Notes
                   </div>
-                  {(selectedTransaction as any).warehouse_name && (
+                  {(selectedTransaction as any).warehouse_name && (selectedTransaction as any).transaction_type !== 'transfer' && (
                     <p className="text-sm text-amber-800">Warehouse: <strong>{(selectedTransaction as any).warehouse_name}</strong></p>
+                  )}
+                  {(selectedTransaction as any).transaction_type === 'transfer' && (selectedTransaction as any).from_warehouse_name && (
+                    <p className="text-sm text-amber-800">From: <strong>{(selectedTransaction as any).from_warehouse_name}</strong></p>
+                  )}
+                  {(selectedTransaction as any).transaction_type === 'transfer' && (selectedTransaction as any).to_warehouse_name && (
+                    <p className="text-sm text-amber-800">To: <strong>{(selectedTransaction as any).to_warehouse_name}</strong></p>
                   )}
                   {(selectedTransaction as any).reference_warehouse_name && (
                     <p className="text-sm text-amber-800">

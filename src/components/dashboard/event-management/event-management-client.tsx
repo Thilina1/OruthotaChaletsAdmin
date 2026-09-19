@@ -8,6 +8,7 @@ import { useUserContext } from '@/context/user-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +34,7 @@ const emptyLocation = { name: '', address: '', capacity: '0' };
 const emptyRegistration = { guest_name: '', email: '', phone: '', guests: '1', amount: '0', payment_status: 'unpaid', booking_status: 'confirmed' };
 const emptyBudget = { category: '', description: '', budget_type: 'expense', estimated_amount: '0', actual_amount: '0', payment_status: 'planned' };
 const emptyTask = { title: '', stage: 'planning', assigned_name: '', due_at: '', priority: 'medium', status: 'todo', automation_rule: '' };
+const PAGE_SIZE = 10;
 
 export function EventManagementClient({ module }: { module: EventModule }) {
   const supabase = createClient();
@@ -47,6 +49,7 @@ export function EventManagementClient({ module }: { module: EventModule }) {
   const [locationDialog, setLocationDialog] = useState(false);
   const [recordDialog, setRecordDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
   const [eventForm, setEventForm] = useState(emptyEvent);
   const [locationForm, setLocationForm] = useState(emptyLocation);
   const [registrationForm, setRegistrationForm] = useState(emptyRegistration);
@@ -84,6 +87,7 @@ export function EventManagementClient({ module }: { module: EventModule }) {
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
   useEffect(() => { loadRecords(); }, [loadRecords]);
+  useEffect(() => { setPage(1); }, [records.length, selectedEventId, module]);
 
   const selectedEvent = events.find(event => event.id === selectedEventId);
   const registrationSummary = useMemo(() => {
@@ -184,6 +188,9 @@ export function EventManagementClient({ module }: { module: EventModule }) {
     : module === 'budget'
       ? [{ label: 'Estimated total', value: `LKR ${budgetSummary.estimated.toFixed(2)}` }, { label: 'Actual income', value: `LKR ${budgetSummary.income.toFixed(2)}` }, { label: 'Actual expenses', value: `LKR ${budgetSummary.expenses.toFixed(2)}` }]
       : [{ label: 'Total tasks', value: workflowSummary.total }, { label: 'In progress', value: workflowSummary.active }, { label: 'Completed', value: workflowSummary.done }];
+  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRecords = records.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="space-y-5">
@@ -199,7 +206,7 @@ export function EventManagementClient({ module }: { module: EventModule }) {
 
       <div className="grid gap-3 sm:grid-cols-3">{summary.map(item => <Card key={item.label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{item.label}</p><p className="mt-1 text-xl font-bold">{item.value}</p></CardContent></Card>)}</div>
 
-      <Card><CardHeader className="pb-3"><CardTitle className="text-base">{selectedEvent?.name || 'No event selected'}</CardTitle></CardHeader><CardContent className="overflow-x-auto p-0"><Table><TableHeader>{module === 'registrations' ? <TableRow><TableHead>Guest</TableHead><TableHead>Contact</TableHead><TableHead>Guests</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead /></TableRow> : module === 'budget' ? <TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead>Estimated</TableHead><TableHead>Actual</TableHead><TableHead>Status</TableHead><TableHead /></TableRow> : <TableRow><TableHead>Task</TableHead><TableHead>Stage</TableHead><TableHead>Owner</TableHead><TableHead>Due</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead /></TableRow>}</TableHeader><TableBody>{records.length === 0 ? <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">{selectedEventId ? 'No records yet.' : 'Create or select an event to begin.'}</TableCell></TableRow> : records.map(row => module === 'registrations' ? <RegistrationRow key={row.id} row={row as Registration} onStatus={updateStatus} onDelete={removeRecord} /> : module === 'budget' ? <BudgetRow key={row.id} row={row as BudgetItem} onStatus={updateStatus} onDelete={removeRecord} /> : <WorkflowRow key={row.id} row={row as WorkflowTask} onStatus={updateStatus} onDelete={removeRecord} />)}</TableBody></Table></CardContent></Card>
+      <Card><CardHeader className="pb-3"><CardTitle className="text-base">{selectedEvent?.name || 'No event selected'}</CardTitle></CardHeader><CardContent className="overflow-x-auto p-0"><Table><TableHeader>{module === 'registrations' ? <TableRow><TableHead>Guest</TableHead><TableHead>Contact</TableHead><TableHead>Guests</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead /></TableRow> : module === 'budget' ? <TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead>Estimated</TableHead><TableHead>Actual</TableHead><TableHead>Status</TableHead><TableHead /></TableRow> : <TableRow><TableHead>Task</TableHead><TableHead>Stage</TableHead><TableHead>Owner</TableHead><TableHead>Due</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead /></TableRow>}</TableHeader><TableBody>{records.length === 0 ? <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">{selectedEventId ? 'No records yet.' : 'Create or select an event to begin.'}</TableCell></TableRow> : pagedRecords.map(row => module === 'registrations' ? <RegistrationRow key={row.id} row={row as Registration} onStatus={updateStatus} onDelete={removeRecord} /> : module === 'budget' ? <BudgetRow key={row.id} row={row as BudgetItem} onStatus={updateStatus} onDelete={removeRecord} /> : <WorkflowRow key={row.id} row={row as WorkflowTask} onStatus={updateStatus} onDelete={removeRecord} />)}</TableBody></Table><DataTablePagination currentPage={currentPage} totalPages={totalPages} totalItems={records.length} itemsPerPage={PAGE_SIZE} onPageChange={setPage}/></CardContent></Card>
 
       <Dialog open={eventDialog} onOpenChange={setEventDialog}><DialogContent><DialogHeader><DialogTitle>Create Event</DialogTitle></DialogHeader><div className="grid gap-3 sm:grid-cols-2"><Field label="Event name"><Input value={eventForm.name} onChange={e => setEventForm({ ...eventForm, name: e.target.value })} /></Field><Field label="Type"><Input value={eventForm.event_type} onChange={e => setEventForm({ ...eventForm, event_type: e.target.value })} /></Field><Field label="Location"><Select value={eventForm.location_id} onValueChange={location_id => { const location = locations.find(item => item.id === location_id); setEventForm({ ...eventForm, location_id, capacity: eventForm.capacity === '0' && location ? String(location.capacity) : eventForm.capacity }); }}><SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger><SelectContent>{locations.map(location => <SelectItem key={location.id} value={location.id}>{location.name}{location.capacity ? ` · ${location.capacity} guests` : ''}</SelectItem>)}</SelectContent></Select></Field><Field label="Capacity"><Input type="number" min="0" value={eventForm.capacity} onChange={e => setEventForm({ ...eventForm, capacity: e.target.value })} /></Field><Field label="Starts"><Input type="datetime-local" value={eventForm.starts_at} onChange={e => setEventForm({ ...eventForm, starts_at: e.target.value })} /></Field><Field label="Ends"><Input type="datetime-local" value={eventForm.ends_at} onChange={e => setEventForm({ ...eventForm, ends_at: e.target.value })} /></Field><div className="sm:col-span-2"><Field label="Notes"><Textarea value={eventForm.notes} onChange={e => setEventForm({ ...eventForm, notes: e.target.value })} /></Field></div></div><DialogFooter><Button variant="outline" onClick={() => setEventDialog(false)}>Cancel</Button><Button onClick={createEvent} disabled={saving}>Create Event</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={locationDialog} onOpenChange={setLocationDialog}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Add Event Location</DialogTitle></DialogHeader><div className="space-y-3"><Field label="Location name"><Input value={locationForm.name} onChange={e => setLocationForm({ ...locationForm, name: e.target.value })} placeholder="e.g. Lakeside Lawn" /></Field><Field label="Address or area"><Input value={locationForm.address} onChange={e => setLocationForm({ ...locationForm, address: e.target.value })} /></Field><Field label="Maximum capacity"><Input type="number" min="0" value={locationForm.capacity} onChange={e => setLocationForm({ ...locationForm, capacity: e.target.value })} /></Field></div><DialogFooter><Button variant="outline" onClick={() => setLocationDialog(false)}>Cancel</Button><Button onClick={createLocation} disabled={saving}>Add Location</Button></DialogFooter></DialogContent></Dialog>

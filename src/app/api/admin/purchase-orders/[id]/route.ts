@@ -7,7 +7,28 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
-    : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
+
+const toNumber = (value: any, fallback = 0) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const calculateLineTotal = (item: any, quantityValue: any) => {
+    const quantity = toNumber(quantityValue);
+    const unitPrice = toNumber(item.received_unit_price ?? item.unit_price);
+    const gross = unitPrice * quantity;
+    const discount = Math.min(Math.max(toNumber(item.discount_amount ?? item.discount), 0), gross);
+    const submittedTotal = item.total_price !== undefined && item.total_price !== null && item.total_price !== ''
+        ? toNumber(item.total_price, gross - discount)
+        : gross - discount;
+    return Math.max(0, submittedTotal);
+};
+
+const calculateDiscount = (item: any, quantityValue: any) => {
+    const gross = toNumber(item.received_unit_price ?? item.unit_price) * toNumber(quantityValue);
+    return Math.min(Math.max(toNumber(item.discount_amount ?? item.discount), 0), gross);
+};
 
 export async function GET(
     request: Request,
@@ -91,6 +112,35 @@ export async function PUT(
 
         if (poError) throw poError;
 
+        // Cash POs need a separate inventory cash request after approval.
+        if (status === 'approved' && currentPO.status !== 'approved' && po.payment_type === 'cash') {
+            const cashRequestPath = '/dashboard/inventory-cash-requests';
+            const { data: cashUsers, error: cashUsersError } = await supabase
+                .from('users')
+                .select('id, role, permissions')
+                .or('role.eq.admin,role.eq.payment');
+
+            if (cashUsersError) {
+                console.error('Failed to find cash request notification recipients:', cashUsersError.message);
+            } else {
+                const recipients = (cashUsers ?? []).filter(user =>
+                    user.role === 'admin' || (Array.isArray(user.permissions) && user.permissions.includes(cashRequestPath))
+                );
+                if (recipients.length > 0) {
+                    const { error: cashNotificationError } = await supabase
+                        .from('notifications')
+                        .insert(recipients.map(user => ({
+                            user_id: user.id,
+                            type: 'inventory_cash_request',
+                            title: 'Cash Request Required',
+                            message: `Purchase order ${po.po_number || id} was approved as a cash order. Please create a cash request for the approved PO.`,
+                            href: cashRequestPath,
+                        })));
+                    if (cashNotificationError) console.error('Failed to create cash request notifications:', cashNotificationError.message);
+                }
+            }
+        }
+
         // Keep one aggregated notification per eligible user while one or more
         // purchase orders are awaiting approval.
         const approvalQueueChanged = status && (
@@ -156,8 +206,8 @@ export async function PUT(
 
             // 2. Insert or Update items
             for (const item of items) {
-                const total = item.unit_price && item.quantity
-                    ? Number(item.unit_price) * Number(item.quantity)
+                const total = item.unit_price !== undefined && item.unit_price !== null && item.unit_price !== ''
+                    ? calculateLineTotal(item, item.quantity)
                     : null;
 
                 const itemData: any = {
@@ -185,13 +235,16 @@ export async function PUT(
         if (item_prices && Array.isArray(item_prices)) {
             for (const item of item_prices) {
                 try {
-                    const total = item.unit_price && item.quantity
-                        ? Number(item.unit_price) * Number(item.quantity)
+                    const quantityForTotal = item.received_quantity ?? item.quantity;
+                    const receivedTotal = item.unit_price !== undefined && item.unit_price !== null && item.unit_price !== ''
+                        ? calculateLineTotal(item, quantityForTotal)
                         : null;
+                    const discountAmount = calculateDiscount(item, quantityForTotal);
                     
                     const itemUpdate: any = { 
-                        unit_price: item.unit_price || null, 
-                        total_price: total,
+                        received_unit_price: item.unit_price || null,
+                        discount_amount: discountAmount,
+                        received_total_price: receivedTotal,
                         brand: item.brand || undefined,
                         item_size: item.item_size || undefined,
                         supplier_name: item.supplier_name || undefined,
@@ -211,12 +264,22 @@ export async function PUT(
                     
                     if (error) {
                         console.error(`Schema mismatch or error updating PO item ${item.id}:`, error.message);
-                        // Fallback: try update without received_quantity
-                        if (error.message.includes('column') && itemUpdate.received_quantity !== undefined) {
-                            delete itemUpdate.received_quantity;
+                        // Fallback for older databases without received discount columns.
+                        if (error.message.includes('column')) {
+                            const legacyItemUpdate: any = {
+                                total_price: receivedTotal,
+                                brand: item.brand || undefined,
+                                item_size: item.item_size || undefined,
+                                supplier_name: item.supplier_name || undefined,
+                                batch_number: item.batch_number || undefined,
+                                expiry_date: item.expiry_date || undefined,
+                            };
+                            if (item.received_quantity !== undefined) {
+                                legacyItemUpdate.received_quantity = item.received_quantity;
+                            }
                             await supabase
                                 .from('purchase_order_items')
-                                .update(itemUpdate)
+                                .update(legacyItemUpdate)
                                 .eq('id', item.id);
                         }
                     }
@@ -249,6 +312,10 @@ export async function PUT(
                     quantity: 0, // Original quantity was 0
                     received_quantity: Number(item.received_quantity || 0),
                     unit_price: Number(item.unit_price || 0),
+                    received_unit_price: Number(item.unit_price || 0),
+                    total_price: 0,
+                    discount_amount: calculateDiscount(item, item.received_quantity ?? item.quantity),
+                    received_total_price: calculateLineTotal(item, item.received_quantity ?? item.quantity),
                     batch_number: item.batch_number || '',
                     expiry_date: item.expiry_date || null,
                     brand: item.brand || '',
@@ -286,7 +353,7 @@ export async function PUT(
                 if (quantityToAdd <= 0) continue;
 
                 const batchNum = item.batch_number || `B-PO-${po.po_number}`;
-                const unitPrice = Number(item.unit_price || 0);
+                const unitPrice = Number(requestItemData?.unit_price ?? item.received_unit_price ?? item.unit_price ?? 0);
                 const item_id = item.item_id;
 
                 if (!item_id) continue;

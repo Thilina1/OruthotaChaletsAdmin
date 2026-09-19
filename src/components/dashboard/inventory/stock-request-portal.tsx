@@ -60,6 +60,8 @@ interface StockRequestPortalProps {
 }
 
 const ITEMS_PER_PAGE = 20;
+const isStoreDepartment = (department: any) =>
+    department?.name?.toLowerCase().includes('store') || department?.name?.toLowerCase().includes('warehouse');
 
 export default function StockRequestPortal({ title, descriptionText, badgeLabel = 'Inventory Management', lockedDepartmentName, requestSections, compactHeader = false }: StockRequestPortalProps) {
     const router = useRouter();
@@ -124,9 +126,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
 
             // Select default department using the freshly fetched list.
             // user is always loaded before this page renders (UserContext shows loading skeleton).
-            const isStore = (d: any) =>
-                d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse');
-            const store = depts.find(isStore);
+            const store = depts.find(isStoreDepartment);
             if (store) setSourceDeptId(store.id);
 
             const adminUser = (user?.role === 'admin' && !user?.restrict_admin_permissions) || user?.inventory_admin === true;
@@ -142,7 +142,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                 const match =
                     (userDeptName && depts.find((d: any) => d.name?.toLowerCase().trim() === userDeptName)) ||
                     (userDeptName && depts.find((d: any) => d.name?.toLowerCase().includes(userDeptName) || userDeptName.includes(d.name?.toLowerCase().trim()))) ||
-                    depts.find((d: any) => !isStore(d)) ||
+                    depts.find((d: any) => !isStoreDepartment(d)) ||
                     depts[0];
                 if (match) setSelectedDeptId(match.id);
             }
@@ -178,9 +178,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     // Skipped when locked to a specific department — better to show "not found" than silently switch.
     useEffect(() => {
         if (!departments.length || selectedDeptId || lockedDepartmentName) return;
-        const isStore = (d: any) =>
-            d.name?.toLowerCase().includes('store') || d.name?.toLowerCase().includes('warehouse');
-        const fallback = departments.find((d: any) => !isStore(d)) ?? departments[0];
+        const fallback = departments.find((d: any) => !isStoreDepartment(d)) ?? departments[0];
         if (fallback) setSelectedDeptId(fallback.id);
     }, [departments.length, selectedDeptId, lockedDepartmentName]);
 
@@ -188,6 +186,8 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     const selectedDeptName = useMemo(() => {
         return departments.find(d => d.id === selectedDeptId)?.name || 'Department';
     }, [selectedDeptId, departments]);
+    const selectedDepartment = useMemo(() => departments.find(d => d.id === selectedDeptId), [departments, selectedDeptId]);
+    const selectedDeptIsStore = isStoreDepartment(selectedDepartment);
 
     const departmentItems = useMemo(() => {
         return inventoryItems.map(item => {
@@ -239,6 +239,10 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     }, [currentPage, totalPages]);
 
     const handleOpenRequest = (item: any) => {
+        if (selectedDeptIsStore) {
+            toast({ variant: 'destructive', title: 'Main Store Cannot Request', description: 'Select another department to create an MRN request.' });
+            return;
+        }
         setSelectedItem(item);
         setRequestQuantity('');
         setRequestNotes('');
@@ -248,6 +252,10 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
     const handleSubmitRequest = async () => {
         if (!selectedItem || !requestQuantity || Number(requestQuantity) <= 0) {
             toast({ variant: 'destructive', title: "Validation Error", description: "Please enter a valid quantity." });
+            return;
+        }
+        if (selectedDeptIsStore) {
+            toast({ variant: 'destructive', title: 'Main Store Cannot Request', description: 'MRN requests must be created for a department, not the Main Store.' });
             return;
         }
 
@@ -419,6 +427,12 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                 </div>
             </div>
 
+            {selectedDeptIsStore && portalTab === 'request' && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                    Main Store can view stock here, but it cannot create MRN requests. Select another department to request stock from Main Store.
+                </div>
+            )}
+
             {/* Items Table (Grouped, with batch-level detail like Inventory Stock Overview) */}
             <div className={cn("space-y-4", portalTab === 'assignments' && "hidden")}>
                 <div className="flex items-center justify-between pl-2">
@@ -476,6 +490,7 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                             <Button
                                                 className="rounded-xl font-black text-[11px] h-9 px-4 gap-2 shadow-sm shadow-primary/10 hover:shadow-primary/20 transition-all"
                                                 onClick={(e) => { e.stopPropagation(); handleOpenRequest(item); }}
+                                                disabled={selectedDeptIsStore}
                                             >
                                                 <Send className="h-4 w-4" />
                                                 Request Stock

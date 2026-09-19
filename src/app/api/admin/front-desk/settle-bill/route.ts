@@ -7,7 +7,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
-    : createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
 // Paying a bill and checking a guest out are separate steps: "pay" settles
 // every outstanding charge without ending the stay, and "checkout" (only
@@ -81,12 +81,60 @@ export async function POST(request: Request) {
         const snapshotTotal = snapshotItems.reduce((sum: number, item: any) => sum + item.amount, 0);
         if (snapshotItems.length > 0) {
             const billNumber = `GB-${Date.now()}-${customer_id.slice(0, 6).toUpperCase()}`;
+            let accountTransactionId: string | null = null;
+
+            if (payment_method === 'card' && snapshotTotal > 0) {
+                const { data: settings, error: settingsError } = await supabase
+                    .from('front_desk_account_settings')
+                    .select('card_account_id')
+                    .eq('singleton', true)
+                    .maybeSingle();
+                if (settingsError) throw settingsError;
+                if (!settings?.card_account_id) {
+                    return NextResponse.json({ error: 'Set the Front Desk Card Payment Account before accepting card payments.' }, { status: 400 });
+                }
+
+                const { data: account, error: accountError } = await supabase
+                    .from('accounts')
+                    .select('current_balance')
+                    .eq('id', settings.card_account_id)
+                    .eq('is_active', true)
+                    .single();
+                if (accountError || !account) {
+                    return NextResponse.json({ error: 'The configured Front Desk Card Payment Account is inactive or unavailable.' }, { status: 400 });
+                }
+
+                const newBalance = Number(account.current_balance || 0) + snapshotTotal;
+                const { data: transaction, error: transactionError } = await supabase
+                    .from('account_transactions')
+                    .insert({
+                        account_id: settings.card_account_id,
+                        type: 'credit',
+                        amount: snapshotTotal,
+                        description: 'Front Desk card payment',
+                        reference: billNumber,
+                        date: new Date().toISOString().split('T')[0],
+                        balance_after: newBalance,
+                    })
+                    .select('id')
+                    .single();
+                if (transactionError) throw transactionError;
+
+                const { error: balanceError } = await supabase
+                    .from('accounts')
+                    .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+                    .eq('id', settings.card_account_id);
+                if (balanceError) throw balanceError;
+                accountTransactionId = transaction.id;
+            }
+
             const { error: historyError } = await supabase.from('guest_bill_history').insert({
                 bill_number: billNumber,
                 customer_id,
                 total: snapshotTotal,
                 payment_method,
                 items: snapshotItems,
+                account_transaction_id: accountTransactionId,
             });
             // Keep payments working before this migration is deployed; all
             // other history errors are real and should stop settlement.

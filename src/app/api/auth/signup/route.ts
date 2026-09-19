@@ -15,7 +15,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Assuming the user has set the key given previous context
 const supabase = serviceRoleKey
     ? createServerClient(supabaseUrl, serviceRoleKey)
-    : createServerClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    : createServerClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
 export async function POST(request: Request) {
     try {

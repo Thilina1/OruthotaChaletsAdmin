@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Utensils, Users, Clock, RefreshCw } from "lucide-react";
-import type { Table, RestaurantSection, OrderItem } from '@/lib/types';
+import { Package, Utensils, Users, Clock, RefreshCw, Warehouse } from "lucide-react";
+import type { Table, RestaurantSection, OrderItem, InventoryItem } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrderModal } from './waiter/order-modal';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 type BilledOrder = { id: string; table_id: string; total_price: number; confirmed_total: number | null; status: string };
 type TableBillInfo = { order: BilledOrder; items: OrderItem[] };
+type RestaurantStockSummary = {
+  warehouseCount: number;
+  itemCount: number;
+  totalQuantity: number;
+  lowStockCount: number;
+  warehouses: { id: string; name: string; quantity: number; itemCount: number }[];
+};
 
 const statusStyles: Record<string, { badge: string, border: string }> = {
   'occupied': { badge: 'bg-yellow-500', border: 'border-yellow-500' },
@@ -34,14 +41,23 @@ export default function WaiterDashboard() {
   const [tables, setTables] = useState<Table[]>([]);
   const [sections, setSections] = useState<RestaurantSection[]>([]);
   const [billedOrders, setBilledOrders] = useState<Record<string, TableBillInfo>>({});
+  const [restaurantStock, setRestaurantStock] = useState<RestaurantStockSummary>({
+    warehouseCount: 0,
+    itemCount: 0,
+    totalQuantity: 0,
+    lowStockCount: 0,
+    warehouses: [],
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [tablesRes, sectionsRes] = await Promise.all([
+      const [tablesRes, sectionsRes, restaurantWarehouseSettingsRes, inventoryItemsRes] = await Promise.all([
         supabase.from('restaurant_tables').select('*'),
-        fetch('/api/admin/restaurant-sections').then(res => res.json())
+        fetch('/api/admin/restaurant-sections').then(res => res.json()),
+        fetch('/api/admin/app-settings?key=restaurant_warehouse_ids').then(res => res.json()).catch(() => ({ value: [] })),
+        fetch('/api/admin/inventory/items?includeStock=true').then(res => res.json()).catch(() => ({ items: [] })),
       ]);
 
       if (tablesRes.error) {
@@ -84,6 +100,45 @@ export default function WaiterDashboard() {
       } else {
         setSections(sectionsRes.sections || []);
       }
+
+      const restaurantWarehouseIds: string[] = Array.isArray(restaurantWarehouseSettingsRes.value)
+        ? restaurantWarehouseSettingsRes.value
+        : [];
+      const inventoryItems: InventoryItem[] = inventoryItemsRes.items || [];
+      const warehouseMap = new Map<string, { id: string; name: string; quantity: number; itemIds: Set<string> }>();
+      const availableItemIds = new Set<string>();
+      let totalQuantity = 0;
+      let lowStockCount = 0;
+
+      inventoryItems.forEach((item: any) => {
+        let itemQuantity = 0;
+        (item.warehouse_stock || []).forEach((stock: any) => {
+          if (!restaurantWarehouseIds.includes(stock.id)) return;
+          const qty = Number(stock.total_stock || 0);
+          if (qty <= 0) return;
+          itemQuantity += qty;
+          totalQuantity += qty;
+          availableItemIds.add(item.id);
+          const current = warehouseMap.get(stock.id) || { id: stock.id, name: stock.name, quantity: 0, itemIds: new Set<string>() };
+          current.quantity += qty;
+          current.itemIds.add(item.id);
+          warehouseMap.set(stock.id, current);
+        });
+        if (itemQuantity > 0 && itemQuantity <= Number(item.reorder_level || 5)) lowStockCount += 1;
+      });
+
+      setRestaurantStock({
+        warehouseCount: restaurantWarehouseIds.length,
+        itemCount: availableItemIds.size,
+        totalQuantity,
+        lowStockCount,
+        warehouses: [...warehouseMap.values()].map(warehouse => ({
+          id: warehouse.id,
+          name: warehouse.name,
+          quantity: warehouse.quantity,
+          itemCount: warehouse.itemIds.size,
+        })),
+      });
 
     } catch (e) {
       console.error("Error in fetchData:", e);
@@ -150,6 +205,55 @@ export default function WaiterDashboard() {
             {isRefreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <Card className="border-slate-100">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-primary/10 p-2"><Warehouse className="h-4 w-4 text-primary" /></div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Restaurant Warehouses</p>
+                <p className="text-xl font-bold">{restaurantStock.warehouseCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-100">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-emerald-50 p-2"><Package className="h-4 w-4 text-emerald-600" /></div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Available Items</p>
+                <p className="text-xl font-bold">{restaurantStock.itemCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-100">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-blue-50 p-2"><Package className="h-4 w-4 text-blue-600" /></div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Total Available Qty</p>
+                <p className="text-xl font-bold">{restaurantStock.totalQuantity.toLocaleString('en-LK')}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-100">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-amber-50 p-2"><Clock className="h-4 w-4 text-amber-600" /></div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Low Stock Items</p>
+                <p className="text-xl font-bold">{restaurantStock.lowStockCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {restaurantStock.warehouses.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {restaurantStock.warehouses.map(warehouse => (
+              <Badge key={warehouse.id} variant="outline" className="bg-slate-50 px-3 py-1 text-xs">
+                {warehouse.name}: {warehouse.itemCount} items / {warehouse.quantity.toLocaleString('en-LK')} qty
+              </Badge>
+            ))}
+          </div>
+        )}
 
         {/* Ensure we have sections before rendering Tabs */}
         {sections.length > 0 ? (

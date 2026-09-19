@@ -25,6 +25,21 @@ import { format } from 'date-fns';
 const formatMoney = (amount: number | null | undefined) =>
   amount == null ? '—' : `LKR ${Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const getReceivedQuantity = (item: any) => Number(item.received_quantity ?? item.quantity ?? 0);
+const getFallbackReceivedTotal = (item: any) => item.received_total_price ?? item.total_price;
+const getReceivedUnitPrice = (item: any) => {
+  if (item.received_unit_price != null) return Number(item.received_unit_price);
+  const quantity = getReceivedQuantity(item);
+  const receivedTotal = getFallbackReceivedTotal(item);
+  if (receivedTotal != null && quantity > 0) return Number(receivedTotal) / quantity;
+  return Number(item.unit_price ?? 0);
+};
+const getGrossLineTotal = (item: any) => getReceivedUnitPrice(item) * getReceivedQuantity(item);
+const getDiscountAmount = (item: any) => Math.max(0, Number(item.discount_amount ?? item.discount ?? 0));
+const getNetLineTotal = (item: any) => Number(getFallbackReceivedTotal(item) ?? Math.max(0, getGrossLineTotal(item) - getDiscountAmount(item)));
+const getReceivedPOTotal = (po: any) =>
+  (po.purchase_order_items ?? []).reduce((total: number, item: any) => total + getNetLineTotal(item), 0);
+
 export default function GRNPage() {
   const { toast } = useToast();
   const [items, setItems] = useState<any[]>([]);
@@ -38,6 +53,99 @@ export default function GRNPage() {
   const [receivedPOs, setReceivedPOs] = useState<any[]>([]);
   const [isPOLoading, setIsPOLoading] = useState(false);
   const [viewingPO, setViewingPO] = useState<any | null>(null);
+
+  const handlePrintGRN = () => {
+    if (!viewingPO) return;
+    const grnTotal = getReceivedPOTotal(viewingPO);
+    const isCashPO = viewingPO.payment_type === 'cash';
+    const rows = (viewingPO.purchase_order_items ?? []).map((item: any) => `
+      <tr>
+        <td>
+          <strong>${item.item_name ?? '—'}</strong>
+          <div class="muted">${[item.brand, item.item_size].filter(Boolean).join(' · ')}</div>
+        </td>
+        <td>${isCashPO ? 'Cash PO' : 'Credit PO'}</td>
+        <td class="right">${getReceivedQuantity(item)} ${item.unit ?? ''}</td>
+        <td>${item.batch_number || '—'}</td>
+        <td>${item.expiry_date ? format(new Date(item.expiry_date), 'PP') : '—'}</td>
+        <td class="right">${formatMoney(item.unit_price)}</td>
+        <td class="right">${formatMoney(getReceivedUnitPrice(item))}</td>
+        <td class="right">${formatMoney(getGrossLineTotal(item))}</td>
+        <td class="right">${getDiscountAmount(item) > 0 ? `-${formatMoney(getDiscountAmount(item))}` : formatMoney(0)}</td>
+        <td class="right"><strong>${formatMoney(getNetLineTotal(item))}</strong></td>
+      </tr>
+    `).join('');
+
+    const printWindow = window.open('', '_blank', 'width=1100,height=800');
+    if (!printWindow) {
+      toast({ variant: 'destructive', title: 'Print blocked', description: 'Please allow pop-ups for this site and try again.' });
+      return;
+    }
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>GRN ${viewingPO.po_number}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; }
+            .header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 24px; }
+            h1 { margin: 0; font-size: 24px; }
+            .muted { color: #64748b; font-size: 12px; margin-top: 4px; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+            .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+            .cash-box { margin-bottom: 24px; }
+            .label { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+            .value { font-size: 14px; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background: #f8fafc; color: #475569; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+            th, td { border: 1px solid #e2e8f0; padding: 8px; vertical-align: top; }
+            .right { text-align: right; }
+            tfoot td { background: #f8fafc; font-weight: 800; }
+            @media print { body { margin: 18px; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1>Goods Received Note</h1>
+              <div class="muted">Receipt details for <strong>${viewingPO.po_number}</strong></div>
+            </div>
+            <div class="right">
+              <strong>RECEIVED</strong>
+              <div class="muted">${format(new Date(viewingPO.updated_at), 'PP p')}</div>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="box"><div class="label">Supplier</div><div class="value">${viewingPO.supplier_name || 'Generic Supplier'}</div></div>
+            <div class="box"><div class="label">Payment Type</div><div class="value">${isCashPO ? 'Cash PO' : 'Credit PO'}</div></div>
+            <div class="box"><div class="label">Total Items</div><div class="value">${viewingPO.purchase_order_items.length}</div></div>
+            <div class="box"><div class="label">GRN Total Value</div><div class="value">${formatMoney(grnTotal)}</div></div>
+          </div>
+          ${isCashPO ? `
+            <div class="box cash-box">
+              <div class="label">Approved Amount</div>
+              <div class="value">${formatMoney(viewingPO.cash_request?.approved_amount)}</div>
+              <div class="muted">${viewingPO.cash_request?.status?.toLowerCase().replaceAll('_', ' ') || 'No cash request'}</div>
+            </div>
+          ` : ''}
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th><th>PO Type</th><th class="right">Qty</th><th>Batch</th><th>Expiry</th>
+                <th class="right">PO Unit</th><th class="right">GRN Unit</th><th class="right">Gross</th><th class="right">Discount</th><th class="right">Line Total</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot><tr><td colspan="9" class="right">GRN Total</td><td class="right">${formatMoney(grnTotal)}</td></tr></tfoot>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
 
   const fetchData = async () => {
     try {
@@ -183,6 +291,7 @@ export default function GRNPage() {
                     <th className="px-6 py-4">Supplier</th>
                     <th className="px-6 py-4">Payment Type</th>
                     <th className="px-6 py-4">Items</th>
+                    <th className="px-6 py-4 text-right">Spent Money</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
@@ -190,13 +299,13 @@ export default function GRNPage() {
                 <PaginatedTableBody className="divide-y">
                   {isPOLoading ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-10 text-center">
+                      <td colSpan={8} className="px-6 py-10 text-center">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
                       </td>
                     </tr>
                   ) : receivedPOs.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground italic">
+                      <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground italic">
                         No received purchase orders yet.
                       </td>
                     </tr>
@@ -229,6 +338,9 @@ export default function GRNPage() {
                            <Badge variant="outline" className="bg-white text-slate-500 border-slate-200">
                              {po.purchase_order_items.length} items
                            </Badge>
+                        </td>
+                        <td className="px-6 py-4 text-right font-black text-blue-700">
+                           {formatMoney(getReceivedPOTotal(po))}
                         </td>
                         <td className="px-6 py-4">
                            <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100 capitalize">
@@ -351,7 +463,7 @@ export default function GRNPage() {
 
       {/* View Receipt Dialog */}
       <Dialog open={!!viewingPO} onOpenChange={(open) => !open && setViewingPO(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border-none shadow-2xl p-0">
+        <DialogContent className="w-[96vw] max-w-7xl max-h-[90vh] overflow-y-auto rounded-3xl border-none shadow-2xl p-0">
             <div className="p-8 border-b bg-slate-50/50 flex justify-between items-start">
                 <div className="space-y-1">
                     <DialogTitle className="text-2xl font-black flex items-center gap-2">
@@ -402,8 +514,7 @@ export default function GRNPage() {
                             <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-1">GRN Total Value</p>
                             <p className="font-black text-blue-700">
                                 {formatMoney(viewingPO.purchase_order_items.reduce((total: number, item: any) => {
-                                    const quantity = Number(item.received_quantity ?? item.quantity ?? 0);
-                                    return total + (Number(item.unit_price ?? 0) * quantity);
+                                    return total + getNetLineTotal(item);
                                 }, 0))}
                             </p>
                         </div>
@@ -411,8 +522,8 @@ export default function GRNPage() {
 
                     <div className="space-y-4">
                         <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Received Item Breakdown</h3>
-                        <div className="rounded-2xl border overflow-hidden">
-                            <table className="w-full text-sm text-left">
+                        <div className="rounded-2xl border overflow-x-auto">
+                            <table className="min-w-[1320px] w-full text-sm text-left">
                                 <thead className="bg-slate-50/80 text-[10px] uppercase font-bold text-slate-400 border-b">
                                     <tr>
                                         <th className="px-6 py-4">Product Details</th>
@@ -420,7 +531,10 @@ export default function GRNPage() {
                                         <th className="px-6 py-4 text-center">Qty Received</th>
                                         <th className="px-6 py-4 text-center">Batch #</th>
                                         <th className="px-6 py-4 text-center">Expiry</th>
-                                        <th className="px-6 py-4 text-right">Unit Price</th>
+                                        <th className="px-6 py-4 text-right">PO Unit Price</th>
+                                        <th className="px-6 py-4 text-right">GRN Unit Price</th>
+                                        <th className="px-6 py-4 text-right">Gross</th>
+                                        <th className="px-6 py-4 text-right">Discount</th>
                                         <th className="px-6 py-4 text-right">Line Total</th>
                                     </tr>
                                 </thead>
@@ -462,23 +576,27 @@ export default function GRNPage() {
                                             <td className="px-6 py-4 text-right font-bold text-slate-800">
                                                 {formatMoney(item.unit_price)}
                                             </td>
+                                            <td className="px-6 py-4 text-right font-bold text-slate-800">
+                                                {formatMoney(getReceivedUnitPrice(item))}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-bold text-slate-600">
+                                                {formatMoney(getGrossLineTotal(item))}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-bold text-amber-700">
+                                                {getDiscountAmount(item) > 0 ? `-${formatMoney(getDiscountAmount(item))}` : formatMoney(0)}
+                                            </td>
                                             <td className="px-6 py-4 text-right font-black text-blue-700">
-                                                {formatMoney(
-                                                    item.unit_price == null
-                                                        ? null
-                                                        : Number(item.unit_price) * Number(item.received_quantity ?? item.quantity ?? 0)
-                                                )}
+                                                {formatMoney(getNetLineTotal(item))}
                                             </td>
                                         </tr>
                                     ))}
                                 </PaginatedTableBody>
                                 <tfoot className="border-t bg-slate-50">
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">GRN Total</td>
+                                        <td colSpan={9} className="px-6 py-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">GRN Total</td>
                                         <td className="px-6 py-4 text-right font-black text-blue-700">
                                             {formatMoney(viewingPO.purchase_order_items.reduce((total: number, item: any) => {
-                                                const quantity = Number(item.received_quantity ?? item.quantity ?? 0);
-                                                return total + (Number(item.unit_price ?? 0) * quantity);
+                                                return total + getNetLineTotal(item);
                                             }, 0))}
                                         </td>
                                     </tr>
@@ -497,7 +615,7 @@ export default function GRNPage() {
             )}
             <div className="p-8 border-t bg-slate-50/50 flex justify-end gap-3">
                 <Button variant="outline" className="rounded-xl px-8 font-bold" onClick={() => setViewingPO(null)}>Close</Button>
-                <Button className="bg-slate-900 text-white rounded-xl px-8 font-black gap-2 shadow-xl">
+                <Button className="bg-slate-900 text-white rounded-xl px-8 font-black gap-2 shadow-xl" onClick={handlePrintGRN}>
                     <Truck className="h-4 w-4" />
                     Print GRN
                 </Button>

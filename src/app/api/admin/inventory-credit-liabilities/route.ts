@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth-utils';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
 );
 
 export async function PATCH(request: Request) {
@@ -25,6 +25,22 @@ export async function PATCH(request: Request) {
         const settlement = settled
             ? { liability_settled_at: new Date().toISOString(), liability_settled_by: userId }
             : { liability_settled_at: null, liability_settled_by: null };
+
+        if (source === 'po' && settled) {
+            const { data: po, error: poError } = await supabase
+                .from('purchase_orders')
+                .select('po_number, status')
+                .eq('id', source_id)
+                .eq('payment_type', 'credit')
+                .single();
+
+            if (poError) throw poError;
+            if (po.status !== 'received') {
+                return NextResponse.json({
+                    error: `Credit PO ${po.po_number || ''} can only be settled after GRN stock-in is completed.`,
+                }, { status: 400 });
+            }
+        }
 
         const query = source === 'po'
             ? supabase.from('purchase_orders').update(settlement).eq('id', source_id).eq('payment_type', 'credit')

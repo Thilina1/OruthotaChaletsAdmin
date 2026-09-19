@@ -141,16 +141,22 @@ export default function ReceiveGRNPage() {
             
             const initialQtys: Record<string, string> = {};
             const initialPrices: Record<string, string> = {};
+            const initialDiscounts: Record<string, string> = {};
             const initialTotals: Record<string, string> = {};
             po.purchase_order_items.forEach((i: any) => {
-                initialQtys[i.id] = String(i.quantity);
-                if (i.unit_price != null) {
-                    initialPrices[i.id] = String(i.unit_price);
-                    initialTotals[i.id] = (Number(i.unit_price) * Number(i.quantity ?? 0)).toFixed(2);
+                const qty = Number(i.received_quantity ?? i.quantity ?? 0);
+                initialQtys[i.id] = String(qty);
+                initialDiscounts[i.id] = String(i.discount_amount ?? i.discount ?? 0);
+                const receivedTotal = i.received_total_price ?? i.total_price;
+                const receiveUnitPrice = i.received_unit_price ?? (receivedTotal != null && qty > 0 ? Number(receivedTotal) / qty : i.unit_price);
+                if (receiveUnitPrice != null) {
+                    initialPrices[i.id] = String(receiveUnitPrice);
+                    initialTotals[i.id] = Number(receivedTotal ?? (Number(receiveUnitPrice) * qty) - Number(initialDiscounts[i.id] || 0)).toFixed(2);
                 }
             });
             setReceivedQuantities(initialQtys);
             setItemPrices(initialPrices);
+            setItemDiscounts(initialDiscounts);
             setItemTotalPrices(initialTotals);
 
         } catch (error: any) {
@@ -230,10 +236,15 @@ export default function ReceiveGRNPage() {
         try {
             const item_prices = receivedItems.map((item: any) => ({
                 id: item.is_extra ? null : item.id,
-                item_id: item.is_extra ? item.item_id : null,
+                item_id: item.item_id || null,
+                item_name: item.item_name,
+                unit: item.unit?.name || item.unit || 'units',
+                is_extra: item.is_extra || false,
                 quantity: item.quantity,
                 unit_price: itemPrices[item.id] ? parseFloat(itemPrices[item.id]) : null,
                 received_quantity: receivedQuantities[item.id] ? parseFloat(receivedQuantities[item.id]) : item.quantity,
+                discount_amount: itemDiscounts[item.id] ? parseFloat(itemDiscounts[item.id]) : 0,
+                total_price: itemTotalPrices[item.id] ? parseFloat(itemTotalPrices[item.id]) : null,
                 batch_number: batchNumbers[item.id] || '',
                 expiry_date: expiryDates[item.id] || null,
                 brand: receiveMetadata[item.id]?.brand || item.brand || '',
@@ -476,50 +487,45 @@ export default function ReceiveGRNPage() {
                                 <ShoppingCart className="h-5 w-5 text-slate-400" />
                                 Receipt Details
                             </h2>
-                            <Badge variant="outline" className="bg-white font-black text-[10px] tracking-widest text-slate-400">
+                            <Badge variant="outline" className="bg-white font-black text-[9px] tracking-wide text-slate-400">
                                 {receivedItems.length} TOTAL ITEMS
                             </Badge>
                         </div>
                         
-                        <div className="p-6 space-y-4">
+                        <div className="p-4 space-y-3">
                             {receivedItems.map((item, idx) => (
                                 <div key={item.id} className={cn(
-                                    "p-6 rounded-2xl border transition-all hover:border-primary/20",
+                                    "p-4 rounded-xl border transition-all hover:border-primary/20",
                                     item.is_extra ? "bg-amber-50/20 border-amber-100" : "bg-white border-slate-100"
                                 )}>
-                                    <div className="flex flex-col xl:flex-row gap-6">
+                                    <div className="flex flex-col xl:flex-row gap-4">
                                         {/* Item Info */}
-                                        <div className="flex-1 min-w-[240px]">
-                                            <div className="flex items-start gap-3">
+                                        <div className="flex-1 min-w-[200px]">
+                                            <div className="flex items-start gap-2.5">
                                                 <div className={cn(
-                                                    "h-12 w-12 rounded-xl flex items-center justify-center border shrink-0",
+                                                    "h-9 w-9 rounded-lg flex items-center justify-center border shrink-0",
                                                     item.is_extra ? "bg-amber-100 border-amber-200" : "bg-slate-50 border-slate-100"
                                                 )}>
-                                                    {item.is_extra ? <PlusCircle className="h-6 w-6 text-amber-600" /> : <PackageCheck className="h-6 w-6 text-slate-400" />}
+                                                    {item.is_extra ? <PlusCircle className="h-4 w-4 text-amber-600" /> : <PackageCheck className="h-4 w-4 text-slate-400" />}
                                                 </div>
-                                                <div className="space-y-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <h4 className="font-black text-lg text-slate-800 leading-tight">{item.item_name}</h4>
+                                                <div className="space-y-0.5">
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <h4 className="font-black text-sm text-slate-800 leading-tight">{item.item_name}</h4>
                                                         <Badge variant="outline" className={cn(
-                                                            "whitespace-nowrap text-[9px] font-bold",
+                                                            "h-4 whitespace-nowrap px-1.5 text-[8px] font-bold",
                                                             purchaseOrder?.payment_type === 'cash'
                                                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                                                 : "bg-amber-50 text-amber-700 border-amber-200"
                                                         )}>
                                                             {purchaseOrder?.payment_type === 'cash' ? 'Cash PO' : 'Credit PO'}
                                                         </Badge>
-                                                        {purchaseOrder?.payment_type === 'cash' && (
-                                                            <span className="whitespace-nowrap text-[9px] font-bold text-emerald-700">
-                                                                Approved {formatMoney(purchaseOrder.cash_request?.approved_amount)}
-                                                            </span>
-                                                        )}
                                                         {item.is_extra && (
                                                             <Badge className="bg-amber-500 text-white border-none font-black text-[8px] uppercase tracking-tighter h-4">EXTRA</Badge>
                                                         )}
                                                     </div>
-                                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex flex-wrap items-center gap-1.5">
                                                         {item.item_size && <span className="text-primary font-black">{item.item_size}</span>}
-                                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{item.unit?.name || item.unit}</span>
+                                                        <span className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">{item.unit?.name || item.unit}</span>
                                                         {!item.is_extra && (
                                                             <>
                                                                 <span className="h-1 w-1 bg-slate-300 rounded-full" />
@@ -532,26 +538,26 @@ export default function ReceiveGRNPage() {
                                         </div>
 
                                         {/* Input Controls */}
-                                        <div className="flex-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 flex-grow">
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Received Qty</label>
+                                        <div className="flex-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 flex-grow">
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wide ml-1">Received Qty</label>
                                                 <Input 
-                                                    className="h-11 rounded-xl font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all"
+                                                    className="h-9 rounded-lg text-xs font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all"
                                                     type="number"
                                                     value={receivedQuantities[item.id] ?? ''}
                                                     onChange={e => handleQtyChange(item.id, e.target.value)}
                                                 />
                                             </div>
-                                            <div className="space-y-1.5">
+                                            <div className="space-y-1">
                                                 <label className={cn(
-                                                    "text-[10px] font-black uppercase tracking-widest ml-1",
+                                                    "text-[9px] font-black uppercase tracking-wide ml-1",
                                                     missingPriceIds.includes(item.id) ? "text-red-500" : "text-slate-400"
                                                 )}>
                                                     Unit Price (LKR) <span className="text-red-500">*</span>
                                                 </label>
                                                 <Input
                                                     className={cn(
-                                                        "h-11 rounded-xl font-bold transition-all",
+                                                        "h-9 rounded-lg text-xs font-bold transition-all",
                                                         missingPriceIds.includes(item.id)
                                                             ? "bg-red-50 border-red-300 focus:bg-white focus:ring-red-300 ring-1 ring-red-200"
                                                             : "bg-slate-50 border-slate-200 focus:bg-white"
@@ -564,13 +570,13 @@ export default function ReceiveGRNPage() {
                                                     onChange={e => handleUnitPriceChange(item.id, e.target.value)}
                                                 />
                                                 {missingPriceIds.includes(item.id) && (
-                                                    <p className="text-[10px] text-red-500 font-semibold ml-1">Required</p>
+                                                    <p className="text-[9px] text-red-500 font-semibold ml-1">Required</p>
                                                 )}
                                             </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Discount (LKR)</label>
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wide ml-1">Discount (LKR)</label>
                                                 <Input 
-                                                    className="h-11 rounded-xl font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all text-amber-600 placeholder:text-amber-200"
+                                                    className="h-9 rounded-lg text-xs font-bold bg-slate-50 border-slate-200 focus:bg-white transition-all text-amber-600 placeholder:text-amber-200"
                                                     type="number"
                                                     step="0.01"
                                                     placeholder="LKR 0.00"
@@ -578,10 +584,10 @@ export default function ReceiveGRNPage() {
                                                     onChange={e => handleDiscountChange(item.id, e.target.value)}
                                                 />
                                             </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Price (LKR)</label>
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wide ml-1">Total Price (LKR)</label>
                                                 <Input 
-                                                    className="h-11 rounded-xl font-black bg-blue-50 border-blue-200 focus:bg-white transition-all text-blue-700"
+                                                    className="h-9 rounded-lg text-xs font-black bg-blue-50 border-blue-200 focus:bg-white transition-all text-blue-700"
                                                     type="number"
                                                     step="0.01"
                                                     placeholder="LKR 0.00"
@@ -589,16 +595,16 @@ export default function ReceiveGRNPage() {
                                                     onChange={e => handleTotalPriceChange(item.id, e.target.value)}
                                                 />
                                             </div>
-                                            <div className="space-y-1.5">
+                                            <div className="space-y-1">
                                                 <label className={cn(
-                                                    "text-[10px] font-black uppercase tracking-widest ml-1",
+                                                    "text-[9px] font-black uppercase tracking-wide ml-1",
                                                     missingBatchIds.includes(item.id) ? "text-red-500" : "text-slate-400"
                                                 )}>
                                                     Batch Number <span className="text-red-500">*</span>
                                                 </label>
                                                 <Input
                                                     className={cn(
-                                                        "h-11 rounded-xl font-mono text-xs transition-all",
+                                                        "h-9 rounded-lg font-mono text-xs transition-all",
                                                         missingBatchIds.includes(item.id)
                                                             ? "bg-red-50 border-red-300 focus:bg-white ring-1 ring-red-200"
                                                             : "bg-slate-50 border-slate-200 focus:bg-white"
@@ -608,13 +614,13 @@ export default function ReceiveGRNPage() {
                                                     onChange={e => setBatchNumbers(prev => ({ ...prev, [item.id]: e.target.value }))}
                                                 />
                                                 {missingBatchIds.includes(item.id) && (
-                                                    <p className="text-[10px] text-red-500 font-semibold ml-1">Required</p>
+                                                    <p className="text-[9px] text-red-500 font-semibold ml-1">Required</p>
                                                 )}
                                             </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Expiry Date</label>
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wide ml-1">Expiry Date</label>
                                                 <Input 
-                                                    className="h-11 rounded-xl text-xs bg-slate-50 border-slate-200 focus:bg-white transition-all"
+                                                    className="h-9 rounded-lg text-xs bg-slate-50 border-slate-200 focus:bg-white transition-all"
                                                     type="date"
                                                     value={expiryDates[item.id] ?? ''}
                                                     onChange={e => setExpiryDates(prev => ({ ...prev, [item.id]: e.target.value }))}
@@ -623,26 +629,26 @@ export default function ReceiveGRNPage() {
                                         </div>
 
                                         {/* Actions */}
-                                        <div className="flex items-end pb-1 gap-2">
+                                        <div className="flex items-end pb-0.5 gap-2">
                                             <Button 
                                                 variant="ghost" 
                                                 size="sm" 
-                                                className="h-11 w-11 rounded-xl text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100"
+                                                className="h-9 w-9 rounded-lg text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100"
                                                 onClick={() => handleRemoveItem(item.id)}
                                             >
-                                                <Trash2 className="h-5 w-5" />
+                                                <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
 
                                     {/* Metadata Expandable Area */}
-                                    <div className="mt-4 pt-4 border-t border-dashed grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="mt-3 pt-3 border-t border-dashed grid grid-cols-1 md:grid-cols-3 gap-3">
                                         <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] ml-1 flex items-center gap-1">
+                                            <label className="text-[8px] font-black text-slate-300 uppercase tracking-wide ml-1 flex items-center gap-1">
                                                 <Tag className="h-2 w-2" /> Brand
                                             </label>
                                             <Input 
-                                                className="h-9 rounded-lg text-xs bg-transparent border-slate-100 focus:border-primary/20"
+                                                className="h-8 rounded-md text-xs bg-transparent border-slate-100 focus:border-primary/20"
                                                 placeholder="e.g. Anchor, Munchee"
                                                 value={receiveMetadata[item.id]?.brand ?? item.brand ?? ''}
                                                 onChange={e => setReceiveMetadata(prev => ({ 
@@ -652,11 +658,11 @@ export default function ReceiveGRNPage() {
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] ml-1 flex items-center gap-1">
+                                            <label className="text-[8px] font-black text-slate-300 uppercase tracking-wide ml-1 flex items-center gap-1">
                                                 <Tag className="h-2 w-2" /> Supplier Name
                                             </label>
                                             <Input 
-                                                className="h-9 rounded-lg text-xs bg-transparent border-slate-100 focus:border-primary/20"
+                                                className="h-8 rounded-md text-xs bg-transparent border-slate-100 focus:border-primary/20"
                                                 placeholder="Override supplier if needed"
                                                 value={receiveMetadata[item.id]?.supplier ?? item.supplier_name ?? purchaseOrder.supplier_name ?? ''}
                                                 onChange={e => setReceiveMetadata(prev => ({ 
@@ -666,11 +672,11 @@ export default function ReceiveGRNPage() {
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] ml-1 flex items-center gap-1">
+                                            <label className="text-[8px] font-black text-slate-300 uppercase tracking-wide ml-1 flex items-center gap-1">
                                                 <Tag className="h-2 w-2" /> Size/Spec
                                             </label>
                                             <Input 
-                                                className="h-9 rounded-lg text-xs bg-transparent border-slate-100 focus:border-primary/20"
+                                                className="h-8 rounded-md text-xs bg-transparent border-slate-100 focus:border-primary/20"
                                                 placeholder="e.g. 500g, 1L"
                                                 value={receiveMetadata[item.id]?.size ?? item.item_size ?? ''}
                                                 onChange={e => setReceiveMetadata(prev => ({ 

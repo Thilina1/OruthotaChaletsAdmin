@@ -405,7 +405,7 @@ export default function POApprovalsPage() {
                                                     {item.unit_price ? `LKR ${item.unit_price.toLocaleString()}` : '—'}
                                                 </TableCell>
                                                 <TableCell className="text-right font-mono font-semibold">
-                                                    {item.total_price ? `LKR ${item.total_price.toLocaleString()}` : '—'}
+                                                    {item.unit_price ? `LKR ${(Number(item.unit_price) * Number(item.quantity)).toLocaleString()}` : '—'}
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -414,7 +414,7 @@ export default function POApprovalsPage() {
                                                 Estimated Total
                                             </TableCell>
                                             <TableCell className="text-right text-primary font-mono text-lg">
-                                                LKR {viewPO.purchase_order_items.reduce((sum, item) => sum + (item.total_price || 0), 0).toLocaleString()}
+                                                LKR {viewPO.purchase_order_items.reduce((sum, item) => sum + (item.unit_price ? Number(item.unit_price) * Number(item.quantity) : 0), 0).toLocaleString()}
                                             </TableCell>
                                         </TableRow>
                                     </PaginatedTableBody>

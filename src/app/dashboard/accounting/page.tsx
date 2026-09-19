@@ -42,12 +42,13 @@ interface DeptPL {
 }
 
 interface AccountingData {
-  summary: { totalIncome: number; totalExpenses: number; netPL: number };
+  summary: { totalIncome: number; totalEarnings?: number; totalExpenses: number; netPL: number };
   incomeByCategory: Record<string, number>;
   expenseByCategory: Record<string, number>;
   departmentPL: DeptPL[];
   incomes: Transaction[];
   expenses: Transaction[];
+  accountTransactions?: AccountMovement[];
 }
 
 interface Account {
@@ -60,6 +61,10 @@ interface AccTransaction {
   id: string; account_id: string; type: 'credit' | 'debit'; amount: number;
   description: string; reference?: string; date: string; balance_after: number;
   created_at: string;
+}
+
+interface AccountMovement extends AccTransaction {
+  account?: { name?: string; type?: string } | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -198,6 +203,41 @@ function TxTable({ rows, emptyText }: { rows: Transaction[]; emptyText: string }
             <TableCell className={`text-right font-semibold whitespace-nowrap ${r.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
               {r.type === 'income' ? '+' : '−'} {fmtFull(r.amount)}
             </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function AccountMovementTable({ rows }: { rows: AccountMovement[] }) {
+  if (!rows.length) return <p className="text-sm text-muted-foreground py-8 text-center">No account movements in this period.</p>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Date</TableHead>
+          <TableHead>Account</TableHead>
+          <TableHead>Description</TableHead>
+          <TableHead>Reference</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead className="text-right">Balance After</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map(tx => (
+          <TableRow key={tx.id}>
+            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{tx.date}</TableCell>
+            <TableCell>
+              <div className="font-medium text-sm">{tx.account?.name || 'Account'}</div>
+              <div className="text-xs text-muted-foreground capitalize">{(tx.account?.type || '').replaceAll('_', ' ')}</div>
+            </TableCell>
+            <TableCell className="text-sm">{tx.description}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">{tx.reference || '—'}</TableCell>
+            <TableCell className={`text-right font-semibold whitespace-nowrap ${tx.type === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+              {tx.type === 'credit' ? '+' : '−'} {fmtFull(Number(tx.amount || 0))}
+            </TableCell>
+            <TableCell className="text-right font-medium whitespace-nowrap">{fmtFull(Number(tx.balance_after || 0))}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -643,6 +683,22 @@ export default function AccountingPage() {
   const ledger = useMemo(() =>
     data ? [...data.incomes, ...data.expenses].sort((a, b) => b.date.localeCompare(a.date)) : [],
     [data]);
+  const accountMovementSummary = useMemo(() => {
+    const rows = data?.accountTransactions ?? [];
+    const isCashTransfer = (tx: AccountMovement) => tx.description.toLowerCase().includes('cash transfer');
+    const isCardDeposit = (tx: AccountMovement) => tx.description.toLowerCase().includes('card payment');
+    return {
+      credits: rows.filter(tx => tx.type === 'credit').reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+      debits: rows.filter(tx => tx.type === 'debit').reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+      cardDeposits: rows.filter(tx => tx.type === 'credit' && isCardDeposit(tx)).reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+      cashTransfers: rows.filter(tx => tx.type === 'credit' && isCashTransfer(tx)).reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+      count: rows.length,
+    };
+  }, [data]);
+  const recentAccountMovements = useMemo(
+    () => (data?.accountTransactions ?? []).slice(0, 6),
+    [data]
+  );
 
   return (
     <div className="space-y-6">
@@ -674,10 +730,12 @@ export default function AccountingPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {data && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <SummaryCard title="Total Income" value={data.summary.totalIncome} icon={<TrendingUp className="h-5 w-5 text-green-600" />} positive={true} sub={`${data.incomes.length} transactions`} />
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          <SummaryCard title="Total Earnings" value={data.summary.totalEarnings ?? data.summary.totalIncome} icon={<TrendingUp className="h-5 w-5 text-green-600" />} positive={true} sub={`${data.incomes.length} income transactions`} />
           <SummaryCard title="Total Expenses" value={data.summary.totalExpenses} icon={<TrendingDown className="h-5 w-5 text-red-600" />} positive={false} sub={`${data.expenses.length} transactions`} />
           <SummaryCard title="Net Profit / Loss" value={data.summary.netPL} icon={<Wallet className={`h-5 w-5 ${data.summary.netPL >= 0 ? 'text-blue-600' : 'text-red-600'}`} />} positive={data.summary.netPL >= 0} sub={data.summary.netPL >= 0 ? 'Profit' : 'Loss'} />
+          <SummaryCard title="Card Deposits" value={accountMovementSummary.cardDeposits} icon={<ArrowUpCircle className="h-5 w-5 text-green-600" />} positive={true} sub="Already included in earnings" />
+          <SummaryCard title="Cash Transfers" value={accountMovementSummary.cashTransfers} icon={<ArrowUpCircle className="h-5 w-5 text-blue-600" />} positive={true} sub="Internal movement, not extra income" />
         </div>
       )}
 
@@ -688,6 +746,7 @@ export default function AccountingPage() {
           <TabsTrigger value="income">Income <Badge variant="secondary" className="ml-1 text-xs">{data?.incomes.length ?? 0}</Badge></TabsTrigger>
           <TabsTrigger value="expenses">Expenses <Badge variant="secondary" className="ml-1 text-xs">{data?.expenses.length ?? 0}</Badge></TabsTrigger>
           <TabsTrigger value="ledger">All Transactions <Badge variant="secondary" className="ml-1 text-xs">{ledger.length}</Badge></TabsTrigger>
+          <TabsTrigger value="account-movements">Account Movements <Badge variant="secondary" className="ml-1 text-xs">{data?.accountTransactions?.length ?? 0}</Badge></TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
         </TabsList>
 
@@ -740,6 +799,16 @@ export default function AccountingPage() {
               <CardContent><DonutChart data={expenseChartData} colors={EXPENSE_COLORS} /></CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Recent Account Movements</CardTitle>
+              <CardDescription>Card payment deposits, cash transfers, and manual account entries in this period.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <AccountMovementTable rows={recentAccountMovements} />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="departments" className="space-y-4">
@@ -864,6 +933,18 @@ export default function AccountingPage() {
 
         <TabsContent value="ledger">
           <Card><CardContent className="pt-4"><TxTable rows={ledger} emptyText="No transactions in this period." /></CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="account-movements">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Account Movements</CardTitle>
+              <CardDescription>Bank/cash credits and debits, including card payment deposits and cash transfers. These are not added again to P&amp;L totals.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <AccountMovementTable rows={data?.accountTransactions ?? []} />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="accounts">

@@ -183,11 +183,15 @@ export default function InventoryManagementPage() {
       const itemName = item.name || '';
       const itemCode = item.code || '';
       const itemDescription = item.description || '';
+      const itemSize = item.item_size || '';
+      const itemBrand = item.brand || '';
 
       const matchesSearch = 
         itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        itemDescription.toLowerCase().includes(searchQuery.toLowerCase());
+        itemDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemSize.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemBrand.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory;
       const matchesWarehouse = selectedDepartment === 'all' || item.warehouse_stock?.some(ws => ws.id === selectedDepartment);
@@ -309,16 +313,18 @@ export default function InventoryManagementPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[40px]"></TableHead>
-                  <TableHead className="w-[120px]">Code</TableHead>
                   <TableHead>Item Name</TableHead>
+                  <TableHead>Size Attribute (Label)</TableHead>
                   <TableHead>Category</TableHead>
+                  <TableHead className="w-[140px]">SKU / Item Code</TableHead>
+                  <TableHead>Brand</TableHead>
                   <TableHead className="text-right">Total Stock</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center">
+                    <TableCell colSpan={7} className="h-24 text-center">
                       <div className="flex items-center justify-center gap-2">
                         Loading items...
                       </div>
@@ -326,7 +332,7 @@ export default function InventoryManagementPage() {
                   </TableRow>
                 ) : paginatedItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       No inventory items found.
                     </TableCell>
                   </TableRow>
@@ -339,16 +345,18 @@ export default function InventoryManagementPage() {
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs" onClick={() => toggleRow(item.id)}>{item.code}</TableCell>
                         <TableCell className="font-medium" onClick={() => toggleRow(item.id)}>
                           <div className="flex flex-col">
                             <span>{item.name}</span>
                             <span className="text-[10px] text-muted-foreground truncate max-w-[300px]">{item.description}</span>
                           </div>
                         </TableCell>
+                        <TableCell className="text-sm" onClick={() => toggleRow(item.id)}>{item.item_size || '—'}</TableCell>
                         <TableCell onClick={() => toggleRow(item.id)}>
                           <Badge variant="outline" className="bg-slate-100/50">{item.category?.name || 'Uncategorized'}</Badge>
                         </TableCell>
+                        <TableCell className="font-mono text-xs" onClick={() => toggleRow(item.id)}>{item.code || '—'}</TableCell>
+                        <TableCell className="text-sm" onClick={() => toggleRow(item.id)}>{item.brand || '—'}</TableCell>
                         <TableCell className="text-right font-bold" onClick={() => toggleRow(item.id)}>
                           <div className="flex flex-col items-end">
                             <span className={cn(item.total_stock === 0 ? "text-destructive" : "text-primary")}>
@@ -361,7 +369,7 @@ export default function InventoryManagementPage() {
                       
                       {expandedRows[item.id] && (
                         <TableRow className="bg-slate-50/30">
-                          <TableCell colSpan={5} className="p-0 border-t-0">
+                          <TableCell colSpan={7} className="p-0 border-t-0">
                             <div className="p-4 bg-slate-100/30 flex flex-col gap-3">
                               <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Store-wise Stock Breakdown</h4>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -416,6 +424,11 @@ export default function InventoryManagementPage() {
             type="receive" 
             title="Recent Stock Intake (GRN)" 
             refreshKey={refreshHistory}
+            warehouses={warehouses}
+            showFilters
+            showWarehouseFilters={false}
+            destinationWarehouseId={warehouses.find(warehouse => warehouse.is_main)?.id}
+            externalOnly
           />
         </TabsContent>
 
@@ -423,6 +436,8 @@ export default function InventoryManagementPage() {
           <TransactionHistoryTable 
             title="All Inventory Movements" 
             refreshKey={refreshHistory}
+            warehouses={warehouses}
+            showFilters
           />
         </TabsContent>
       </Tabs>

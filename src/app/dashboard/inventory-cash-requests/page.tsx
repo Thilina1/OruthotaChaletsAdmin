@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { CreditLiabilitiesPanel } from '@/components/dashboard/credit-liabilities-panel';
+import { InventoryCashPrintButton } from '@/components/dashboard/inventory-cash-print-document';
 
 type PurchaseOrder = {
     id: string;
@@ -38,6 +39,11 @@ type PurchaseOrder = {
         unit: string;
         unit_price: number | null;
         total_price: number | null;
+        received_unit_price?: number | null;
+        received_total_price?: number | null;
+        discount_amount?: number | null;
+        discount?: number | null;
+        received_quantity?: number | null;
         quantity: number;
     }[];
 };
@@ -78,9 +84,34 @@ const fmt = (n: number | null | undefined) =>
 
 const ROWS_PER_PAGE = 20;
 
+const getReceivedQuantity = (item: PurchaseOrder['purchase_order_items'][number]) => Number(item.received_quantity ?? item.quantity ?? 0);
+const getReceivedUnitPrice = (item: PurchaseOrder['purchase_order_items'][number]) => {
+    if (item.received_unit_price != null) return Number(item.received_unit_price);
+    const quantity = getReceivedQuantity(item);
+    const receivedTotal = item.received_total_price ?? item.total_price;
+    if (receivedTotal != null && quantity > 0) return Number(receivedTotal) / quantity;
+    return Number(item.unit_price ?? 0);
+};
+const getGRNGrossTotal = (item: PurchaseOrder['purchase_order_items'][number]) => getReceivedUnitPrice(item) * getReceivedQuantity(item);
+const getGRNDiscount = (item: PurchaseOrder['purchase_order_items'][number]) => Math.max(0, Number(item.discount_amount ?? item.discount ?? 0));
+const getGRNLineTotal = (item: PurchaseOrder['purchase_order_items'][number]) => {
+    const gross = getGRNGrossTotal(item);
+    const discount = getGRNDiscount(item);
+    return Number(item.received_total_price ?? item.total_price ?? Math.max(0, gross - discount));
+};
+const getGRNSpentTotal = (po: PurchaseOrder | null | undefined) =>
+    po?.status === 'received'
+        ? po.purchase_order_items.reduce((sum, item) => sum + getGRNLineTotal(item), 0)
+        : null;
+const getGRNDiscountTotal = (po: PurchaseOrder | null | undefined) =>
+    po?.status === 'received'
+        ? po.purchase_order_items.reduce((sum, item) => sum + getGRNDiscount(item), 0)
+        : null;
+
 function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
+    const isReceived = po.status === 'received';
     const total = po.purchase_order_items.reduce(
-        (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
+        (sum, item) => sum + (isReceived ? getGRNLineTotal(item) : Number(item.unit_price ?? 0) * Number(item.quantity)),
         0
     );
 
@@ -104,27 +135,42 @@ function PurchaseOrderPreview({ po }: { po: PurchaseOrder }) {
                         <TableRow>
                             <TableHead>Item</TableHead>
                             <TableHead className="text-right">Qty</TableHead>
-                            <TableHead className="text-right">Unit Price</TableHead>
+                            <TableHead className="text-right">{isReceived ? 'PO Unit' : 'Unit Price'}</TableHead>
+                            {isReceived && <TableHead className="text-right">GRN Unit</TableHead>}
+                            {isReceived && <TableHead className="text-right">Gross</TableHead>}
+                            {isReceived && <TableHead className="text-right">Discount</TableHead>}
                             <TableHead className="text-right">Total</TableHead>
                         </TableRow>
                     </TableHeader>
                     <PaginatedTableBody>
                         {po.purchase_order_items.map(item => {
-                            const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
+                            const quantity = isReceived ? getReceivedQuantity(item) : Number(item.quantity);
+                            const gross = getGRNGrossTotal(item);
+                            const discount = getGRNDiscount(item);
+                            const lineTotal = isReceived ? getGRNLineTotal(item) : Number(item.unit_price ?? 0) * Number(item.quantity);
                             return (
                                 <TableRow key={item.id}>
                                     <TableCell>
                                         <div className="font-medium text-xs">{item.item_name}</div>
                                         <div className="text-[10px] text-muted-foreground">{item.unit}</div>
                                     </TableCell>
-                                    <TableCell className="text-right text-xs">{item.quantity}</TableCell>
+                                    <TableCell className="text-right text-xs">{quantity}</TableCell>
                                     <TableCell className="text-right text-xs">{fmt(item.unit_price)}</TableCell>
+                                    {isReceived && <TableCell className="text-right text-xs">{fmt(getReceivedUnitPrice(item))}</TableCell>}
+                                    {isReceived && <TableCell className="text-right text-xs">{fmt(gross)}</TableCell>}
+                                    {isReceived && (
+                                        <TableCell className="text-right text-xs text-amber-700">
+                                            {discount > 0 ? `-${fmt(discount)}` : fmt(0)}
+                                        </TableCell>
+                                    )}
                                     <TableCell className="text-right text-xs font-medium">{fmt(lineTotal)}</TableCell>
                                 </TableRow>
                             );
                         })}
                         <TableRow className="bg-muted/40">
-                            <TableCell colSpan={3} className="text-right text-xs font-semibold">PO Total</TableCell>
+                            <TableCell colSpan={isReceived ? 6 : 3} className="text-right text-xs font-semibold">
+                                {isReceived ? 'GRN Total' : 'PO Total'}
+                            </TableCell>
                             <TableCell className="text-right font-bold">{fmt(total)}</TableCell>
                         </TableRow>
                     </PaginatedTableBody>
@@ -222,6 +268,12 @@ export default function InventoryCashRequestsPage() {
             : null,
         [detailReq, purchaseOrders]
     );
+    const settlePO = useMemo(
+        () => settleReq?.purchase_order
+            ? purchaseOrders.find(po => po.id === settleReq.purchase_order?.id) || null
+            : null,
+        [settleReq, purchaseOrders]
+    );
 
     const handlePoChange = (poId: string) => {
         setNewPoId(poId);
@@ -293,8 +345,11 @@ export default function InventoryCashRequestsPage() {
 
     const openSettle = (req: CashRequest) => {
         setSettleReq(req);
-        // Pre-fill with total issued (original + any additional)
-        const total = (req.issued_amount ?? 0) + (req.additional_issued_amount ?? 0);
+        const linkedPO = req.purchase_order
+            ? purchaseOrders.find(po => po.id === req.purchase_order?.id) ?? null
+            : null;
+        // Prefer actual GRN spend when the linked PO has been received.
+        const total = getGRNSpentTotal(linkedPO) ?? (req.issued_amount ?? 0) + (req.additional_issued_amount ?? 0);
         setSpentAmount(total > 0 ? String(total) : '');
         setOverspendReason('');
     };
@@ -408,9 +463,11 @@ export default function InventoryCashRequestsPage() {
                                         {isAdmin && <TableHead>Requested By</TableHead>}
                                         <TableHead>Purpose</TableHead>
                                         <TableHead>PO</TableHead>
+                                        <TableHead className="text-right">GRN Spent</TableHead>
                                         <TableHead className="text-right">Requested</TableHead>
                                         <TableHead className="text-right">Approved</TableHead>
                                         <TableHead className="text-right">Issued</TableHead>
+                                        <TableHead className="text-right">Settlement</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Date</TableHead>
                                         <TableHead className="text-right">Actions</TableHead>
@@ -419,6 +476,10 @@ export default function InventoryCashRequestsPage() {
                                 <TableBody>
                                     {paginatedRequests.map(req => {
                                         const sc = STATUS_CONFIG[req.status];
+                                        const linkedPO = req.purchase_order
+                                            ? purchaseOrders.find(po => po.id === req.purchase_order?.id) ?? null
+                                            : null;
+                                        const grnSpent = getGRNSpentTotal(linkedPO);
                                         return (
                                             <TableRow key={req.id}>
                                                 <TableCell className="font-mono text-xs font-bold">{req.request_number}</TableCell>
@@ -437,6 +498,16 @@ export default function InventoryCashRequestsPage() {
                                                             {req.purchase_order.po_number}
                                                         </Badge>
                                                     ) : '—'}
+                                                </TableCell>
+                                                <TableCell className="text-right text-sm">
+                                                    {grnSpent != null ? (
+                                                        <div>
+                                                            <div className="font-bold text-blue-700">{fmt(grnSpent)}</div>
+                                                            <div className="text-[10px] text-muted-foreground">from GRN</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-right text-sm">{fmt(req.requested_amount)}</TableCell>
                                                 <TableCell className="text-right text-sm">
@@ -461,21 +532,25 @@ export default function InventoryCashRequestsPage() {
                                                         </div>
                                                     ) : '—'}
                                                 </TableCell>
+                                                <TableCell className="text-right text-sm">
+                                                    {req.status === 'SETTLED' ? (
+                                                        <div className="space-y-0.5">
+                                                            <div>
+                                                                <span className="text-muted-foreground">Spent </span>
+                                                                <span className="font-bold text-red-600">{fmt(req.spent_amount)}</span>
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-muted-foreground">Returned </span>
+                                                                <span className="font-semibold text-green-700">{fmt(req.returned_amount)}</span>
+                                                            </div>
+                                                        </div>
+                                                    ) : '—'}
+                                                </TableCell>
                                                 <TableCell>
                                                     <div className="space-y-1">
                                                         <Badge className={`text-[10px] border gap-1 ${sc.className}`}>
                                                             {sc.icon} {sc.label}
                                                         </Badge>
-                                                        {req.status === 'SETTLED' && (
-                                                            <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
-                                                                {req.spent_amount != null && (
-                                                                    <div>Spent: <span className="font-semibold text-foreground">{fmt(req.spent_amount)}</span></div>
-                                                                )}
-                                                                {req.returned_amount != null && req.returned_amount > 0 && (
-                                                                    <div className="text-green-600 font-semibold">Returned: {fmt(req.returned_amount)}</div>
-                                                                )}
-                                                            </div>
-                                                        )}
                                                         {req.additional_status === 'PENDING' && (
                                                             <Badge className="text-[10px] border bg-orange-100 text-orange-800 border-orange-200 gap-1">
                                                                 <AlertTriangle className="h-2.5 w-2.5" />
@@ -698,6 +773,43 @@ export default function InventoryCashRequestsPage() {
                     </DialogHeader>
                     {settleReq && (
                         <div className="space-y-4 py-2">
+                            {settlePO?.status === 'received' && (
+                                <div className="rounded-lg border bg-blue-50/70 p-3 text-sm">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">GRN Receipt Data</p>
+                                    <div className="grid gap-2 sm:grid-cols-3">
+                                        <Row label="GRN Spent" value={<span className="font-bold text-blue-700">{fmt(getGRNSpentTotal(settlePO))}</span>} />
+                                        <Row label="Discounts" value={<span className="font-bold text-amber-700">{fmt(getGRNDiscountTotal(settlePO))}</span>} />
+                                        <Row label="Issued Cash" value={fmt(totalIssuedForSettle)} />
+                                    </div>
+                                    <div className="mt-3 max-h-44 overflow-y-auto rounded-md border bg-white">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Item</TableHead>
+                                                    <TableHead className="text-right">Gross</TableHead>
+                                                    <TableHead className="text-right">Discount</TableHead>
+                                                    <TableHead className="text-right">Net</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <PaginatedTableBody>
+                                                {settlePO.purchase_order_items.map(item => (
+                                                    <TableRow key={item.id}>
+                                                        <TableCell>
+                                                            <div className="text-xs font-medium">{item.item_name}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{getReceivedQuantity(item)} {item.unit}</div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right text-xs">{fmt(getGRNGrossTotal(item))}</TableCell>
+                                                        <TableCell className="text-right text-xs text-amber-700">
+                                                            {getGRNDiscount(item) > 0 ? `-${fmt(getGRNDiscount(item))}` : fmt(0)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right text-xs font-bold text-blue-700">{fmt(getGRNLineTotal(item))}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </PaginatedTableBody>
+                                        </Table>
+                                    </div>
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <Label htmlFor="spent-amount">Amount Spent (Rs) <span className="text-destructive">*</span></Label>
                                 <Input
@@ -759,21 +871,35 @@ export default function InventoryCashRequestsPage() {
 
             {/* Detail Dialog */}
             <Dialog open={!!detailReq} onOpenChange={open => { if (!open) setDetailReq(null); }}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Request Details — {detailReq?.request_number}</DialogTitle>
                     </DialogHeader>
                     {detailReq && (
                         <div className="space-y-3 text-sm">
+                            <div className="flex justify-end"><InventoryCashPrintButton request={detailReq} /></div>
                             <Row label="Purpose" value={detailReq.purpose} />
                             <Row label="Status" value={<Badge className={`text-[11px] border gap-1 ${STATUS_CONFIG[detailReq.status].className}`}>{STATUS_CONFIG[detailReq.status].label}</Badge>} />
                             {detailReq.purchase_order && <Row label="Purchase Order" value={detailReq.purchase_order.po_number} />}
                             {detailPO && <PurchaseOrderPreview po={detailPO} />}
+                            {detailPO?.status === 'received' && <Row label="GRN Spent" value={<span className="font-bold text-blue-700">{fmt(getGRNSpentTotal(detailPO))}</span>} />}
                             <Row label="Requested" value={fmt(detailReq.requested_amount)} />
                             {detailReq.approved_amount != null && <Row label="Approved" value={fmt(detailReq.approved_amount)} />}
                             {detailReq.issued_amount != null && <Row label="Issued" value={fmt(detailReq.issued_amount)} />}
-                            {detailReq.spent_amount != null && <Row label="Spent" value={fmt(detailReq.spent_amount)} />}
-                            {detailReq.returned_amount != null && <Row label="Returned" value={fmt(detailReq.returned_amount)} />}
+                            {detailReq.status === 'SETTLED' && (
+                                <div className="rounded-lg border bg-green-50/60 p-3">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-green-700">Settlement Details</p>
+                                    <div className="grid gap-2 sm:grid-cols-2">
+                                        <Row label="Total Issued" value={fmt((detailReq.issued_amount ?? 0) + (detailReq.additional_issued_amount ?? 0))} />
+                                        <Row label="Spent Amount" value={<span className="font-bold text-red-600">{fmt(detailReq.spent_amount)}</span>} />
+                                        <Row label="Returned Amount" value={<span className="font-bold text-green-700">{fmt(detailReq.returned_amount)}</span>} />
+                                        <Row
+                                            label="Balance"
+                                            value={fmt(((detailReq.issued_amount ?? 0) + (detailReq.additional_issued_amount ?? 0)) - (detailReq.spent_amount ?? 0))}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                             {detailReq.rejection_reason && <Row label="Rejection Reason" value={detailReq.rejection_reason} />}
                             {detailReq.notes && <Row label="Notes" value={detailReq.notes} />}
                             {detailReq.additional_status && (

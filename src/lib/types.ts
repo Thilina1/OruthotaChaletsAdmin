@@ -558,6 +558,7 @@ export type InventoryItem = {
   unit_id: string;
   unit?: InventoryUnit;
   item_size?: string;
+  brand?: string;
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;

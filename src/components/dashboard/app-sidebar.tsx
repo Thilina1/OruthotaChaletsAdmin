@@ -46,7 +46,7 @@ const renderMenuItems = (items: MenuItem[], hasPathAccess: (path: string) => boo
     if (item.hidden) return false;
     const userRole = user?.role;
     // The permission-aware home screen is available to every signed-in user.
-    if (item.href === '/dashboard/home') return true;
+    if (item.href === '/dashboard/home' || item.href === '/dashboard/academy') return true;
     // Admins default to all access unless specifically restricted to selected permissions.
     if (userRole === 'admin' && !user?.restrict_admin_permissions) return true;
 

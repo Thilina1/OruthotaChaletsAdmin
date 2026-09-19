@@ -75,7 +75,7 @@ export function NotificationMenu() {
             ? '/dashboard/event-management/approvals'
             : notification.href;
 
-        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(notification.type)) {
+        if (['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_approval', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(notification.type)) {
             if (destination) router.push(destination);
             return;
         }
@@ -88,7 +88,7 @@ export function NotificationMenu() {
                     body: JSON.stringify({ id: notification.id, rejection_through: notification.rejection_through }),
                 });
                 if (!response.ok) throw new Error('Could not mark this notification as read. Please try again.');
-                setNotifications(current => notification.id === 'mrn-rejections'
+                setNotifications(current => notification.id === 'mrn-rejections' || notification.type === 'inventory_cash_request'
                     ? current.filter(item => item.id !== notification.id || item.rejection_through !== notification.rejection_through)
                     : current.map(item => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item)
                 );
@@ -110,8 +110,10 @@ export function NotificationMenu() {
             toast({ title: 'Unable to mark notifications as read', description: 'Please try again.', variant: 'destructive' });
             return;
         }
-        setNotifications(current => current.filter(item => item.id !== 'mrn-rejections').map(item =>
-            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(item.type)
+        setNotifications(current => current.filter(item =>
+            item.id !== 'mrn-rejections' && item.type !== 'inventory_cash_request'
+        ).map(item =>
+            ['purchase_order_approval', 'chalet_booking', 'buffet_booking', 'experience_inquiry', 'general_inquiry', 'inventory_cash_approval', 'inventory_cash_issuance', 'leave_approval', 'event_approval', 'kitchen_order', 'restaurant_billing', 'confirmed_restaurant_bill', 'mrn_approval'].includes(item.type)
                 ? item
                 : { ...item, read_at: item.read_at ?? new Date().toISOString() }
         ));
@@ -161,7 +163,7 @@ export function NotificationMenu() {
                             <Star className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'general_inquiry' ? (
                             <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        ) : notification.type === 'inventory_cash_issuance' ? (
+                        ) : notification.type === 'inventory_cash_approval' || notification.type === 'inventory_cash_issuance' || notification.type === 'inventory_cash_request' ? (
                             <Banknote className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         ) : notification.type === 'leave_approval' || notification.type === 'event_approval' ? (
                             <CalendarCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />

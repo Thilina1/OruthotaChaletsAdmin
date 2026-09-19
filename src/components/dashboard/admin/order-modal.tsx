@@ -104,19 +104,42 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     setIsLoading(true);
     try {
       // Fetch Menu Items, Categories, and restaurant warehouse stock concurrently
-      const [menuApiRes, restaurantWH] = await Promise.all([
+      const [menuApiRes, warehouseSettingRes, inventoryItemsRes] = await Promise.all([
         fetch('/api/admin/menu-items').then(r => r.json()),
-        supabase.from('inventory_warehouses').select('id').eq('name', 'Restaurant').maybeSingle(),
+        fetch('/api/admin/app-settings?key=restaurant_warehouse_ids').then(r => r.json()).catch(() => ({ value: [] })),
+        fetch('/api/admin/inventory/items?includeStock=true').then(r => r.json()).catch(() => ({ items: [] })),
       ]);
 
-      const restaurantWHId = (restaurantWH as any)?.data?.id as string | undefined;
-      const stockRes = restaurantWHId
-        ? await supabase.from('inventory_stock').select('*, batch:inventory_batches(*)').eq('warehouse_id', restaurantWHId)
+      const restaurantWarehouseIds: string[] = Array.isArray(warehouseSettingRes.value) ? warehouseSettingRes.value : [];
+      const stockRes = restaurantWarehouseIds.length > 0
+        ? await supabase
+          .from('inventory_stock')
+          .select('*, warehouse:inventory_warehouses(id, name), batch:inventory_batches(*)')
+          .in('warehouse_id', restaurantWarehouseIds)
         : { data: [] };
 
       const menuRawItems: any[] = menuApiRes.menuItems ?? [];
+      const inventoryItems: any[] = inventoryItemsRes.items ?? [];
       const stockData: any[] = (stockRes as any).data || [];
       const todayStr = new Date().toISOString().split('T')[0];
+      const normalize = (value: string | null | undefined) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const resolveInventoryItemIds = (item: any) => {
+        const ids = new Set<string>();
+        if (item.linked_inventory_item_id) ids.add(item.linked_inventory_item_id);
+        const menuName = normalize(item.name);
+        inventoryItems.forEach((inventoryItem: any) => {
+          const candidates = [
+            normalize(inventoryItem.name),
+            normalize([inventoryItem.name, inventoryItem.item_size].filter(Boolean).join(' ')),
+            normalize([inventoryItem.name, inventoryItem.brand].filter(Boolean).join(' ')),
+            normalize([inventoryItem.name, inventoryItem.item_size, inventoryItem.brand].filter(Boolean).join(' ')),
+          ].filter(Boolean);
+          if (candidates.some(candidate => candidate === menuName || menuName.includes(candidate) || candidate.includes(menuName))) {
+            ids.add(inventoryItem.id);
+          }
+        });
+        return ids;
+      };
 
       // Fetch batch pricing for all menu items
       const menuItemIds = menuRawItems.map((m: any) => m.id);
@@ -134,8 +157,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
         let available_batches: any[] = [];
         let restaurant_stock = 0;
         if (item.stock_type === 'Inventoried' && item.linked_inventory_item_id) {
+          const inventoryItemIds = resolveInventoryItemIds(item);
           stockData
-            .filter((s: any) => s.item_id === item.linked_inventory_item_id && s.batch)
+            .filter((s: any) => inventoryItemIds.has(s.item_id) && s.batch)
             .forEach((s: any) => {
               if (s.batch.expiry_date && s.batch.expiry_date < todayStr) return;
               if (s.quantity <= 0) return;
@@ -145,6 +169,8 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                 batch_number: s.batch.batch_number,
                 expiry_date: s.batch.expiry_date,
                 quantity: s.quantity,
+                warehouse_id: s.warehouse_id,
+                warehouse_name: s.warehouse?.name || 'Restaurant Warehouse',
                 selling_price: pricingMap[item.id]?.[s.batch.id] ?? null,
               });
             });
@@ -154,7 +180,29 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
             return a.expiry_date.localeCompare(b.expiry_date);
           });
         } else if (item.stock_type === 'Inventoried') {
-          restaurant_stock = item.stock || 0;
+          const inventoryItemIds = resolveInventoryItemIds(item);
+          stockData
+            .filter((s: any) => inventoryItemIds.has(s.item_id) && s.batch)
+            .forEach((s: any) => {
+              if (s.batch.expiry_date && s.batch.expiry_date < todayStr) return;
+              if (s.quantity <= 0) return;
+              restaurant_stock += s.quantity;
+              available_batches.push({
+                id: s.batch.id,
+                batch_number: s.batch.batch_number,
+                expiry_date: s.batch.expiry_date,
+                quantity: s.quantity,
+                warehouse_id: s.warehouse_id,
+                warehouse_name: s.warehouse?.name || 'Restaurant Warehouse',
+                selling_price: pricingMap[item.id]?.[s.batch.id] ?? null,
+              });
+            });
+          available_batches.sort((a, b) => {
+            if (!a.expiry_date) return 1;
+            if (!b.expiry_date) return -1;
+            return a.expiry_date.localeCompare(b.expiry_date);
+          });
+          if (restaurant_stock <= 0) restaurant_stock = item.stock || 0;
         }
         return { ...item, available_batches, restaurant_stock };
       });
@@ -278,6 +326,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     if (!localMenuItems) return [];
     return localMenuItems
       .filter((item) => item.availability && item.sell_type !== 'Indirect')
+      .filter((item: any) => item.stock_type !== 'Inventoried' || Number(item.restaurant_stock ?? item.stock ?? 0) > 0)
       .filter((item) => (selectedCategory ? item.category === selectedCategory : true))
       .filter((item) => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [localMenuItems, searchTerm, selectedCategory]);
@@ -708,7 +757,7 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                                 <p className="text-xs text-muted-foreground">LKR {item.price.toFixed(2)}</p>
                               )}
                               {item.stock_type === 'Inventoried' && (
-                                <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>Stock: {effectiveStock - currentCountInCart}</p>
+                                <p className={`text-xs ${!isOutOfStock ? 'text-primary' : 'text-destructive'}`}>Available: {effectiveStock - currentCountInCart}</p>
                               )}
                             </div>
                           </div>
@@ -958,8 +1007,9 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                   <div key={b.id} className="flex justify-between items-center p-3 border rounded-lg">
                     <div>
                       <p className="font-semibold text-sm">Batch: {b.batch_number || '—'}</p>
+                      <p className="text-xs text-muted-foreground">{b.warehouse_name || 'Restaurant Warehouse'}</p>
                       {b.expiry_date && <p className="text-xs text-muted-foreground">Expires: {b.expiry_date}</p>}
-                      <p className="text-xs font-medium mt-1">Stock: {b.quantity - inCart}</p>
+                      <p className="text-xs font-medium mt-1">Available: {b.quantity - inCart}</p>
                       {noPriceSet
                         ? <p className="text-xs text-destructive font-semibold">Selling Price: Not set — set in Menu Management</p>
                         : <p className="text-xs text-primary font-semibold">Selling Price: LKR {b.selling_price.toFixed(2)}</p>

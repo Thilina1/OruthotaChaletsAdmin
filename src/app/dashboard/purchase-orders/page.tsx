@@ -399,7 +399,7 @@ export default function PurchaseOrdersPage() {
                                                 {item.unit_price != null ? `LKR ${item.unit_price.toFixed(2)}` : <span className="text-muted-foreground italic">—</span>}
                                             </TableCell>
                                             <TableCell className="text-right font-bold">
-                                                {item.total_price != null ? `LKR ${item.total_price.toFixed(2)}` : <span className="text-muted-foreground italic">—</span>}
+                                                {item.unit_price != null ? `LKR ${(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}` : <span className="text-muted-foreground italic">—</span>}
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -599,7 +599,7 @@ export default function PurchaseOrdersPage() {
                                             {item.unit_price != null ? item.unit_price.toFixed(2) : '—'}
                                         </td>
                                         <td className="py-3 px-3 border border-gray-300 text-right">
-                                            {item.total_price != null ? item.total_price.toFixed(2) : '—'}
+                                            {item.unit_price != null ? (Number(item.unit_price) * Number(item.quantity)).toFixed(2) : '—'}
                                         </td>
                                     </tr>
                                 ))}
@@ -608,8 +608,8 @@ export default function PurchaseOrdersPage() {
                                 <tr className="bg-gray-100">
                                     <td colSpan={5} className="py-3 px-3 border border-gray-300 font-bold text-right">TOTAL</td>
                                     <td className="py-3 px-3 border border-gray-300 font-bold text-right">
-                                        {viewPO.purchase_order_items.some(i => i.total_price != null)
-                                            ? `LKR ${viewPO.purchase_order_items.reduce((sum, i) => sum + (i.total_price ?? 0), 0).toFixed(2)}`
+                                        {viewPO.purchase_order_items.some(i => i.unit_price != null)
+                                            ? `LKR ${viewPO.purchase_order_items.reduce((sum, i) => sum + (i.unit_price != null ? Number(i.unit_price) * Number(i.quantity) : 0), 0).toFixed(2)}`
                                             : '—'}
                                     </td>
                                 </tr>

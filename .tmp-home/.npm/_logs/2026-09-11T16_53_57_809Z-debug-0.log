@@ -1,0 +1,18 @@
+0 verbose cli /opt/homebrew/Cellar/node@24/24.16.0/bin/node /opt/homebrew/Cellar/node@24/24.16.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.13.0
+2 info using node@v24.16.0
+3 silly config load:file:/opt/homebrew/Cellar/node@24/24.16.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/thilinaweerasinghe/untitled folder 6/OruthotaChaletsAdmin/.npmrc
+5 silly config load:file:/Users/thilinaweerasinghe/untitled folder 6/OruthotaChaletsAdmin/.tmp-home/.npmrc
+6 silly config load:file:/opt/homebrew/etc/npmrc
+7 verbose title npm exec supabase db dump --db-url postgresql://postgres.ysejulbuvunfhodersjr@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres --file backups/supabase-backup-2026-09-11.sql
+8 verbose argv "exec" "--" "supabase" "db" "dump" "--db-url" "postgresql://postgres.ysejulbuvunfhodersjr@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres" "--file" "backups/supabase-backup-2026-09-11.sql"
+9 verbose logfile logs-max:10 dir:/Users/thilinaweerasinghe/untitled folder 6/OruthotaChaletsAdmin/.tmp-home/.npm/_logs/2026-09-11T16_53_57_809Z-
+10 verbose logfile /Users/thilinaweerasinghe/untitled folder 6/OruthotaChaletsAdmin/.tmp-home/.npm/_logs/2026-09-11T16_53_57_809Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /Users/thilinaweerasinghe/untitled folder 6/OruthotaChaletsAdmin
+13 verbose os Darwin 25.2.0
+14 verbose node v24.16.0
+15 verbose npm  v11.13.0
+16 verbose exit 1
+17 verbose code 1

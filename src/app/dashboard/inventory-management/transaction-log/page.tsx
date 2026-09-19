@@ -90,7 +90,9 @@ export default function TransactionLogPage() {
     // Filters
     const [search, setSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('all');
-    const [warehouseFilter, setWarehouseFilter] = useState('all');
+    const [selectedDepartment, setSelectedDepartment] = useState('all');
+    const [fromWarehouse, setFromWarehouse] = useState('all');
+    const [toWarehouse, setToWarehouse] = useState('all');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
 
@@ -120,9 +122,13 @@ export default function TransactionLogPage() {
     useEffect(() => { fetchData(); }, [fetchData]);
 
     const filtered = useMemo(() => {
-        let rows = transactions.filter(t => t.from_him === true);
+        // The log must include every inventory transaction. The HIM marker is
+        // only a source label and is not present on older or GRN-created rows.
+        // GRN / stock-in records have their own dedicated GRN page.
+        let rows = transactions.filter(t => t.transaction_type !== 'receive');
         if (typeFilter !== 'all') rows = rows.filter(t => t.transaction_type === typeFilter);
-        if (warehouseFilter !== 'all') rows = rows.filter(t => t.department_id === warehouseFilter);
+        if (fromWarehouse !== 'all') rows = rows.filter(t => (t.from_department_id || t.reference_department) === fromWarehouse);
+        if (toWarehouse !== 'all') rows = rows.filter(t => (t.to_department_id || t.department_id) === toWarehouse);
         if (search.trim()) {
             const q = search.toLowerCase();
             rows = rows.filter(t =>
@@ -134,7 +140,16 @@ export default function TransactionLogPage() {
             );
         }
         return rows;
-    }, [transactions, typeFilter, warehouseFilter, search]);
+    }, [transactions, typeFilter, selectedDepartment, fromWarehouse, toWarehouse, search]);
+
+    const chooseFromWarehouse = (value: string) => {
+        setFromWarehouse(value);
+        if (value !== 'all' && selectedDepartment !== 'all') setToWarehouse(selectedDepartment);
+    };
+    const chooseToWarehouse = (value: string) => {
+        setToWarehouse(value);
+        if (value !== 'all' && selectedDepartment !== 'all') setFromWarehouse(selectedDepartment);
+    };
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     const currentPage = Math.min(page, totalPages);
@@ -142,7 +157,7 @@ export default function TransactionLogPage() {
     useEffect(() => { setPage(p => Math.min(p, totalPages)); }, [totalPages]);
 
     // Reset page on filter change
-    useEffect(() => { setPage(1); }, [typeFilter, warehouseFilter, search, fromDate, toDate]);
+    useEffect(() => { setPage(1); }, [typeFilter, selectedDepartment, fromWarehouse, toWarehouse, search, fromDate, toDate]);
 
     const exportCSV = () => {
         const headers = ['Date', 'Item', 'Category', 'Type', 'Source', 'Qty', 'Warehouse', 'Ref Warehouse', 'Batch', 'Expiry', 'Remarks', 'User'];
@@ -184,8 +199,8 @@ export default function TransactionLogPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                 <div className="space-y-1">
-                    <Link href="/dashboard/inventory-management" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                        <ArrowLeft className="h-3 w-3" /> Back to Inventory
+                    <Link href="/dashboard/inventory-reports" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                        <ArrowLeft className="h-3 w-3" /> Back to Inventory Reports
                     </Link>
                     <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
                         <div className="h-10 w-10 bg-primary/10 rounded-xl flex items-center justify-center">
@@ -208,7 +223,7 @@ export default function TransactionLogPage() {
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                    { label: 'HIM Direct Total', value: filtered.length, color: 'text-violet-700' },
+                    { label: 'Total Transactions', value: filtered.length, color: 'text-violet-700' },
                     { label: 'Issues', value: filtered.filter(t => t.transaction_type === 'issue').length, color: 'text-blue-700' },
                     { label: 'Transfers', value: filtered.filter(t => t.transaction_type === 'transfer').length, color: 'text-purple-700' },
                     { label: 'Damage / Expired', value: filtered.filter(t => ['damage','expired'].includes(t.transaction_type)).length, color: 'text-red-700' },
@@ -246,14 +261,17 @@ export default function TransactionLogPage() {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
-                        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="All Warehouses" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Warehouses</SelectItem>
-                            {warehouses.map((w: any) => (
-                                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                            ))}
-                        </SelectContent>
+                    <Select value={selectedDepartment} onValueChange={value => { setSelectedDepartment(value); setFromWarehouse('all'); setToWarehouse('all'); }}>
+                        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Department" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">All Departments</SelectItem>{warehouses.map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={fromWarehouse} onValueChange={chooseFromWarehouse}>
+                        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Warehouse From" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">From: All Warehouses</SelectItem>{warehouses.map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={toWarehouse} onValueChange={chooseToWarehouse}>
+                        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Warehouse To" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">To: All Warehouses</SelectItem>{warehouses.map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
                     </Select>
                     <div className="flex gap-1.5">
                         <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="h-9 text-xs" />
@@ -267,10 +285,10 @@ export default function TransactionLogPage() {
                 <div className="p-4 border-b flex justify-between items-center">
                     <span className="text-sm font-bold text-slate-700">
                         {filtered.length} record{filtered.length !== 1 ? 's' : ''}
-                        {(typeFilter !== 'all' || warehouseFilter !== 'all' || search || fromDate || toDate) && ' (filtered)'}
+                        {(typeFilter !== 'all' || selectedDepartment !== 'all' || fromWarehouse !== 'all' || toWarehouse !== 'all' || search || fromDate || toDate) && ' (filtered)'}
                     </span>
                     <div className="flex items-center gap-1.5 text-[10px] text-violet-700 bg-violet-50 px-2 py-1 rounded-lg border border-violet-200 font-bold">
-                        <span className="h-2.5 w-1 rounded-full bg-violet-400 inline-block" /> HIM Direct only
+                        <span className="h-2.5 w-1 rounded-full bg-violet-400 inline-block" /> All inventory transactions
                     </div>
                 </div>
 
@@ -304,7 +322,11 @@ export default function TransactionLogPage() {
                             ) : paginated.map(tx => {
                                 const isHIM = tx.from_him === true;
                                 const typeInfo = TYPE_LABELS[tx.transaction_type];
-                                const isIn = ['receive', 'initial_stock'].includes(tx.transaction_type);
+                                const perspectiveWarehouse = selectedDepartment !== 'all'
+                                    ? selectedDepartment
+                                    : (toWarehouse !== 'all' ? toWarehouse : (fromWarehouse !== 'all' ? fromWarehouse : null));
+                                const isIn = ['receive', 'initial_stock'].includes(tx.transaction_type) ||
+                                    (tx.transaction_type === 'transfer' && perspectiveWarehouse != null && tx.to_department_id === perspectiveWarehouse);
                                 const remarkText = tx.reference_warehouse_name
                                     ? (tx.transaction_type === 'receive'
                                         ? `From: ${tx.reference_warehouse_name}`
@@ -419,8 +441,16 @@ export default function TransactionLogPage() {
                             { label: 'Batch Number', value: (selectedTx.batch?.batch_number && selectedTx.batch.batch_number !== 'INITIAL') ? selectedTx.batch.batch_number : '—' },
                             { label: 'Expiry Date', value: selectedTx.batch?.expiry_date ? format(new Date(selectedTx.batch.expiry_date), 'yyyy-MM-dd') : '—' },
                             { label: 'Quantity', value: `${selectedTx.quantity} ${selectedTx.item?.unit?.name || ''}`.trim() },
-                            { label: 'Warehouse', value: selectedTx.warehouse_name || selectedTx.department_id || '—' },
-                            ...(selectedTx.reference_warehouse_name || selectedTx.reference_department
+                            ...(selectedTx.transaction_type !== 'transfer'
+                                ? [{ label: 'Warehouse', value: selectedTx.warehouse_name || selectedTx.to_warehouse_name || selectedTx.department_id || '—' }]
+                                : []),
+                            ...(selectedTx.transaction_type === 'transfer' && (selectedTx.from_warehouse_name || selectedTx.from_department_id)
+                                ? [{ label: 'From Warehouse', value: selectedTx.from_warehouse_name || selectedTx.from_department_id }]
+                                : []),
+                            ...(selectedTx.transaction_type === 'transfer' && (selectedTx.to_warehouse_name || selectedTx.to_department_id)
+                                ? [{ label: 'To Warehouse', value: selectedTx.to_warehouse_name || selectedTx.to_department_id }]
+                                : []),
+                            ...(selectedTx.transaction_type !== 'transfer' && (selectedTx.reference_warehouse_name || selectedTx.reference_department)
                                 ? [{ label: selectedTx.transaction_type === 'receive' ? 'From Warehouse' : 'To Warehouse', value: selectedTx.reference_warehouse_name || selectedTx.reference_department }]
                                 : []),
                             { label: 'Remarks', value: selectedTx.remarks || '—' },

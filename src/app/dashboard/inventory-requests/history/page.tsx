@@ -479,13 +479,27 @@ export default function InventoryRequestHistoryPage() {
                                 <div className="space-y-3">
                                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">Available Batches</label>
                                     <div className="grid grid-cols-1 gap-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {transferRequest.item?.warehouse_stock?.filter((wh: any) => wh.is_main).map((wh: any) => (
-                                            wh.batches?.map((batch: any, bIdx: number) => (
-                                                <div key={`${wh.id}-${bIdx}`} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-primary/30 transition-all group">
+                                        {(() => {
+                                            const availableBatches = (transferRequest.item?.warehouse_stock ?? [])
+                                                .filter((wh: any) => wh.is_main)
+                                                .flatMap((wh: any) => (wh.batches ?? [])
+                                                    .filter((batch: any) => Number(batch.quantity || 0) > 0)
+                                                    .map((batch: any) => ({ batch, warehouse: wh })));
+
+                                            if (availableBatches.length === 0) {
+                                                return (
+                                                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">
+                                                        No available batches with stock.
+                                                    </div>
+                                                );
+                                            }
+
+                                            return availableBatches.map(({ batch, warehouse }: any, bIdx: number) => (
+                                                <div key={`${warehouse.id}-${batch.id ?? batch.batch_number}-${bIdx}`} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-primary/30 transition-all group">
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex flex-col">
                                                             <span className="text-xs font-black text-slate-700">Batch {batch.batch_number}</span>
-                                                            <span className="text-[10px] font-bold text-slate-400">{wh.name} • Exp: {batch.expiry_date || 'N/A'}</span>
+                                                            <span className="text-[10px] font-bold text-slate-400">{warehouse.name} • Exp: {batch.expiry_date || 'N/A'}</span>
                                                         </div>
                                                         <Badge variant="outline" className="text-[10px] bg-slate-50">{batch.quantity} available</Badge>
                                                     </div>
@@ -493,13 +507,13 @@ export default function InventoryRequestHistoryPage() {
                                                         size="sm"
                                                         variant="ghost"
                                                         className="h-8 w-8 p-0 rounded-lg text-primary hover:bg-primary/5"
-                                                        onClick={() => handleAddBatchToTransfer(batch, wh)}
+                                                        onClick={() => handleAddBatchToTransfer(batch, warehouse)}
                                                     >
                                                         <Plus className="h-4 w-4" />
                                                     </Button>
                                                 </div>
-                                            ))
-                                        ))}
+                                            ));
+                                        })()}
                                     </div>
                                 </div>
 
@@ -511,10 +525,13 @@ export default function InventoryRequestHistoryPage() {
                                                 <div className="flex-1">
                                                     <p className="text-xs font-black text-slate-700">{sb.batch_number}</p>
                                                     <p className="text-[10px] font-bold text-slate-400">{sb.warehouse_name}</p>
+                                                    <p className="text-[10px] font-black text-emerald-600">{sb.available} available</p>
                                                 </div>
                                                 <div className="w-24">
                                                     <Input
                                                         type="number"
+                                                        min="0"
+                                                        max={sb.available}
                                                         value={sb.quantity}
                                                         onChange={(e) => handleUpdateBatchQty(idx, e.target.value)}
                                                         className="h-9 font-black text-right"

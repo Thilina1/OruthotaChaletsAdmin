@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle, ChefHat, CalendarCheck, CalendarRange, CircleCheckBig } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, UtensilsCrossed, Boxes, CreditCard, BarChart, BedDouble, Star, Building, Utensils, Zap, Newspaper, Gem, Settings, Calendar, ClipboardList, Briefcase, Banknote, Clock, FileBarChart, Warehouse, ShoppingCart, MessageSquare, PackagePlus, ClipboardCheck, Truck, History, Shirt, Car, Waves, Layers, CalendarDays, ShieldCheck, Coins, ReceiptText, SlidersHorizontal, HardHat, BookOpen, AlarmClock, CheckSquare, Wallet, PackageOpen, AlertTriangle, ChefHat, CalendarCheck, CalendarRange, CircleCheckBig, GraduationCap } from 'lucide-react';
 import { TableIcon } from '@/components/icons';
 import type { UserRole } from '@/lib/types';
 
@@ -12,13 +12,16 @@ export interface MenuItem {
 
 export const generalMenuItems: MenuItem[] = [
     { href: '/dashboard/home', icon: LayoutDashboard, label: 'Home', roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'] },
+    { href: '/dashboard/academy', icon: GraduationCap, label: 'උදව් සහ පුහුණුව', roles: ['admin', 'waiter', 'kitchen', 'payment', 'temporary'] },
     { href: '/dashboard/profile', icon: UserCog, label: 'Profile', roles: ['admin', 'waiter', 'payment', 'temporary'] },
 ];
 
 export const customerMenuItems: MenuItem[] = [
     { href: '/dashboard/front-desk', icon: ClipboardCheck, label: 'Front Desk (Check In/Out)', roles: ['admin', 'waiter'] },
+    { href: '/dashboard/front-desk-account', icon: Wallet, label: 'Front Desk Account', roles: ['admin', 'payment'] },
     { href: '/dashboard/customers', icon: Users, label: 'All Customers', roles: ['admin', 'waiter'] },
-    { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin'] },
+  //  { href: '/dashboard/loyalty', icon: Gem, label: 'Loyalty Customers', roles: ['admin'] },
+   // { href: '/dashboard/loyalty-discounts', icon: Gem, label: 'Loyalty Discounts', roles: ['admin'] },
 ];
 
 export const restaurantMenuItems: MenuItem[] = [
@@ -108,11 +111,14 @@ export const servicesMenuItems: MenuItem[] = [
 ];
 
 export const eventManagementMenuItems: MenuItem[] = [
-    { href: '/dashboard/event-management/account', icon: Wallet, label: 'Event Account', roles: ['admin'] },
     { href: '/dashboard/event-management/events', icon: CalendarRange, label: 'Event Workspace', roles: ['admin'] },
     { href: '/dashboard/event-management/approvals', icon: CircleCheckBig, label: 'Event Approvals', roles: ['admin'] },
     { href: '/dashboard/event-management/calendar', icon: CalendarDays, label: 'Event Calendar', roles: ['admin'] },
     { href: '/dashboard/event-management/registrations', icon: CalendarCheck, label: 'Registration & Booking', roles: ['admin'] },
+    { href: '/dashboard/event-management/budget', icon: Banknote, label: 'Event Budget', roles: ['admin'] },
+    { href: '/dashboard/event-management/workflows', icon: ClipboardList, label: 'Event Workflows', roles: ['admin'] },
+    { href: '/dashboard/event-management/payments', icon: ReceiptText, label: 'Event Payments', roles: ['admin'] },
+    { href: '/dashboard/event-management/account', icon: Wallet, label: 'Event Account', roles: ['admin'] },
 ];
 
 export const chaletMenuItems: MenuItem[] = [

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { CreditLiabilitiesPanel } from '@/components/dashboard/credit-liabilities-panel';
+import { InventoryCashPrintButton } from '@/components/dashboard/inventory-cash-print-document';
 
 type LinkedPurchaseOrder = {
     id: string;
@@ -69,7 +70,7 @@ const fmt = (n: number | null | undefined) =>
 
 function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
     const total = po.purchase_order_items.reduce(
-        (sum, item) => sum + (item.total_price ?? (item.unit_price ?? 0) * item.quantity),
+        (sum, item) => sum + Number(item.unit_price ?? 0) * Number(item.quantity),
         0
     );
 
@@ -97,7 +98,7 @@ function PurchaseOrderPreview({ po }: { po: LinkedPurchaseOrder }) {
                     </TableHeader>
                     <PaginatedTableBody>
                         {po.purchase_order_items.map(item => {
-                            const lineTotal = item.total_price ?? (item.unit_price ?? 0) * item.quantity;
+                            const lineTotal = Number(item.unit_price ?? 0) * Number(item.quantity);
                             return (
                                 <TableRow key={item.id}>
                                     <TableCell>
@@ -606,6 +607,7 @@ export default function InventoryCashApprovalsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
+                        {approveReq && <div className="flex justify-end"><InventoryCashPrintButton request={approveReq} /></div>}
                         {approveReq?.purchase_order && (
                             <PurchaseOrderPreview po={approveReq.purchase_order} />
                         )}
@@ -656,6 +658,7 @@ export default function InventoryCashApprovalsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
+                        {rejectReq && <div className="flex justify-end"><InventoryCashPrintButton request={rejectReq} /></div>}
                         {rejectReq?.purchase_order && (
                             <PurchaseOrderPreview po={rejectReq.purchase_order} />
                         )}
@@ -694,6 +697,7 @@ export default function InventoryCashApprovalsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
+                        {addApproveReq && <div className="flex justify-end"><InventoryCashPrintButton request={addApproveReq} /></div>}
                         {addApproveReq?.purchase_order && (
                             <PurchaseOrderPreview po={addApproveReq.purchase_order} />
                         )}

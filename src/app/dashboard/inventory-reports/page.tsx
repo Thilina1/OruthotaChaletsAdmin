@@ -43,6 +43,7 @@ import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { usePagination } from '@/hooks/use-pagination';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
+import { Input } from '@/components/ui/input';
 
 export default function InventoryReportsPage() {
   const [date, setDate] = useState<DateRange | undefined>({
@@ -52,8 +53,26 @@ export default function InventoryReportsPage() {
   
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [stockSearch, setStockSearch] = useState('');
+  const [stockWarehouse, setStockWarehouse] = useState('all');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [transactionToWarehouse, setTransactionToWarehouseState] = useState('all');
+  const [transactionFromWarehouse, setTransactionFromWarehouseState] = useState('all');
+  const setTransactionFromWarehouse = (value: string) => {
+    setTransactionFromWarehouseState(value);
+    if (value !== 'all' && selectedDepartment !== 'all' && selectedDepartment !== 'none' && value !== selectedDepartment) setTransactionToWarehouseState(selectedDepartment);
+  };
+  const setTransactionToWarehouse = (value: string) => {
+    setTransactionToWarehouseState(value);
+    if (value !== 'all' && selectedDepartment !== 'all' && selectedDepartment !== 'none' && value !== selectedDepartment) setTransactionFromWarehouseState(selectedDepartment);
+  };
+
+  useEffect(() => {
+    setTransactionFromWarehouseState('all');
+    setTransactionToWarehouseState('all');
+  }, [selectedDepartment]);
   const [dmgRecords, setDmgRecords] = useState<any[]>([]);
   
   const supabase = createClient();
@@ -84,6 +103,7 @@ export default function InventoryReportsPage() {
     }
   }, [userRole, userDepartment, warehouses]);
 
+
   const fetchReportData = async (range: DateRange | undefined) => {
     if (!range?.from) return;
     setIsLoading(true);
@@ -94,21 +114,24 @@ export default function InventoryReportsPage() {
       const fromDate = range.from.toISOString().split('T')[0];
       const toDate = (range.to || range.from).toISOString().split('T')[0];
 
-      const [resTx, resWh, resDmg] = await Promise.all([
+      const [resTx, resWh, resDmg, resItems] = await Promise.all([
         fetch(`/api/admin/inventory-transactions?limit=5000&startDate=${startStr}&endDate=${endStr}`),
         fetch('/api/admin/inventory/warehouses'),
         fetch(`/api/admin/inventory/damage-reports?from=${fromDate}&to=${toDate}`),
+        fetch('/api/admin/inventory/items?includeStock=true'),
       ]);
 
       const dataTx = await resTx.json();
       const dataWh = await resWh.json();
       const dataDmg = await resDmg.json();
+      const dataItems = await resItems.json();
 
       if (dataTx.error) throw new Error(dataTx.error);
 
       setTransactions(dataTx.transactions || []);
       setWarehouses(dataWh.warehouses || []);
       setDmgRecords(dataDmg.records || []);
+      setInventoryItems(dataItems.items || []);
     } catch (error) {
       console.error("Error fetching report data:", error);
     } finally {
@@ -212,14 +235,21 @@ export default function InventoryReportsPage() {
 
   // Department-wise Issues
   const departmentIssues = useMemo(() => {
-    const deps: Record<string, { name: string; quantity: number; cost: number }> = {};
+    const deps: Record<string, { name: string; quantity: number; cost: number; stockInValue: number; itemIds: Set<string> }> = {};
     
     filteredTransactions.forEach(tx => {
-      if (tx.transaction_type === 'issue' || (tx.transaction_type === 'transfer' && selectedDepartment === 'all')) {
+      const isDepartmentConsumption = tx.transaction_type === 'issue';
+      const isSelectedWarehouseTransferIn = tx.transaction_type === 'transfer' && selectedDepartment !== 'all' && tx.to_department_id === selectedDepartment;
+      const isStockIn = tx.transaction_type === 'receive' && (selectedDepartment === 'all' || tx.department_id === selectedDepartment);
+      if (isDepartmentConsumption || isSelectedWarehouseTransferIn || isStockIn) {
         const unitPrice = tx.unit_price || tx.batch?.buying_price || 0;
         const cost = tx.quantity * unitPrice;
         
-        let deptId = tx.department_id || tx.from_department_id || tx.reference_department || 'unknown';
+        let deptId = selectedDepartment !== 'all' && selectedDepartment !== 'none'
+          ? selectedDepartment
+          : (isSelectedWarehouseTransferIn
+            ? tx.to_department_id
+            : (tx.department_id || tx.from_department_id || tx.reference_department || 'unknown'));
         let deptName = 'Unknown Department';
         
         if (deptId !== 'none' && deptId !== 'unknown') {
@@ -230,15 +260,28 @@ export default function InventoryReportsPage() {
         }
 
         if (!deps[deptId]) {
-            deps[deptId] = { name: deptName, quantity: 0, cost: 0 };
+            deps[deptId] = { name: deptName, quantity: 0, cost: 0, stockInValue: 0, itemIds: new Set() };
         }
         
-        deps[deptId].quantity += tx.quantity;
-        deps[deptId].cost += cost;
+        if (isStockIn || isSelectedWarehouseTransferIn) {
+          deps[deptId].stockInValue += cost;
+        }
+        if (!isStockIn) {
+          deps[deptId].quantity += tx.quantity;
+          deps[deptId].cost += cost;
+          deps[deptId].itemIds.add(tx.item_id || tx.item?.id || tx.remarks || 'unknown');
+        }
       }
     });
 
-    return Object.values(deps).sort((a, b) => b.cost - a.cost);
+    const requiredWarehouses = selectedDepartment !== 'all' && selectedDepartment !== 'none'
+      ? warehouses.filter(warehouse => warehouse.id === selectedDepartment)
+      : selectedDepartment === 'all' ? warehouses : [];
+    requiredWarehouses.forEach(warehouse => {
+      if (!deps[warehouse.id]) deps[warehouse.id] = { name: warehouse.name, quantity: 0, cost: 0, stockInValue: 0, itemIds: new Set() };
+    });
+
+    return Object.values(deps).map(dept => ({ ...dept, itemCount: dept.itemIds.size })).sort((a, b) => b.cost - a.cost);
   }, [filteredTransactions, warehouses, selectedDepartment]);
 
   // Chart Data Preparation (Group by Date)
@@ -280,8 +323,38 @@ export default function InventoryReportsPage() {
   }, [filteredTransactions, selectedDepartment]);
 
   const displayTransactions = useMemo(() => {
-    return filteredTransactions.filter(tx => tx.transaction_type !== 'initial_stock');
-  }, [filteredTransactions]);
+    return filteredTransactions
+      .filter(tx => tx.transaction_type !== 'initial_stock')
+      .filter(tx => transactionFromWarehouse === 'all' || tx.from_department_id === transactionFromWarehouse || tx.reference_department === transactionFromWarehouse)
+      .filter(tx => transactionToWarehouse === 'all' || tx.department_id === transactionToWarehouse || tx.to_department_id === transactionToWarehouse);
+  }, [filteredTransactions, transactionFromWarehouse, transactionToWarehouse]);
+
+  const getTransactionValue = (tx: InventoryTransaction) => {
+    const unitValue = Number(tx.unit_price || tx.batch?.buying_price || 0);
+    const amount = Number(tx.quantity || 0) * unitValue;
+    if (tx.transaction_type === 'transfer') {
+      if (selectedDepartment !== 'all') {
+        if (tx.to_department_id === selectedDepartment) return amount;
+        if (tx.from_department_id === selectedDepartment) return -amount;
+      }
+      return -amount;
+    }
+    return ['receive', 'initial_stock'].includes(tx.transaction_type) ? amount : -amount;
+  };
+
+  const transactionLogValue = useMemo(() => displayTransactions.reduce((total, tx) => total + getTransactionValue(tx), 0), [displayTransactions, selectedDepartment]);
+
+  const stockWarehouses = selectedDepartment === 'none'
+    ? []
+    : selectedDepartment !== 'all'
+      ? warehouses.filter(warehouse => warehouse.id === selectedDepartment)
+      : stockWarehouse === 'all'
+        ? warehouses
+        : warehouses.filter(warehouse => warehouse.id === stockWarehouse);
+  const filteredStockItems = inventoryItems.filter(item => {
+    const query = stockSearch.trim().toLowerCase();
+    return !query || String(item.name || '').toLowerCase().includes(query) || String(item.code || '').toLowerCase().includes(query);
+  });
 
   // Damage/Expired report data
   const filteredDmg = useMemo(() => {
@@ -499,9 +572,9 @@ export default function InventoryReportsPage() {
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center gap-2">
               <FileBarChart className="h-5 w-5 text-primary" />
-              Department-wise Issues
+              Department-wise Consumption
             </CardTitle>
-            <CardDescription>Breakdown of stock consumed by department.</CardDescription>
+              <CardDescription>Stock-in value, quantity, and value of stock consumed or transferred into each selected department.</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
             {isLoading ? (
@@ -510,7 +583,7 @@ export default function InventoryReportsPage() {
               </div>
             ) : departmentIssues.length === 0 ? (
               <div className="h-[250px] flex items-center justify-center text-muted-foreground italic">
-                No issues recorded for this period.
+                No stock consumption recorded for the selected period and warehouse filters.
               </div>
             ) : (
               <div className="rounded-md border bg-white overflow-hidden">
@@ -518,17 +591,21 @@ export default function InventoryReportsPage() {
                   <TableHeader className="bg-slate-50">
                     <TableRow>
                       <TableHead>Department</TableHead>
-                      <TableHead className="text-right">Units</TableHead>
-                      <TableHead className="text-right">Total Value</TableHead>
+                      <TableHead className="text-right">Items</TableHead>
+                      <TableHead className="text-right">Stock In Value</TableHead>
+                      <TableHead className="text-right">Stock Issued Units</TableHead>
+                      <TableHead className="text-right">Stock Issued Value</TableHead>
                     </TableRow>
                   </TableHeader>
                   <PaginatedTableBody>
                     {departmentIssues.map((dept, index) => (
                       <TableRow key={index} className="hover:bg-slate-50/50">
                         <TableCell className="font-semibold text-slate-800">{dept.name}</TableCell>
-                        <TableCell className="text-right">{dept.quantity}</TableCell>
+                        <TableCell className="text-right font-semibold">{selectedDepartment !== 'all' && dept.name === warehouses.find(warehouse => warehouse.id === selectedDepartment)?.name ? (dept.itemCount || new Set(filteredTransactions.filter(tx => tx.transaction_type === 'issue').map(tx => tx.item_id || tx.item?.id)).size) : dept.itemCount}</TableCell>
+                        <TableCell className="text-right font-bold text-emerald-700">LKR {dept.stockInValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right">{selectedDepartment !== 'all' && dept.name === warehouses.find(warehouse => warehouse.id === selectedDepartment)?.name ? metrics.issued : dept.quantity}</TableCell>
                         <TableCell className="text-right font-bold text-slate-700">
-                          {dept.cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          LKR {(selectedDepartment !== 'all' && dept.name === warehouses.find(warehouse => warehouse.id === selectedDepartment)?.name ? metrics.issuedCost : dept.cost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -542,8 +619,52 @@ export default function InventoryReportsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg font-bold">Transaction Log</CardTitle>
-          <CardDescription>Detailed history of all stock movements.</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><CardTitle className="text-lg font-bold">Current Stock by Warehouse</CardTitle><CardDescription>All registered inventory items and their available quantity in each warehouse.</CardDescription></div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild><Link href="/dashboard/inventory-reports/stock">Open Full Table</Link></Button>
+              <Input value={stockSearch} onChange={event => setStockSearch(event.target.value)} placeholder="Search item..." className="h-9 w-52" />
+              <Select value={stockWarehouse} onValueChange={setStockWarehouse}>
+                <SelectTrigger className="h-9 w-52"><SelectValue placeholder="All warehouses" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All warehouses</SelectItem>{warehouses.map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? <div className="py-8 text-center text-muted-foreground">Loading stock availability...</div> : (
+            <div className="max-h-[680px] w-full overflow-auto rounded-md border bg-white">
+              <Table className="min-w-full">
+                <TableHeader className="sticky top-0 z-10 bg-slate-50">
+                  <TableRow>
+                    <TableHead className="sticky left-0 z-20 min-w-[260px] bg-slate-50">Item</TableHead>
+                    {stockWarehouses.map(warehouse => <TableHead key={warehouse.id} className="min-w-[130px] text-center">{warehouse.name}</TableHead>)}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredStockItems.map(item => (
+                    <TableRow key={item.id}>
+                      <TableCell className="sticky left-0 bg-white font-semibold">{item.name}</TableCell>
+                      {stockWarehouses.map(warehouse => {
+                        const stock = item.warehouse_stock?.find((entry: any) => entry.id === warehouse.id)?.total_stock ?? 0;
+                        return <TableCell key={warehouse.id} className={`text-center font-bold ${Number(stock) > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>{stock}</TableCell>;
+                      })}
+                    </TableRow>
+                  ))}
+                  {!filteredStockItems.length && <TableRow><TableCell colSpan={stockWarehouses.length + 1} className="py-8 text-center text-muted-foreground">No inventory items found.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><CardTitle className="text-lg font-bold">Transaction Log</CardTitle><CardDescription>Detailed history of all stock movements.</CardDescription></div>
+            <div className="flex flex-wrap items-end gap-3"><div className="grid gap-1"><label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Warehouse Out / From</label><Select value={transactionFromWarehouse} onValueChange={setTransactionFromWarehouse}><SelectTrigger className="h-9 w-52"><SelectValue placeholder="All warehouses" /></SelectTrigger><SelectContent><SelectItem value="all">All warehouses</SelectItem>{warehouses.map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-1"><label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Warehouse In / To</label><Select value={transactionToWarehouse} onValueChange={value => setTransactionToWarehouse(value)}><SelectTrigger className="h-9 w-52"><SelectValue placeholder="All warehouses" /></SelectTrigger><SelectContent><SelectItem value="all">All warehouses</SelectItem>{warehouses.map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}</SelectContent></Select></div><div className="rounded-md border bg-slate-50 px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total Transaction Value</div><div className="text-lg font-black text-primary">LKR {transactionLogValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div></div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border bg-white overflow-x-auto">
@@ -554,19 +675,21 @@ export default function InventoryReportsPage() {
                   <TableHead>Item</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-center">Batch / Exp</TableHead>
+                  <TableHead>From Warehouse</TableHead>
+                  <TableHead>To Warehouse</TableHead>
                   <TableHead className="text-center">Change</TableHead>
-                  <TableHead className="text-center">Balance</TableHead>
+                  <TableHead className="text-right">Total Value</TableHead>
                   <TableHead>Remarks</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">Loading transactions...</TableCell>
+                    <TableCell colSpan={9} className="h-24 text-center">Loading transactions...</TableCell>
                   </TableRow>
                 ) : paginatedItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No transactions found for the selected period.</TableCell>
+                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No transactions found for the selected period.</TableCell>
                   </TableRow>
                 ) : (
                   paginatedItems.map((tx) => (
@@ -593,18 +716,28 @@ export default function InventoryReportsPage() {
                           {tx.batch?.expiry_date ? format(new Date(tx.batch.expiry_date), "MMM dd, yyyy") : '-'}
                         </div>
                       </TableCell>
+                      <TableCell className="text-xs">{(tx as any).from_warehouse_name || (tx as any).reference_warehouse_name || 'External / —'}</TableCell>
+                      <TableCell className="text-xs">{(tx as any).to_warehouse_name || (tx as any).warehouse_name || '—'}</TableCell>
                       <TableCell className="text-center">
-                        <span className={`font-black text-sm ${['receive', 'initial_stock'].includes(tx.transaction_type) ? 'text-green-600' : 'text-red-600'}`}>
-                          {['receive', 'initial_stock'].includes(tx.transaction_type) ? '+' : '-'}{tx.quantity}
+                        {(() => {
+                          const transferIn = tx.transaction_type === 'transfer' && selectedDepartment !== 'all' && tx.to_department_id === selectedDepartment;
+                          const isPositive = ['receive', 'initial_stock'].includes(tx.transaction_type) || transferIn;
+                          return <span className={`font-black text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                          {isPositive ? '+' : '-'}{tx.quantity}
                           <span className="text-[9px] font-bold text-slate-400 uppercase ml-1">{(tx.item as any)?.unit?.name}</span>
-                        </span>
+                          </span>;
+                        })()}
                       </TableCell>
-                      <TableCell className="text-center font-bold font-mono">
-                        {tx.new_stock ?? '-'}
-                      </TableCell>
+                      <TableCell className={`text-right text-xs font-semibold ${getTransactionValue(tx) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{getTransactionValue(tx) < 0 ? '-' : ''}LKR {Math.abs(getTransactionValue(tx)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                       <TableCell>
-                        <div className="max-w-[200px] truncate text-xs text-muted-foreground" title={tx.remarks}>
-                          {tx.remarks || '-'}
+                        <div className="max-w-[260px] text-xs text-muted-foreground" title={tx.remarks}>
+                          {tx.transaction_type === 'transfer' && ((tx as any).from_warehouse_name || (tx as any).to_warehouse_name) ? (
+                            <>
+                              <div className="font-semibold text-slate-700">From: {(tx as any).from_warehouse_name || (tx as any).from_department_id || '—'}</div>
+                              <div className="font-semibold text-slate-700">To: {(tx as any).to_warehouse_name || (tx as any).to_department_id || '—'}</div>
+                              {tx.remarks && <div className="mt-1 truncate italic">{tx.remarks}</div>}
+                            </>
+                          ) : (tx.remarks || '-')}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -830,19 +963,28 @@ export default function InventoryReportsPage() {
           </CardContent>
         </Card>
 
-        {/* Transaction Log highlight */}
+        {/* Report shortcuts */}
+        <div className="grid gap-4 md:grid-cols-2">
         <Link href="/dashboard/inventory-management/transaction-log" className="block group">
-          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/40 dark:to-purple-950/40 p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-violet-400 transition-all">
+          <div className="h-full rounded-xl border-2 border-violet-300 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/40 dark:to-purple-950/40 p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-violet-400 transition-all">
             <div className="flex-shrink-0 rounded-lg bg-violet-100 dark:bg-violet-900/60 p-3">
               <History className="h-6 w-6 text-violet-600 dark:text-violet-400" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-violet-900 dark:text-violet-200 text-sm">Transaction Log</p>
-              <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">Detailed history of all stock movements — issues, transfers, damage, GRN receipts &amp; adjustments</p>
+              <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">Detailed history of issues, transfers, damage, expiry, and adjustments.</p>
             </div>
             <ArrowRight className="h-5 w-5 text-violet-400 group-hover:text-violet-600 group-hover:translate-x-1 transition-all flex-shrink-0" />
           </div>
         </Link>
+        <Link href="/dashboard/inventory-reports/grn" className="block group">
+          <div className="h-full rounded-xl border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40 p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-emerald-400 transition-all">
+            <div className="flex-shrink-0 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 p-3"><FileBarChart className="h-6 w-6 text-emerald-600 dark:text-emerald-400" /></div>
+            <div className="flex-1 min-w-0"><p className="font-semibold text-emerald-900 dark:text-emerald-200 text-sm">GRN Report</p><p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">Supplier stock received into the Main Store.</p></div>
+            <ArrowRight className="h-5 w-5 text-emerald-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all flex-shrink-0" />
+          </div>
+        </Link>
+        </div>
       </div>
     </div>
   );

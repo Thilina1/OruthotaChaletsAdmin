@@ -141,10 +141,12 @@ function StockOverviewContent() {
     return items.filter(item => {
       const itemName = item.name || '';
       const itemCode = item.code || '';
+      const itemBrand = (item as any).brand || '';
 
       const matchesSearch =
         itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        itemCode.toLowerCase().includes(searchQuery.toLowerCase());
+        itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemBrand.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory;
 
@@ -165,7 +167,7 @@ function StockOverviewContent() {
         local_stock: ws ? ws.total_stock : 0,
         batches: ws ? (ws.batches || []) : []
       };
-    });
+    }).filter((item: any) => Number(item.local_stock || 0) > 0);
 
     return {
       warehouse,
@@ -191,8 +193,9 @@ function StockOverviewContent() {
         };
       }
 
-      if (item.batches && item.batches.length > 0) {
-        item.batches.forEach((batch: any) => {
+      const availableBatches = (item.batches || []).filter((batch: any) => Number(batch.quantity || 0) > 0);
+      if (availableBatches.length > 0) {
+        availableBatches.forEach((batch: any) => {
           itemMap[item.id].locations.push({
             id: `${item.id}-${activeWarehouseData.warehouse.id}-${batch.id}`,
             warehouseName: activeWarehouseData.warehouse.name,
@@ -209,8 +212,10 @@ function StockOverviewContent() {
     return Object.values(itemMap);
   }, [activeWarehouseData]);
 
+  const availableMatrixItems = useMemo(() => filteredItems.filter((item: any) => Number(item.total_stock || 0) > 0), [filteredItems]);
+
   const totalItems = activeView === 'cards' ? (activeWarehouseData?.items.length || 0)
-    : activeView === 'table' ? groupedBatchStock.length : filteredItems.length;
+    : activeView === 'table' ? groupedBatchStock.length : availableMatrixItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
   useEffect(() => { setCurrentPage(page => Math.min(page, totalPages)); }, [totalPages]);
@@ -228,8 +233,8 @@ function StockOverviewContent() {
 
   const paginatedMatrixItems = useMemo(() => {
     const start = (safePage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, safePage]);
+    return availableMatrixItems.slice(start, start + ITEMS_PER_PAGE);
+  }, [availableMatrixItems, safePage]);
 
   const getExpiryStatus = (expiryDate: string | null) => {
     if (!expiryDate) return { label: 'No Expiry', color: 'text-slate-400' };
@@ -281,7 +286,7 @@ function StockOverviewContent() {
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Name or code..."
+                placeholder="Name, code, or brand..."
                 className="pl-9 bg-slate-50 border-slate-200 font-medium"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -351,14 +356,19 @@ function StockOverviewContent() {
                         <span className="text-xs font-black text-slate-400 group-hover:text-primary">{item.name.substring(0, 2).toUpperCase()}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-black text-slate-900 leading-tight group-hover:text-primary transition-colors text-sm">
-                          {item.name}
-                        </span>
+                          <span className="font-black text-slate-900 leading-tight group-hover:text-primary transition-colors text-sm">
+                            {item.name}
+                          </span>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] font-black tracking-widest text-primary/60 uppercase">{item.code}</span>
                           <Badge variant="outline" className="text-[9px] h-4 font-medium border-slate-200 bg-slate-50/50">
                             {item.category?.name || 'Item'}
                           </Badge>
+                          {item.brand && (
+                            <Badge variant="outline" className="h-4 border-blue-100 bg-blue-50 text-[9px] font-bold text-blue-700">
+                              {item.brand}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -388,10 +398,10 @@ function StockOverviewContent() {
                       <div className="flex items-center gap-4 ml-auto sm:pl-8">
                         <div className="text-right min-w-[76px] sm:pr-1">
                           <div className="text-xl font-black text-slate-900 leading-none">
-                            {item.local_stock}
+                            {item.local_stock} <span className="text-xs font-bold text-muted-foreground">{item.unit?.name || 'units'}</span>
                           </div>
                           <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
-                            {item.unit?.name || 'units'}
+                            Available
                           </div>
                         </div>
                         
@@ -456,14 +466,16 @@ function StockOverviewContent() {
                               </div>
                               <div className="flex flex-col">
                                 <span className="font-black text-slate-900 text-sm uppercase tracking-tight">{group.item.name}</span>
-                                <span className="text-[10px] text-muted-foreground font-bold">{group.item.code} • {group.item.category?.name}</span>
+                                <span className="text-[10px] text-muted-foreground font-bold">
+                                  {[group.item.code, (group.item as any).brand, group.item.category?.name].filter(Boolean).join(' • ')}
+                                </span>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell colSpan={2} className="text-right py-3">
                             <div className="flex flex-col items-end">
                               <span className="text-sm font-black text-primary">{group.totalQty}</span>
-                              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Total {group.item.unit?.name}</span>
+                              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Total {group.item.unit?.name || 'units'}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right py-3">
@@ -499,7 +511,7 @@ function StockOverviewContent() {
                             <TableCell className="text-right">
                               <div className="flex items-baseline justify-end gap-1">
                                 <span className="text-xs font-black text-slate-800">{loc.quantity}</span>
-                                <span className="text-[9px] text-muted-foreground font-bold">{group.item.unit?.name}</span>
+                                <span className="text-[9px] text-muted-foreground font-bold">{group.item.unit?.name || 'units'}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-right">
@@ -572,7 +584,9 @@ function StockOverviewContent() {
                               </div>
                               <div className="flex min-w-0 flex-col break-words">
                                 <span className="font-black text-slate-800 text-sm uppercase tracking-tight">{item.name}</span>
-                                <span className="text-[10px] text-muted-foreground font-bold">{item.code}</span>
+                                <span className="text-[10px] text-muted-foreground font-bold">
+                                  {[item.code, item.brand].filter(Boolean).join(' • ')}
+                                </span>
                               </div>
                             </div>
                           </TableCell>
@@ -586,13 +600,8 @@ function StockOverviewContent() {
                                     "text-base font-black leading-none transition-all",
                                     qty > 0 ? "text-slate-900" : "text-slate-200"
                                   )}>
-                                    {qty}
+                                    {qty > 0 ? `${qty} ${item.unit?.name || 'units'}` : '—'}
                                   </span>
-                                  {qty > 0 && (
-                                    <span className="text-[9px] font-bold text-muted-foreground uppercase mt-1">
-                                      {item.unit?.name || 'units'}
-                                    </span>
-                                  )}
                                 </div>
                               </TableCell>
                             );

@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth-utils';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
 );
 
 async function getUserId() {
@@ -30,7 +30,9 @@ export async function GET() {
         ]);
         const error = other.error || rejections.error;
         if (error) throw error;
-        const notifications: any[] = [...(other.data || [])];
+        const notifications: any[] = (other.data || []).filter(item =>
+            !(item.type === 'inventory_cash_request' && item.read_at)
+        );
         const latest = rejections.data?.[0];
         if (latest) {
             const count = rejections.count || 1;
