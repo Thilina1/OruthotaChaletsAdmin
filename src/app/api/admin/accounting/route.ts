@@ -368,7 +368,7 @@ export async function GET(request: Request) {
             // inventory_cash_requests table not yet migrated — skip silently
         }
 
-        // Inventory loss — valued damage/expired write-offs (action_taken = 'written_off')
+        // Inventory loss — valued damage/expired write-offs.
         let inventoryLossExpenses: any[] = [];
         try {
             const { data: lossData } = await supabase

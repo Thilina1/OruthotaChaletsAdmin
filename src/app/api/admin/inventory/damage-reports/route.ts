@@ -132,7 +132,7 @@ export async function PATCH(request: Request) {
         const payload = await verifyToken(token) as any;
         if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-        const { id, unit_value, action_taken, action_notes, return_to_stock } = await request.json();
+        const { id, unit_value, action_taken, action_notes, return_to_stock, return_warehouse_id, return_expiry_date, cash_back_account_id } = await request.json();
 
         if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
         if (!action_taken || !['written_off', 'returned'].includes(action_taken)) {
@@ -140,6 +140,12 @@ export async function PATCH(request: Request) {
         }
         if (unit_value !== undefined && (isNaN(Number(unit_value)) || Number(unit_value) < 0)) {
             return NextResponse.json({ error: 'unit_value must be a non-negative number' }, { status: 400 });
+        }
+        if (action_taken === 'returned' && (!return_warehouse_id || !return_expiry_date)) {
+            return NextResponse.json({ error: 'return_warehouse_id and return_expiry_date are required for returned items' }, { status: 400 });
+        }
+        if (action_taken === 'returned' && !return_to_stock && !cash_back_account_id) {
+            return NextResponse.json({ error: 'cash_back_account_id is required when return cash is not restored to stock' }, { status: 400 });
         }
 
         // Fetch the original transaction
@@ -152,6 +158,36 @@ export async function PATCH(request: Request) {
         if (txErr || !tx) return NextResponse.json({ error: 'Record not found' }, { status: 404 });
         if (!['damage', 'expired'].includes(tx.transaction_type)) {
             return NextResponse.json({ error: 'Can only process damage or expired transactions' }, { status: 400 });
+        }
+        if (action_taken === 'returned') {
+            const { data: batch, error: batchErr } = await supabase
+                .from('inventory_batches')
+                .select('expiry_date')
+                .eq('id', tx.batch_id)
+                .single();
+            if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found' }, { status: 404 });
+            if ((batch.expiry_date ?? '') !== return_expiry_date) {
+                return NextResponse.json({ error: 'Selected expiry date does not match the recorded batch expiry date' }, { status: 400 });
+            }
+
+            const { data: warehouse, error: warehouseErr } = await supabase
+                .from('inventory_warehouses')
+                .select('id')
+                .eq('id', return_warehouse_id)
+                .maybeSingle();
+            if (warehouseErr) throw warehouseErr;
+            if (!warehouse) return NextResponse.json({ error: 'Selected return warehouse was not found' }, { status: 404 });
+
+            if (!return_to_stock) {
+                const { data: account, error: accountErr } = await supabase
+                    .from('accounts')
+                    .select('id')
+                    .eq('id', cash_back_account_id)
+                    .eq('is_active', true)
+                    .maybeSingle();
+                if (accountErr) throw accountErr;
+                if (!account) return NextResponse.json({ error: 'Selected cash back account was not found' }, { status: 404 });
+            }
         }
 
         // Check current action_taken (may not exist if migration not run — treat as null)
@@ -170,7 +206,8 @@ export async function PATCH(request: Request) {
         }
 
         const uv = unit_value !== undefined ? Number(unit_value) : null;
-        const totalLoss = uv !== null ? uv * Number(tx.quantity) : null;
+        const shouldRecordLoss = action_taken === 'written_off';
+        const totalLoss = shouldRecordLoss && uv !== null ? uv * Number(tx.quantity) : null;
 
         const { error: updateErr } = await supabase
             .from('inventory_transactions')
@@ -185,9 +222,58 @@ export async function PATCH(request: Request) {
             .eq('id', id);
         if (updateErr) throw updateErr;
 
+        if (action_taken === 'returned' && !return_to_stock && uv !== null) {
+            const cashBackAmount = uv * Number(tx.quantity);
+            if (cashBackAmount > 0) {
+                const { data: item } = await supabase
+                    .from('inventory_items')
+                    .select('name')
+                    .eq('id', tx.item_id)
+                    .maybeSingle();
+
+                const itemName = item?.name ?? 'Item';
+                const date = new Date().toISOString().split('T')[0];
+                const description = `Inventory return cash back: ${itemName} (${tx.quantity} units)`;
+                const reference = `INV-RETURN-${String(id).slice(0, 8)}`;
+
+                const { error: incomeErr } = await supabase.from('other_incomes').insert({
+                    description,
+                    amount: cashBackAmount,
+                    source: 'Inventory Return Cash Back',
+                    date,
+                });
+                if (incomeErr) throw incomeErr;
+
+                const { data: account, error: accountErr } = await supabase
+                    .from('accounts')
+                    .select('current_balance')
+                    .eq('id', cash_back_account_id)
+                    .single();
+                if (accountErr || !account) throw accountErr || new Error('Cash back account not found');
+
+                const balanceAfter = Number(account.current_balance || 0) + cashBackAmount;
+                const { error: txCreditErr } = await supabase.from('account_transactions').insert({
+                    account_id: cash_back_account_id,
+                    type: 'credit',
+                    amount: cashBackAmount,
+                    description: `Inventory return cash back: ${item?.name ?? 'Item'} (${tx.quantity} units)`,
+                    reference,
+                    date,
+                    balance_after: balanceAfter,
+                });
+                if (txCreditErr) throw txCreditErr;
+
+                const { error: balanceErr } = await supabase
+                    .from('accounts')
+                    .update({ current_balance: balanceAfter, updated_at: new Date().toISOString() })
+                    .eq('id', cash_back_account_id);
+                if (balanceErr) throw balanceErr;
+            }
+        }
+
         // Restore stock if requested
         if (return_to_stock && action_taken === 'returned') {
-            const warehouseId = tx.department_id;
+            const warehouseId = return_warehouse_id;
 
             const { data: existing } = await supabase
                 .from('inventory_stock')

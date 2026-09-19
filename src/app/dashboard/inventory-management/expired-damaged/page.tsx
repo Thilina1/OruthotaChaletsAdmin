@@ -44,6 +44,8 @@ type DmgRecord = {
 };
 
 type Warehouse = { id: string; name: string; department: { name: string } | null };
+type Account = { id: string; name: string; type: string; current_balance: number; is_active?: boolean };
+type ProcessAction = 'write_off' | 'return_price' | 'return_item';
 
 const fmt = (n: number) =>
     `LKR ${n.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -54,6 +56,7 @@ export default function ExpiredDamagedPage() {
 
     const [records, setRecords] = useState<DmgRecord[]>([]);
     const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Filters
@@ -67,22 +70,27 @@ export default function ExpiredDamagedPage() {
     // Process dialog
     const [processRec, setProcessRec] = useState<DmgRecord | null>(null);
     const [unitValue, setUnitValue] = useState('');
-    const [actionType, setActionType] = useState<'written_off' | 'returned'>('written_off');
-    const [returnToStock, setReturnToStock] = useState(false);
+    const [processAction, setProcessAction] = useState<ProcessAction>('write_off');
+    const [returnWarehouseId, setReturnWarehouseId] = useState('');
+    const [returnExpiryDate, setReturnExpiryDate] = useState('');
+    const [cashBackAccountId, setCashBackAccountId] = useState('');
     const [actionNotes, setActionNotes] = useState('');
     const [saving, setSaving] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [recRes, whRes] = await Promise.all([
+            const [recRes, whRes, accountRes] = await Promise.all([
                 fetch(`/api/admin/inventory/damage-reports?from=${from}&to=${to}`),
                 fetch('/api/admin/inventory/warehouses'),
+                fetch('/api/admin/accounts'),
             ]);
-            const [recData, whData] = await Promise.all([recRes.json(), whRes.json()]);
+            const [recData, whData, accountData] = await Promise.all([recRes.json(), whRes.json(), accountRes.json()]);
             if (recData.error) throw new Error(recData.error);
+            if (accountData.error) throw new Error(accountData.error);
             setRecords(recData.records ?? []);
             setWarehouses(whData.warehouses ?? []);
+            setAccounts((accountData.accounts ?? []).filter((account: Account) => account.is_active !== false));
         } catch (e: any) {
             toast({ variant: 'destructive', title: 'Error', description: e.message });
         } finally {
@@ -129,15 +137,37 @@ export default function ExpiredDamagedPage() {
     const openProcess = (rec: DmgRecord) => {
         setProcessRec(rec);
         setUnitValue(rec.batch?.buying_price != null ? String(rec.batch.buying_price) : '');
-        setActionType('written_off');
-        setReturnToStock(false);
+        setProcessAction('write_off');
+        setReturnWarehouseId(rec.warehouse?.id ?? '');
+        setReturnExpiryDate(rec.batch?.expiry_date ?? '');
+        setCashBackAccountId(accounts[0]?.id ?? '');
         setActionNotes('');
     };
 
     const doProcess = async () => {
         if (!processRec) return;
         const uv = unitValue === '' ? null : Number(unitValue);
+        const isReturn = processAction !== 'write_off';
+        const isReturnPrice = processAction === 'return_price';
+        const actionType = processAction === 'write_off' ? 'written_off' : 'returned';
+        const returnToStock = processAction === 'return_item';
         if (uv !== null && (isNaN(uv) || uv < 0)) return;
+        if (isReturn && (!returnWarehouseId || !returnExpiryDate)) {
+            toast({
+                variant: 'destructive',
+                title: 'Return details required',
+                description: 'Please select the return warehouse and expiry date before confirming.',
+            });
+            return;
+        }
+        if (isReturnPrice && !cashBackAccountId) {
+            toast({
+                variant: 'destructive',
+                title: 'Cash back account required',
+                description: 'Please select the account that received the returned cash.',
+            });
+            return;
+        }
         setSaving(true);
         try {
             const res = await fetch('/api/admin/inventory/damage-reports', {
@@ -148,16 +178,21 @@ export default function ExpiredDamagedPage() {
                     unit_value: uv,
                     action_taken: actionType,
                     action_notes: actionNotes.trim() || undefined,
-                    return_to_stock: actionType === 'returned' && returnToStock,
+                    return_to_stock: returnToStock,
+                    return_warehouse_id: isReturn ? returnWarehouseId : undefined,
+                    return_expiry_date: isReturn ? returnExpiryDate : undefined,
+                    cash_back_account_id: isReturnPrice ? cashBackAccountId : undefined,
                 }),
             });
             const d = await res.json();
             if (!res.ok) throw new Error(d.error);
             toast({
                 title: 'Processed',
-                description: actionType === 'returned'
-                    ? `${processRec.item?.name} marked as returned${returnToStock ? ' and stock restored' : ''}.`
-                    : `${processRec.item?.name} written off.`,
+                description: processAction === 'return_price'
+                    ? `${processRec.item?.name} return price recorded as cash back.`
+                    : processAction === 'return_item'
+                        ? `${processRec.item?.name} returned and stock restored.`
+                        : `${processRec.item?.name} waived off as inventory loss.`,
             });
             setProcessRec(null);
             loadData();
@@ -455,7 +490,9 @@ export default function ExpiredDamagedPage() {
                     <div className="space-y-4 py-1">
                         {/* Unit value */}
                         <div className="space-y-1.5">
-                            <Label>Unit Value (LKR per {processRec?.item?.unit?.name ?? 'unit'})</Label>
+                            <Label>
+                                {processAction === 'return_price' ? 'Return Price' : 'Unit Value'} (LKR per {processRec?.item?.unit?.name ?? 'unit'})
+                            </Label>
                             <div className="flex items-center gap-2">
                                 <Input
                                     type="number" min="0" step="0.01"
@@ -480,36 +517,81 @@ export default function ExpiredDamagedPage() {
                         {/* Action */}
                         <div className="space-y-1.5">
                             <Label>Action Taken</Label>
-                            <div className="flex gap-2">
-                                {(['written_off', 'returned'] as const).map(t => (
+                            <div className="grid gap-2 sm:grid-cols-3">
+                                {([
+                                    { value: 'write_off', label: 'Waive Off', className: 'bg-slate-800 text-white border-slate-800' },
+                                    { value: 'return_price', label: 'Return Price', className: 'bg-emerald-600 text-white border-emerald-600' },
+                                    { value: 'return_item', label: 'Return Item', className: 'bg-blue-600 text-white border-blue-600' },
+                                ] as const).map(action => (
                                     <button
-                                        key={t}
+                                        key={action.value}
                                         type="button"
-                                        onClick={() => { setActionType(t); if (t !== 'returned') setReturnToStock(false); }}
-                                        className={`flex-1 py-2.5 rounded-lg text-sm font-semibold border transition-all ${actionType === t ? (t === 'written_off' ? 'bg-slate-800 text-white border-slate-800' : 'bg-emerald-600 text-white border-emerald-600') : 'border-muted-foreground/30 text-muted-foreground hover:border-foreground'}`}
+                                        onClick={() => setProcessAction(action.value)}
+                                        className={`py-2.5 rounded-lg text-sm font-semibold border transition-all ${processAction === action.value ? action.className : 'border-muted-foreground/30 text-muted-foreground hover:border-foreground'}`}
                                     >
-                                        {t === 'written_off' ? '✕ Write Off' : '↩ Return Items'}
+                                        {action.label}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {/* Return to stock option */}
-                        {actionType === 'returned' && (
-                            <label className="flex items-center gap-2.5 cursor-pointer select-none p-3 rounded-lg border bg-emerald-50 border-emerald-200">
-                                <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded accent-emerald-600"
-                                    checked={returnToStock}
-                                    onChange={e => setReturnToStock(e.target.checked)}
-                                />
-                                <div>
-                                    <div className="text-sm font-semibold text-emerald-800">Restore stock quantity</div>
-                                    <div className="text-[11px] text-emerald-700">
-                                        Adds {processRec?.quantity} {processRec?.item?.unit?.name ?? 'units'} back to warehouse inventory
+                        {/* Return details */}
+                        {processAction !== 'write_off' && (
+                            <div className="space-y-3 rounded-lg border bg-emerald-50 p-3 border-emerald-200">
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-emerald-900">Return Warehouse</Label>
+                                        <Select value={returnWarehouseId} onValueChange={setReturnWarehouseId}>
+                                            <SelectTrigger className="bg-white">
+                                                <SelectValue placeholder="Select warehouse" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {warehouses.map(w => (
+                                                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-emerald-900">Expiry Date</Label>
+                                        <Input
+                                            type="date"
+                                            value={returnExpiryDate}
+                                            onChange={e => setReturnExpiryDate(e.target.value)}
+                                            className="bg-white"
+                                        />
                                     </div>
                                 </div>
-                            </label>
+
+                                {processAction === 'return_item' && (
+                                    <div className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs text-blue-800">
+                                        The item quantity will be restored to the selected warehouse.
+                                    </div>
+                                )}
+
+                                {processAction === 'return_price' && unitValue && processRec && (
+                                    <div className="space-y-2 rounded-md border border-emerald-200 bg-white px-3 py-2">
+                                        <div className="text-xs text-emerald-800">
+                                            {fmt(Number(unitValue) * processRec.quantity)} will be recorded as cash back income. Stock will not be restored.
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-emerald-900">Cash Back Account</Label>
+                                            <Select value={cashBackAccountId} onValueChange={setCashBackAccountId}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select account" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {accounts.map(account => (
+                                                        <SelectItem key={account.id} value={account.id}>
+                                                            {account.name} ({account.type})
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         <div className="space-y-1.5">
@@ -522,14 +604,14 @@ export default function ExpiredDamagedPage() {
                             />
                         </div>
 
-                        {actionType === 'written_off' && unitValue && processRec && (
+                        {processAction === 'write_off' && unitValue && processRec && (
                             <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">
                                 <strong>Accounting impact:</strong> {fmt(Number(unitValue) * processRec.quantity)} will be logged as an <em>Inventory Loss</em> expense.
                             </div>
                         )}
-                        {actionType === 'returned' && !returnToStock && unitValue && processRec && (
-                            <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-                                <strong>Note:</strong> Marking as returned without restoring stock — use this when items were sent back to supplier.
+                        {processAction === 'return_price' && unitValue && processRec && (
+                            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+                                <strong>Accounting impact:</strong> {fmt(Number(unitValue) * processRec.quantity)} will be logged as <em>Inventory Return Cash Back</em> income.
                             </div>
                         )}
                     </div>
@@ -538,13 +620,15 @@ export default function ExpiredDamagedPage() {
                         <Button
                             onClick={doProcess}
                             disabled={saving}
-                            variant={actionType === 'returned' ? 'default' : 'destructive'}
+                            variant={processAction === 'write_off' ? 'destructive' : 'default'}
                         >
                             {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                            {actionType === 'written_off' ? (
-                                <><CheckCircle2 className="h-4 w-4 mr-1.5" /> Confirm Write-Off</>
+                            {processAction === 'write_off' ? (
+                                <><CheckCircle2 className="h-4 w-4 mr-1.5" /> Confirm Waive Off</>
+                            ) : processAction === 'return_price' ? (
+                                <><Undo2 className="h-4 w-4 mr-1.5" /> Confirm Return Price</>
                             ) : (
-                                <><Undo2 className="h-4 w-4 mr-1.5" /> Confirm Return</>
+                                <><Undo2 className="h-4 w-4 mr-1.5" /> Confirm Return Item</>
                             )}
                         </Button>
                     </DialogFooter>
