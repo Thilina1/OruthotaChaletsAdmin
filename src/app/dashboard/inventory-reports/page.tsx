@@ -215,7 +215,12 @@ export default function InventoryReportsPage() {
       }
       // Handle Transfers
       else if (tx.transaction_type === 'transfer') {
-        if (selectedDepartment !== 'all') {
+        // Count transfers OUT as issued stock. In the all-departments view this
+        // keeps warehouse rows consistent with the single-warehouse view.
+        if (selectedDepartment === 'all') {
+          issued += tx.quantity;
+          issuedCost += cost;
+        } else {
           // If a specific department is selected, count transfers IN as receives, and transfers OUT as issues.
           if (tx.to_department_id === selectedDepartment) {
             received += tx.quantity;
@@ -226,7 +231,6 @@ export default function InventoryReportsPage() {
             issuedCost += cost;
           }
         }
-        // If 'all' is selected, internal transfers shouldn't affect the net overall Hotel Received/Issued counts.
       }
     });
 
@@ -239,15 +243,18 @@ export default function InventoryReportsPage() {
     
     filteredTransactions.forEach(tx => {
       const isDepartmentConsumption = tx.transaction_type === 'issue';
+      const isWarehouseTransferOut = tx.transaction_type === 'transfer' && selectedDepartment === 'all' && !!tx.from_department_id;
       const isSelectedWarehouseTransferIn = tx.transaction_type === 'transfer' && selectedDepartment !== 'all' && tx.to_department_id === selectedDepartment;
       const isStockIn = tx.transaction_type === 'receive' && (selectedDepartment === 'all' || tx.department_id === selectedDepartment);
-      if (isDepartmentConsumption || isSelectedWarehouseTransferIn || isStockIn) {
+      if (isDepartmentConsumption || isWarehouseTransferOut || isSelectedWarehouseTransferIn || isStockIn) {
         const unitPrice = tx.unit_price || tx.batch?.buying_price || 0;
         const cost = tx.quantity * unitPrice;
         
         let deptId = selectedDepartment !== 'all' && selectedDepartment !== 'none'
           ? selectedDepartment
-          : (isSelectedWarehouseTransferIn
+          : (isWarehouseTransferOut
+            ? tx.from_department_id
+            : isSelectedWarehouseTransferIn
             ? tx.to_department_id
             : (tx.department_id || tx.from_department_id || tx.reference_department || 'unknown'));
         let deptName = 'Unknown Department';
@@ -308,12 +315,16 @@ export default function InventoryReportsPage() {
         if (selectedDepartment === 'all' || tx.department_id === selectedDepartment || tx.from_department_id === selectedDepartment) {
           dailyData[dateStr].damaged += tx.quantity;
         }
-      } else if (tx.transaction_type === 'transfer' && selectedDepartment !== 'all') {
-         if (tx.to_department_id === selectedDepartment) {
-            dailyData[dateStr].in += tx.quantity;
-         }
-         if (tx.from_department_id === selectedDepartment) {
+      } else if (tx.transaction_type === 'transfer') {
+         if (selectedDepartment === 'all') {
             dailyData[dateStr].out += tx.quantity;
+         } else {
+          if (tx.to_department_id === selectedDepartment) {
+            dailyData[dateStr].in += tx.quantity;
+          }
+          if (tx.from_department_id === selectedDepartment) {
+            dailyData[dateStr].out += tx.quantity;
+          }
          }
       }
     });
@@ -386,6 +397,110 @@ export default function InventoryReportsPage() {
     }
     return { totalQty, totalLoss, totalEstLoss, pendingCount, byType, byWarehouse: Object.values(byWarehouse).sort((a: any, b: any) => b.loss - a.loss) };
   }, [filteredDmg]);
+
+  const selectedWarehouseSummary = useMemo(() => {
+    const selectedWarehouses = selectedDepartment === 'none'
+      ? []
+      : selectedDepartment === 'all'
+        ? warehouses
+        : warehouses.filter(warehouse => warehouse.id === selectedDepartment);
+    const selectedWarehouseIds = new Set(selectedWarehouses.map(warehouse => warehouse.id));
+    const transactionUnitPrices = new Map<string, number>();
+
+    transactions.forEach((tx: any) => {
+      const itemId = tx.item_id || tx.item?.id;
+      const unitPrice = Number(tx.unit_price || tx.batch?.buying_price || 0);
+      if (itemId && unitPrice > 0 && !transactionUnitPrices.has(itemId)) {
+        transactionUnitPrices.set(itemId, unitPrice);
+      }
+    });
+
+    let currentQuantity = 0;
+    let currentValue = 0;
+    let activeItems = 0;
+
+    inventoryItems.forEach((item: any) => {
+      const itemWarehouses = item.warehouse_stock || [];
+      const quantity = itemWarehouses.reduce((sum: number, stock: any) => {
+        if (selectedDepartment !== 'all' && !selectedWarehouseIds.has(stock.id)) return sum;
+        return sum + Number(stock.total_stock || 0);
+      }, 0);
+
+      if (quantity <= 0) return;
+
+      activeItems += 1;
+      currentQuantity += quantity;
+      const unitPrice = Number(item.buying_price || transactionUnitPrices.get(item.id) || 0);
+      currentValue += quantity * unitPrice;
+    });
+
+    const selectedDamageRecords = selectedDepartment === 'all'
+      ? dmgRecords
+      : dmgRecords.filter((record: any) => selectedWarehouseIds.has(record.warehouse?.id));
+    const damagedRecords = selectedDamageRecords.filter((record: any) => record.transaction_type === 'damage');
+    const expiredRecords = selectedDamageRecords.filter((record: any) => record.transaction_type === 'expired');
+    const writtenOffRecords = selectedDamageRecords.filter((record: any) => record.action_taken === 'written_off');
+    const returnedRecords = selectedDamageRecords.filter((record: any) => record.action_taken === 'returned');
+    const pendingRecords = selectedDamageRecords.filter((record: any) => record.action_taken == null);
+    const getLossValue = (record: any) => {
+      const quantity = Number(record.quantity || 0);
+      const unitValue = Number(record.unit_value ?? record.batch?.buying_price ?? 0);
+      const recordedValue = Number(record.total_loss_value || 0);
+      return recordedValue > 0 ? recordedValue : quantity * unitValue;
+    };
+    const damagedQuantity = damagedRecords.reduce((sum: number, record: any) => sum + Number(record.quantity || 0), 0);
+    const damagedValue = damagedRecords.reduce((sum: number, record: any) => sum + getLossValue(record), 0);
+    const expiredQuantity = expiredRecords.reduce((sum: number, record: any) => sum + Number(record.quantity || 0), 0);
+    const expiredValue = expiredRecords.reduce((sum: number, record: any) => sum + getLossValue(record), 0);
+    const writtenOffQuantity = writtenOffRecords.reduce((sum: number, record: any) => sum + Number(record.quantity || 0), 0);
+    const writtenOffValue = writtenOffRecords.reduce((sum: number, record: any) => sum + getLossValue(record), 0);
+    const returnedQuantity = returnedRecords.reduce((sum: number, record: any) => sum + Number(record.quantity || 0), 0);
+    const returnedValue = returnedRecords.reduce((sum: number, record: any) => sum + getLossValue(record), 0);
+    const pendingQuantity = pendingRecords.reduce((sum: number, record: any) => sum + Number(record.quantity || 0), 0);
+    const pendingValue = pendingRecords.reduce((sum: number, record: any) => sum + getLossValue(record), 0);
+
+    return {
+      name: selectedDepartment === 'all'
+        ? 'All Departments'
+        : selectedDepartment === 'none'
+          ? 'Internal Use / General'
+          : (warehouses.find(warehouse => warehouse.id === selectedDepartment)?.name || 'Selected Warehouse'),
+      warehouseCount: selectedWarehouses.length,
+      activeItems,
+      currentQuantity,
+      currentValue,
+      damagedQuantity,
+      damagedValue,
+      expiredQuantity,
+      expiredValue,
+      writtenOffQuantity,
+      writtenOffValue,
+      returnedQuantity,
+      returnedValue,
+      pendingQuantity,
+      pendingValue,
+    };
+  }, [selectedDepartment, warehouses, inventoryItems, transactions, dmgRecords]);
+
+  const formatCurrency = (amount: number) =>
+    `LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const summaryMovement = [
+    { label: 'Stock In', value: metrics.receivedCost, quantity: metrics.received, tone: 'text-emerald-700' },
+    { label: 'Stock Out', value: metrics.issuedCost, quantity: metrics.issued, tone: 'text-blue-700' },
+    { label: 'Net Movement', value: metrics.receivedCost - metrics.issuedCost, quantity: metrics.received - metrics.issued, tone: metrics.receivedCost - metrics.issuedCost >= 0 ? 'text-violet-700' : 'text-red-700' },
+  ];
+
+  const summaryIssues = [
+    { label: 'Damage', value: selectedWarehouseSummary.damagedValue, quantity: selectedWarehouseSummary.damagedQuantity, tone: 'text-red-700' },
+    { label: 'Expired', value: selectedWarehouseSummary.expiredValue, quantity: selectedWarehouseSummary.expiredQuantity, tone: 'text-amber-700' },
+  ];
+
+  const summaryActions = [
+    { label: 'Write Off', value: selectedWarehouseSummary.writtenOffValue, quantity: selectedWarehouseSummary.writtenOffQuantity, tone: 'text-stone-700' },
+    { label: 'Returned / Price Returned', value: selectedWarehouseSummary.returnedValue, quantity: selectedWarehouseSummary.returnedQuantity, tone: 'text-teal-700' },
+    { label: 'Pending', value: selectedWarehouseSummary.pendingValue, quantity: selectedWarehouseSummary.pendingQuantity, tone: 'text-orange-700' },
+  ];
 
   const {
     currentPage,
@@ -520,6 +635,86 @@ export default function InventoryReportsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-slate-200 bg-white">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-lg font-bold text-slate-900">{selectedWarehouseSummary.name} Summary</CardTitle>
+              <CardDescription>
+                {selectedDepartment === 'all'
+                  ? `${selectedWarehouseSummary.warehouseCount} warehouses selected`
+                  : 'Selected department / warehouse totals'}
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="bg-slate-50 font-bold">
+              {selectedWarehouseSummary.activeItems} active stock items
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_2fr]">
+            <div className="rounded-md border bg-slate-50 p-4">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Current Stock Value</div>
+              <div className="mt-2 text-2xl font-black text-slate-900">{formatCurrency(selectedWarehouseSummary.currentValue)}</div>
+              <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Quantity</div>
+                  <div className="font-black text-slate-800">{selectedWarehouseSummary.currentQuantity} units</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Items</div>
+                  <div className="font-black text-slate-800">{selectedWarehouseSummary.activeItems}</div>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-md border p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Stock Movement</div>
+                <div className="mt-3 space-y-3">
+                  {summaryMovement.map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-slate-800">{item.label}</div>
+                        <div className="text-xs text-muted-foreground">{item.quantity} units</div>
+                      </div>
+                      <div className={cn("text-right text-sm font-black", item.tone)}>{formatCurrency(item.value)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-md border p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Damage / Expired</div>
+                <div className="mt-3 space-y-3">
+                  {summaryIssues.map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-slate-800">{item.label}</div>
+                        <div className="text-xs text-muted-foreground">{item.quantity} units</div>
+                      </div>
+                      <div className={cn("text-right text-sm font-black", item.tone)}>{formatCurrency(item.value)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-md border p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Final Action</div>
+                <div className="mt-3 space-y-3">
+                  {summaryActions.map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-slate-800">{item.label}</div>
+                        <div className="text-xs text-muted-foreground">{item.quantity} units</div>
+                      </div>
+                      <div className={cn("text-right text-sm font-black", item.tone)}>{formatCurrency(item.value)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="flex flex-col h-full">
