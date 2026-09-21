@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { getPermissionPath } from '@/lib/route-config';
+import type { User } from '@/lib/types';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,10 +17,31 @@ async function getUserId() {
     return payload?.userId as string | undefined;
 }
 
+function hasPathAccess(user: Pick<User, 'role' | 'permissions' | 'restrict_admin_permissions'>, path: string | null | undefined) {
+    if (!path) return true;
+    if (user.role === 'admin' && !user.restrict_admin_permissions) return true;
+    if (!user.permissions?.length) return false;
+
+    const pathname = path.split('?')[0].split('#')[0];
+    const permissionPath = getPermissionPath(pathname);
+    if (permissionPath) return user.permissions.includes(permissionPath);
+
+    return user.permissions.some(permission =>
+        permission !== '/dashboard' && (pathname === permission || pathname.startsWith(permission + '/'))
+    );
+}
+
 export async function GET() {
     try {
         const userId = await getUserId();
         if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('role, permissions, restrict_admin_permissions')
+            .eq('id', userId)
+            .single();
+        if (userError || !user) throw userError || new Error('User not found.');
 
         const fields = 'id, title, message, href, type, read_at, created_at, inventory_request_id';
         const [other, rejections] = await Promise.all([
@@ -31,10 +54,10 @@ export async function GET() {
         const error = other.error || rejections.error;
         if (error) throw error;
         const notifications: any[] = (other.data || []).filter(item =>
-            !(item.type === 'inventory_cash_request' && item.read_at)
+            !(item.type === 'inventory_cash_request' && item.read_at) && hasPathAccess(user, item.href)
         );
         const latest = rejections.data?.[0];
-        if (latest) {
+        if (latest && hasPathAccess(user, latest.href)) {
             const count = rejections.count || 1;
             notifications.push({
                 ...latest,

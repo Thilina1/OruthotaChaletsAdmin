@@ -1,5 +1,185 @@
 [
   {
+    "route": "/dashboard/front-desk-account",
+    "title": "Front Desk Account",
+    "unavailable": false,
+    "dynamic": false,
+    "controls": [
+      {
+        "kind": "action",
+        "label": "Refresh",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 16
+      },
+      {
+        "kind": "action",
+        "label": "Transfer Cash",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 16
+      },
+      {
+        "kind": "field",
+        "label": "From",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 17
+      },
+      {
+        "kind": "field",
+        "label": "To",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 17
+      },
+      {
+        "kind": "action",
+        "label": "Clear Dates",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 17
+      },
+      {
+        "kind": "section",
+        "label": "Front Desk Card Payment Account",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 21
+      },
+      {
+        "kind": "field",
+        "label": "Select card destination account",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 21
+      },
+      {
+        "kind": "action",
+        "label": "Save Card Account",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 21
+      },
+      {
+        "kind": "section",
+        "label": "Payment Transactions",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 22
+      },
+      {
+        "kind": "section",
+        "label": "Cash Transfer History",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 23
+      },
+      {
+        "kind": "field",
+        "label": "Destination account",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 24
+      },
+      {
+        "kind": "field",
+        "label": "Amount",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 24
+      },
+      {
+        "kind": "field",
+        "label": "Notes",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 24
+      },
+      {
+        "kind": "action",
+        "label": "Confirm Transfer",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 24
+      },
+      {
+        "kind": "action",
+        "label": "Cancel",
+        "source": "src/app/dashboard/services/account/page.tsx",
+        "line": 24
+      }
+    ]
+  },
+  {
+    "route": "/dashboard/inventory-reports/stock",
+    "title": "Stock by Warehouse",
+    "unavailable": false,
+    "dynamic": false,
+    "controls": [
+      {
+        "kind": "action",
+        "label": "Back to Inventory Reports",
+        "source": "src/app/dashboard/inventory-reports/stock/page.tsx",
+        "line": 39
+      },
+      {
+        "kind": "section",
+        "label": "Stock by Warehouse",
+        "source": "src/app/dashboard/inventory-reports/stock/page.tsx",
+        "line": 39
+      },
+      {
+        "kind": "field",
+        "label": "Search item name or code...",
+        "source": "src/app/dashboard/inventory-reports/stock/page.tsx",
+        "line": 41
+      },
+      {
+        "kind": "field",
+        "label": "Select warehouse columns",
+        "source": "src/app/dashboard/inventory-reports/stock/page.tsx",
+        "line": 41
+      },
+      {
+        "kind": "column",
+        "label": "Item",
+        "source": "src/app/dashboard/inventory-reports/stock/page.tsx",
+        "line": 42
+      },
+      {
+        "kind": "action",
+        "label": "Previous",
+        "source": "src/components/ui/data-table-pagination.tsx",
+        "line": 26
+      },
+      {
+        "kind": "action",
+        "label": "Next",
+        "source": "src/components/ui/data-table-pagination.tsx",
+        "line": 38
+      }
+    ]
+  },
+  {
+    "route": "/dashboard/inventory-reports/grn",
+    "title": "GRN Report",
+    "unavailable": false,
+    "dynamic": false,
+    "controls": [
+      {
+        "kind": "action",
+        "label": "Back to Inventory Reports",
+        "source": "src/app/dashboard/inventory-reports/grn/page.tsx",
+        "line": 22
+      },
+      {
+        "kind": "section",
+        "label": "GRN Report",
+        "source": "src/app/dashboard/inventory-reports/grn/page.tsx",
+        "line": 23
+      },
+      {
+        "kind": "action",
+        "label": "Open GRN Management",
+        "source": "src/app/dashboard/inventory-reports/grn/page.tsx",
+        "line": 26
+      },
+      {
+        "kind": "section",
+        "label": "Goods Received Notes",
+        "source": "src/app/dashboard/inventory-reports/grn/page.tsx",
+        "line": 30
+      }
+    ]
+  },
+  {
     "route": "/dashboard/accounting/daily-workers-finance",
     "title": "accounting / daily-workers-finance",
     "unavailable": false,

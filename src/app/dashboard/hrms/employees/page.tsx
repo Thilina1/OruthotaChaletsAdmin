@@ -7,13 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit, CalendarDays } from 'lucide-react';
+import { Plus, Edit, CalendarDays, Search } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { EmployeeCalendarDialog } from '@/components/dashboard/hrms/employee-calendar-dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 type EmployeeWithSalaryStatus = User & { has_salary?: boolean };
 
@@ -23,6 +24,7 @@ export default function EmployeeManagementPage() {
     const [users, setUsers] = useState<EmployeeWithSalaryStatus[]>([]);
     const [areUsersLoading, setAreUsersLoading] = useState(true);
     const [salaryFilter, setSalaryFilter] = useState<'all' | 'assigned'>('all');
+    const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         Promise.all([
@@ -43,10 +45,26 @@ export default function EmployeeManagementPage() {
     );
 
     const sortedUsers = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
         const visibleUsers = salaryFilter === 'assigned'
             ? users.filter(user => user.has_salary)
             : users;
-        return [...visibleUsers].sort((a, b) => {
+        const searchedUsers = query
+            ? visibleUsers.filter(user => {
+                const calendarName = user.working_calendar_id ? calendarMap[user.working_calendar_id]?.name : '';
+                return [
+                    user.name,
+                    user.employee_number,
+                    user.email,
+                    user.role,
+                    user.department,
+                    user.job_title,
+                    calendarName,
+                ].some(value => String(value || '').toLowerCase().includes(query));
+            })
+            : visibleUsers;
+
+        return [...searchedUsers].sort((a, b) => {
             // Keep employees without a joining date at the bottom. ISO dates can
             // be compared as strings, so the latest joining date sorts first.
             if (!a.join_date && !b.join_date) return a.name.localeCompare(b.name);
@@ -55,7 +73,7 @@ export default function EmployeeManagementPage() {
 
             return b.join_date.localeCompare(a.join_date) || a.name.localeCompare(b.name);
         });
-    }, [salaryFilter, users]);
+    }, [calendarMap, salaryFilter, searchQuery, users]);
 
     const { currentPage, totalPages, totalItems, paginatedItems, itemsPerPage, setCurrentPage } =
         usePagination(sortedUsers, 20);
@@ -133,6 +151,24 @@ export default function EmployeeManagementPage() {
                     </div>
                 </CardHeader>
                 <CardContent>
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="relative w-full sm:max-w-md">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                aria-label="Search employees"
+                                className="pl-9"
+                                placeholder="Search name, employee no, email, role..."
+                                value={searchQuery}
+                                onChange={event => {
+                                    setSearchQuery(event.target.value);
+                                    setCurrentPage(1);
+                                }}
+                            />
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            Showing {totalItems} employee{totalItems === 1 ? '' : 's'}
+                        </p>
+                    </div>
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -186,6 +222,13 @@ export default function EmployeeManagementPage() {
                                     </TableRow>
                                 );
                             })}
+                            {!paginatedItems.length && (
+                                <TableRow>
+                                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                        No employees found.
+                                    </TableCell>
+                                </TableRow>
+                            )}
                         </TableBody>
                     </Table>
                     {!areUsersLoading && (
