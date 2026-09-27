@@ -1,4 +1,4 @@
-import { AccountCollectionView } from '@/app/dashboard/services/account/page';
+import { AccountCollectionView } from '@/components/dashboard/account-collection-view';
 
 export default function EventAccountPage() {
   return (

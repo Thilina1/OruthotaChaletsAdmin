@@ -1,26 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
-import { verifyToken } from '@/lib/auth-utils';
+import { getApiUser, hasApiPathAccess } from '@/lib/api-auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
 );
 
-async function auth() {
-  const token = (await cookies()).get('auth_token')?.value;
-  return token ? verifyToken(token) : null;
-}
+const PAGE_PATH = '/dashboard/front-desk-account';
+const canAccess = (user: NonNullable<Awaited<ReturnType<typeof getApiUser>>>) =>
+  hasApiPathAccess(user, PAGE_PATH, ['payment']);
 
 const colomboDate = (value: Date | string) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
 
 export async function GET(request: Request) {
   try {
-    const user = await auth() as any;
+    const user = await getApiUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['admin', 'payment'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!canAccess(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from');
     const to = searchParams.get('to');
@@ -89,9 +87,9 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const user = await auth() as any;
+    const user = await getApiUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['admin', 'payment'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!canAccess(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { card_account_id } = await request.json();
     if (!card_account_id) return NextResponse.json({ error: 'Select a Card Payment Account.' }, { status: 400 });
@@ -101,7 +99,7 @@ export async function PUT(request: Request) {
 
     const { error } = await supabase
       .from('front_desk_account_settings')
-      .upsert({ singleton: true, card_account_id, updated_by: user.userId, updated_at: new Date().toISOString() }, { onConflict: 'singleton' });
+      .upsert({ singleton: true, card_account_id, updated_by: user.id, updated_at: new Date().toISOString() }, { onConflict: 'singleton' });
     if (error) throw error;
 
     return NextResponse.json({ success: true });
@@ -112,9 +110,9 @@ export async function PUT(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await auth() as any;
+    const user = await getApiUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['admin', 'payment'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!canAccess(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { account_id, amount, notes } = await request.json();
     const numericAmount = Number(amount);
@@ -126,7 +124,7 @@ export async function POST(request: Request) {
       p_account_id: account_id,
       p_amount: numericAmount,
       p_notes: notes || '',
-      p_user_id: user.userId,
+      p_user_id: user.id,
     });
     if (error) throw error;
 
