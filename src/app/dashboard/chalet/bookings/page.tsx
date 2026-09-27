@@ -179,6 +179,32 @@ export default function ChaletBookingsPage() {
         );
     };
 
+    const getRoomAvailability = (room: ChaletRoom, checkIn: string, checkOut: string, excludeId?: string | null) => {
+        if (!checkIn || !checkOut) {
+            return { available: room.status === 'available', label: 'Select dates to check availability' };
+        }
+
+        const booked = isRoomBooked(room.id, checkIn, checkOut, excludeId);
+        if (booked) return { available: false, label: 'Not available for selected dates' };
+        if (room.status !== 'available') return { available: false, label: room.status };
+        return { available: true, label: 'Available for selected dates' };
+    };
+
+    useEffect(() => {
+        if (!form.room_id || !form.check_in_date || !form.check_out_date) return;
+        const selectedRoom = rooms.find(room => room.id === form.room_id);
+        if (!selectedRoom) return;
+        const availability = getRoomAvailability(selectedRoom, form.check_in_date, form.check_out_date, editingId);
+        if (!availability.available) {
+            setForm(prev => ({ ...prev, room_id: '' }));
+            toast({
+                title: 'Room unavailable',
+                description: `The selected chalet is ${availability.label.toLowerCase()}. Please choose another room.`,
+                variant: 'destructive',
+            });
+        }
+    }, [form.check_in_date, form.check_out_date, form.room_id, rooms, bookings, editingId, toast]);
+
     const openNew = () => {
         setEditingId(null);
         setForm({ ...emptyForm });
@@ -213,6 +239,16 @@ export default function ChaletBookingsPage() {
         if (!form.customer_name || !form.check_in_date || !form.check_out_date) {
             toast({ title: 'Validation', description: 'Customer name, check-in and check-out are required', variant: 'destructive' });
             return;
+        }
+        if (form.room_id) {
+            const selectedRoom = rooms.find(room => room.id === form.room_id);
+            const availability = selectedRoom
+                ? getRoomAvailability(selectedRoom, form.check_in_date, form.check_out_date, editingId)
+                : { available: false, label: 'not available' };
+            if (!availability.available) {
+                toast({ title: 'Room unavailable', description: 'Please choose an available chalet room for the selected dates.', variant: 'destructive' });
+                return;
+            }
         }
         setSaving(true);
         try {
@@ -250,6 +286,16 @@ export default function ChaletBookingsPage() {
 
     const handleAssignRoom = async () => {
         if (!assigningBooking) return;
+        if (selectedRoomId) {
+            const selectedRoom = rooms.find(room => room.id === selectedRoomId);
+            const availability = selectedRoom
+                ? getRoomAvailability(selectedRoom, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id)
+                : { available: false, label: 'not available' };
+            if (!availability.available) {
+                toast({ title: 'Room unavailable', description: 'Please choose an available chalet room for this booking date range.', variant: 'destructive' });
+                return;
+            }
+        }
         setAssigning(true);
         try {
             const res = await fetch('/api/chalet/bookings', {
@@ -724,10 +770,10 @@ export default function ChaletBookingsPage() {
                                     <SelectContent>
                                         <SelectItem value="__none__">Unassigned</SelectItem>
                                         {rooms.map(r => {
-                                            const booked = isRoomBooked(r.id, form.check_in_date, form.check_out_date, editingId);
+                                            const availability = getRoomAvailability(r, form.check_in_date, form.check_out_date, editingId);
                                             return (
-                                                <SelectItem key={r.id} value={r.id} disabled={booked}>
-                                                    Chalet {r.room_number} — {booked ? 'Booked for these dates' : r.status}
+                                                <SelectItem key={r.id} value={r.id} disabled={!availability.available}>
+                                                    Chalet {r.room_number} — {availability.label}
                                                 </SelectItem>
                                             );
                                         })}
@@ -822,14 +868,14 @@ export default function ChaletBookingsPage() {
                                 <SelectContent>
                                     <SelectItem value="__none__">Unassigned</SelectItem>
                                     {rooms.map(r => {
-                                        const booked = assigningBooking
-                                            ? isRoomBooked(r.id, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id)
-                                            : false;
+                                        const availability = assigningBooking
+                                            ? getRoomAvailability(r, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id)
+                                            : { available: r.status === 'available', label: r.status };
                                         return (
-                                            <SelectItem key={r.id} value={r.id} disabled={booked}>
+                                            <SelectItem key={r.id} value={r.id} disabled={!availability.available}>
                                                 Chalet {r.room_number} — {r.name}
-                                                <span className={`ml-2 text-xs ${booked ? 'text-red-600' : r.status === 'available' ? 'text-green-600' : 'text-orange-500'}`}>
-                                                    {booked ? '(Booked for these dates)' : `(${r.status})`}
+                                                <span className={`ml-2 text-xs ${availability.available ? 'text-green-600' : 'text-red-600'}`}>
+                                                    ({availability.label})
                                                 </span>
                                             </SelectItem>
                                         );

@@ -183,14 +183,14 @@ export default function InventoryManagementPage() {
       const itemName = item.name || '';
       const itemCode = item.code || '';
       const itemDescription = item.description || '';
-      const itemSize = item.item_size || '';
+      const itemUnit = item.unit?.name || '';
       const itemBrand = item.brand || '';
 
       const matchesSearch = 
         itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
         itemDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        itemSize.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemUnit.toLowerCase().includes(searchQuery.toLowerCase()) ||
         itemBrand.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory;
@@ -351,7 +351,7 @@ export default function InventoryManagementPage() {
                             <span className="text-[10px] text-muted-foreground truncate max-w-[300px]">{item.description}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm" onClick={() => toggleRow(item.id)}>{item.item_size || '—'}</TableCell>
+                        <TableCell className="text-sm" onClick={() => toggleRow(item.id)}>{item.unit?.name || '—'}</TableCell>
                         <TableCell onClick={() => toggleRow(item.id)}>
                           <Badge variant="outline" className="bg-slate-100/50">{item.category?.name || 'Uncategorized'}</Badge>
                         </TableCell>

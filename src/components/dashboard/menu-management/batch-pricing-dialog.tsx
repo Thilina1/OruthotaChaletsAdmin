@@ -176,6 +176,8 @@ export function BatchPricingDialog({
         }
     };
 
+    const availableBatches = batches.filter(batch => Number(batch.total_stock) > 0);
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -201,9 +203,9 @@ export function BatchPricingDialog({
                     <div className="space-y-2">
                         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
                     </div>
-                ) : batches.length === 0 ? (
+                ) : availableBatches.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
-                        No active batches found for this item.
+                        No available stock batches found for this item.
                         <br />
                         <span className="text-sm">Receive stock via Inventory → Stock Intake to create batches.</span>
                     </div>
@@ -214,14 +216,14 @@ export function BatchPricingDialog({
                                 <TableHead>Batch #</TableHead>
                                 <TableHead>Supplier</TableHead>
                                 <TableHead>Expiry Date</TableHead>
-                                <TableHead className="text-right">Buying Price</TableHead>
+                                <TableHead className="text-right">Production Cost</TableHead>
                                 <TableHead className="text-center">Total Stock</TableHead>
                                 <TableHead>Warehouses</TableHead>
                                 <TableHead className="min-w-[200px]">Selling Price (LKR)</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {batches.map((batch) => {
+                            {availableBatches.map((batch) => {
                                 const expired = isExpired(batch.expiry_date);
                                 const expiringSoon = isExpiringSoon(batch.expiry_date);
                                 return (

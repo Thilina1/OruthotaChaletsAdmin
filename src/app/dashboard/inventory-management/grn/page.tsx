@@ -3,7 +3,7 @@
 import { PaginatedTableBody } from '@/components/ui/paginated-table-body';
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Truck, ChevronRight, Trash2 } from 'lucide-react';
+import { Truck, ChevronRight, Trash2 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -230,11 +230,6 @@ export default function GRNPage() {
           </h1>
           <p className="text-muted-foreground">Record and manage all incoming stock (Stock In).</p>
         </div>
-        <Link href="/dashboard/inventory-management/grn/new">
-          <Button size="lg" className="bg-primary hover:bg-primary/90 font-bold shadow-lg gap-2">
-            <PlusCircle className="h-5 w-5" /> New Stock Intake (GRN)
-          </Button>
-        </Link>
       </div>
 
       <Tabs defaultValue="history" className="w-full">

@@ -140,6 +140,7 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
 
   const watchedStockType = useWatch({ control: form.control, name: 'stockType' });
   const watchedLinkedId = useWatch({ control: form.control, name: 'linked_inventory_item_id' });
+  const watchedName = useWatch({ control: form.control, name: 'name' });
 
   // Batch state
   const [batches, setBatches] = useState<BatchRow[]>([]);
@@ -179,6 +180,19 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
 
     return () => { cancelled = true; };
   }, [watchedStockType, watchedLinkedId, item?.id]);
+
+  useEffect(() => {
+    if (watchedStockType !== 'Inventoried' || !watchedLinkedId || watchedLinkedId === 'none') return;
+    const selectedInventoryItem = inventoryItems.find(inv => inv.id === watchedLinkedId);
+    if (!selectedInventoryItem?.name) return;
+
+    const previousLinkedItemName = inventoryItems.find(inv => inv.id === item?.linked_inventory_item_id)?.name;
+    const shouldAutoFillName = !watchedName?.trim() || watchedName === previousLinkedItemName;
+
+    if (shouldAutoFillName) {
+      form.setValue('name', selectedInventoryItem.name, { shouldDirty: true, shouldValidate: true });
+    }
+  }, [form, inventoryItems, item?.linked_inventory_item_id, watchedLinkedId, watchedName, watchedStockType]);
 
   const handleBatchPriceChange = (batchId: string, value: string) => {
     setBatches(prev => prev.map(b => b.id === batchId ? { ...b, _price: value, _saved: false } : b));
@@ -224,6 +238,7 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
     : inventoryItems;
 
   const dropdownItems = restaurantItems;
+  const availableBatches = batches.filter(batch => Number(batch.total_stock) > 0);
 
   const getRestaurantStock = (inv: HotelInventoryItem) => {
     const ws = (inv as any).warehouse_stock as Array<{ id: string; total_stock: number }> | undefined;
@@ -327,7 +342,7 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                         <FormDescription>
                           {restaurantItems.length > 0
                             ? 'Showing items with stock in the restaurant warehouse.'
-                            : 'No restaurant-warehouse items found — showing all inventory.'}
+                            : 'No items with stock found in the restaurant warehouse.'}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -353,9 +368,9 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                         <div className="space-y-1">
                           {[1, 2].map(i => <Skeleton key={i} className="h-10 w-full" />)}
                         </div>
-                      ) : !batchError && batches.length === 0 ? (
+                      ) : !batchError && availableBatches.length === 0 ? (
                         <p className="text-sm text-muted-foreground border rounded p-3 text-center">
-                          No active batches found. Receive stock via Inventory → Stock Intake first.
+                          No available restaurant stock batches found for this item.
                         </p>
                       ) : !batchError && (
                         <div className="border rounded-md overflow-hidden">
@@ -364,13 +379,13 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                               <TableRow className="bg-muted/40">
                                 <TableHead className="text-xs">Batch #</TableHead>
                                 <TableHead className="text-xs">Expiry</TableHead>
-                                <TableHead className="text-xs text-right">Buying</TableHead>
+                                <TableHead className="text-xs text-right">Production Cost</TableHead>
                                 <TableHead className="text-xs text-center">Stock</TableHead>
                                 <TableHead className="text-xs">Selling Price (LKR)</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {batches.map(batch => {
+                              {availableBatches.map(batch => {
                                 const expired = isExpired(batch.expiry_date);
                                 const expiringSoon = isExpiringSoon(batch.expiry_date);
                                 return (
@@ -554,7 +569,7 @@ export function MenuItemForm({ item, onSubmit, categories, inventoryItems = [], 
                     )} />
                     <FormField control={form.control} name="buyingPrice" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Buying Price (LKR)</FormLabel>
+                        <FormLabel>Production Cost (LKR)</FormLabel>
                         <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>

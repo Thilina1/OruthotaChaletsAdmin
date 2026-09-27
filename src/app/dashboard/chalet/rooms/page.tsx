@@ -24,7 +24,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import type { ChaletRoom, ChaletRoomStatus } from '@/lib/types';
-import { Pencil, AlertCircle } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 
 const statusConfig: Record<ChaletRoomStatus, { label: string; className: string }> = {
     available: { label: 'Available', className: 'bg-green-100 text-green-800 border-green-200' },
@@ -67,6 +67,12 @@ export default function ChaletRoomsPage() {
     }, [toast]);
 
     useEffect(() => { fetchRooms(); }, [fetchRooms]);
+
+    const openCreate = () => {
+        setEditingId(null);
+        setForm({ ...emptyForm });
+        setDialogOpen(true);
+    };
 
     const openEdit = (room: ChaletRoom) => {
         setEditingId(room.id);
@@ -138,6 +144,10 @@ export default function ChaletRoomsPage() {
                     <h1 className="text-2xl font-bold">Chalet Rooms</h1>
                     <p className="text-muted-foreground">Manage room status and details</p>
                 </div>
+                <Button onClick={openCreate} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add Chalet Room
+                </Button>
             </div>
 
             {/* Status summary */}

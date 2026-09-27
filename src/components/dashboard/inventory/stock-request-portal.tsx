@@ -187,7 +187,22 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
         return departments.find(d => d.id === selectedDeptId)?.name || 'Department';
     }, [selectedDeptId, departments]);
     const selectedDepartment = useMemo(() => departments.find(d => d.id === selectedDeptId), [departments, selectedDeptId]);
+    const sourceDeptName = useMemo(() => {
+        return departments.find(d => d.id === sourceDeptId)?.name || 'Store';
+    }, [departments, sourceDeptId]);
     const selectedDeptIsStore = isStoreDepartment(selectedDepartment);
+
+    const selectedSourceStock = useMemo(() => {
+        if (!selectedItem || !sourceDeptId) return 0;
+        const sourceStock = selectedItem.warehouse_stock?.find((ws: any) =>
+            ws.department_id === sourceDeptId ||
+            ws.department?.id === sourceDeptId ||
+            ws.id === sourceDeptId ||
+            ws.name?.toLowerCase() === sourceDeptName.toLowerCase() ||
+            ws.department?.name?.toLowerCase() === sourceDeptName.toLowerCase()
+        );
+        return sourceStock?.total_stock ?? 0;
+    }, [selectedItem, sourceDeptId, sourceDeptName]);
 
     const departmentItems = useMemo(() => {
         return inventoryItems.map(item => {
@@ -614,9 +629,22 @@ export default function StockRequestPortal({ title, descriptionText, badgeLabel 
                                         </Badge>
                                     )}
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">In Stock</p>
-                                    <p className="text-2xl font-black text-slate-800">{selectedItem.local_stock}</p>
+                            </div>
+                        )}
+
+                        {selectedItem && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{selectedDeptName} Stock</p>
+                                    <p className="mt-1 text-xl font-black text-slate-800">
+                                        {selectedItem.local_stock} <span className="text-xs text-slate-400">{selectedItem.unit?.name || 'units'}</span>
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl border border-primary/10 bg-primary/5 p-4">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary/70">{sourceDeptName} Quantity</p>
+                                    <p className="mt-1 text-xl font-black text-primary">
+                                        {selectedSourceStock} <span className="text-xs text-primary/50">{selectedItem.unit?.name || 'units'}</span>
+                                    </p>
                                 </div>
                             </div>
                         )}

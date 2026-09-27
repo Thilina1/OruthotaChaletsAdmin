@@ -443,7 +443,7 @@ function PaginatedMenuCategory({
                     <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>Price</TableHead>
-                        <TableHead>Buying Price</TableHead>
+                        <TableHead>Production Cost</TableHead>
                         <TableHead>Stock</TableHead>
                         <TableHead>Availability</TableHead>
                         <TableHead>Last Updated</TableHead>
