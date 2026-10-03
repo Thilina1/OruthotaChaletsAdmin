@@ -231,26 +231,32 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
     }
   };
 
-  const handleCustomPriceChange = (itemId: string, value: string) => {
-    const price = Number(value);
-    if (!Number.isFinite(price) || price < 0) return;
-    setOrderItems(current => current.map(item => item.id === itemId ? { ...item, price } : item));
+  const handleItemFieldChange = (itemId: string, field: 'price' | 'quantity', value: string) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < 0 || (field === 'quantity' && numericValue === 0)) return;
+    setOrderItems(current => current.map(item => item.id === itemId ? { ...item, [field]: numericValue } : item));
     setConfirmed(false);
   };
 
-  const handleCustomPriceSave = async (itemId: string) => {
+  const handleItemSave = async (itemId: string) => {
     const item = orderItems.find(current => current.id === itemId);
     if (!item) return;
-    const updatedSubtotal = orderItems.reduce((sum, current) => sum + current.price * current.quantity, 0);
-    const [{ error: itemError }, { error: orderError }] = await Promise.all([
-      supabase.from('order_items').update({ price: item.price }).eq('id', itemId),
-      supabase.from('orders').update({ total_price: updatedSubtotal, confirmed_total: null, bill_breakdown: null, updated_at: new Date().toISOString() }).eq('id', order.id),
-    ]);
-    if (itemError || orderError) {
-      toast({ variant: 'destructive', title: 'Price Update Failed', description: itemError?.message || orderError?.message });
+    const response = await fetch('/api/admin/orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: order.id,
+        item_id: itemId,
+        price: item.price,
+        quantity: item.quantity,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      toast({ variant: 'destructive', title: 'Bill Update Failed', description: data.error || 'Could not update bill item.' });
       return;
     }
-    toast({ title: 'Custom Price Updated', description: 'Review and confirm the recalculated bill.' });
+    toast({ title: 'Bill Item Updated', description: 'Review and confirm the recalculated bill.' });
   };
 
   // ── Payment handler ─────────────────────────────────────────────────────────
@@ -477,29 +483,48 @@ export function PaymentModal({ order, isOpen, onClose, mode = 'payment' }: Payme
               {/* Order items */}
               <div className="space-y-1.5">
                 {orderItems.length > 0 ? orderItems.map((item, i) => (
-                  <div key={item.id || i} className={`flex justify-between items-center gap-3 rounded px-2 py-1 text-sm ${mode === 'review' && !item.menu_item_id ? 'border border-amber-300 bg-amber-50/70' : ''}`}>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      {item.name} × {item.quantity}
+                  <div key={item.id || i} className={`grid gap-2 rounded px-2 py-2 text-sm sm:grid-cols-[1fr_auto] sm:items-center ${mode === 'review' && !item.menu_item_id ? 'border border-amber-300 bg-amber-50/70' : ''}`}>
+                    <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                      <span className="truncate">{item.name}</span>
                       {mode === 'review' && !item.menu_item_id && <Badge className="bg-amber-500 text-[10px] text-white">Custom</Badge>}
                     </div>
-                    {!item.menu_item_id ? (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Label htmlFor={`custom-price-${item.id}`} className="text-xs">Unit price</Label>
-                        <Input
-                          id={`custom-price-${item.id}`}
-                          className="h-8 w-28 text-right"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.price}
-                          onChange={event => handleCustomPriceChange(item.id, event.target.value)}
-                          onBlur={() => handleCustomPriceSave(item.id)}
-                          disabled={mode === 'payment' || isProcessing || isConfirming}
-                        />
-                        <span className="w-28 text-right font-medium">{fmt(item.price * item.quantity)}</span>
+                    {mode === 'review' ? (
+                      <div className="grid grid-cols-[80px_112px_104px] items-end gap-2">
+                        <div className="space-y-1">
+                          <Label htmlFor={`item-qty-${item.id}`} className="text-xs">Qty</Label>
+                          <Input
+                            id={`item-qty-${item.id}`}
+                            className="h-8 text-right"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.quantity}
+                            onChange={event => handleItemFieldChange(item.id, 'quantity', event.target.value)}
+                            onBlur={() => handleItemSave(item.id)}
+                            disabled={isProcessing || isConfirming}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`item-price-${item.id}`} className="text-xs">Unit price</Label>
+                          <Input
+                            id={`item-price-${item.id}`}
+                            className="h-8 text-right"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.price}
+                            onChange={event => handleItemFieldChange(item.id, 'price', event.target.value)}
+                            onBlur={() => handleItemSave(item.id)}
+                            disabled={isProcessing || isConfirming}
+                          />
+                        </div>
+                        <div className="pb-1 text-right font-medium">{fmt(item.price * item.quantity)}</div>
                       </div>
                     ) : (
-                      <span>{fmt(item.price * item.quantity)}</span>
+                      <div className="flex shrink-0 items-center justify-between gap-4 sm:min-w-44">
+                        <span className="text-muted-foreground">× {item.quantity}</span>
+                        <span>{fmt(item.price * item.quantity)}</span>
+                      </div>
                     )}
                   </div>
                 )) : (

@@ -32,7 +32,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Printer, CheckCircle2, Search, ScanLine, ChefHat, Plus, Minus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
-import type { Reservation, ConsolidatedBill, ChaletBooking } from '@/lib/types';
+import type { Reservation, ConsolidatedBill, ChaletBooking, ChaletPackage, ChaletRate, ChaletRoom, ChaletRoomCategory, Customer } from '@/lib/types';
 
 type ChaletCheckInPass = {
   booking_ref: string;
@@ -44,6 +44,13 @@ type ChaletCheckInPass = {
   email_reason?: string;
 };
 
+type AdditionalGuestForm = {
+  id: string;
+  name: string;
+  id_number: string;
+  address: string;
+};
+
 export default function FrontDeskPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('check-in');
@@ -53,6 +60,10 @@ export default function FrontDeskPage() {
   const [checkedInReservations, setCheckedInReservations] = useState<Reservation[]>([]);
   const [chaletArrivals, setChaletArrivals] = useState<ChaletBooking[]>([]);
   const [chaletInHouse, setChaletInHouse] = useState<ChaletBooking[]>([]);
+  const [chaletRooms, setChaletRooms] = useState<ChaletRoom[]>([]);
+  const [chaletPackages, setChaletPackages] = useState<ChaletPackage[]>([]);
+  const [chaletRoomCategories, setChaletRoomCategories] = useState<ChaletRoomCategory[]>([]);
+  const [chaletRates, setChaletRates] = useState<ChaletRate[]>([]);
   const [historyReservations, setHistoryReservations] = useState<Reservation[]>([]);
   const [historyChalet, setHistoryChalet] = useState<ChaletBooking[]>([]);
   const [resolvableCustomerNames, setResolvableCustomerNames] = useState<Set<string>>(new Set());
@@ -92,7 +103,8 @@ export default function FrontDeskPage() {
   const [email, setEmail] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [address, setAddress] = useState('');
-  const [isLoyalty, setIsLoyalty] = useState(false);
+  const [additionalGuests, setAdditionalGuests] = useState<AdditionalGuestForm[]>([]);
+  const [showCheckInBillPreview, setShowCheckInBillPreview] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [checkInPass, setCheckInPass] = useState<ChaletCheckInPass | null>(null);
   const [isCheckInPassOpen, setIsCheckInPassOpen] = useState(false);
@@ -126,7 +138,7 @@ export default function FrontDeskPage() {
   const [roomAssignmentBooking, setRoomAssignmentBooking] = useState<ChaletBooking | null>(null);
   const [roomAssignmentOpen, setRoomAssignmentOpen] = useState(false);
   const [assignableRooms, setAssignableRooms] = useState<any[]>([]);
-  const [assignedRoomId, setAssignedRoomId] = useState('');
+  const [assignedRoomIds, setAssignedRoomIds] = useState<string[]>([]);
   const [isLoadingAssignableRooms, setIsLoadingAssignableRooms] = useState(false);
   const [isAssigningRoom, setIsAssigningRoom] = useState(false);
   const [largeGuestQr, setLargeGuestQr] = useState<{ code: string; guest: string; room: string } | null>(null);
@@ -175,10 +187,14 @@ export default function FrontDeskPage() {
   const fetchReservations = async () => {
     setIsLoadingReservations(true);
     try {
-      const [resData, chaletData, customersData] = await Promise.all([
+      const [resData, chaletData, customersData, roomsData, packagesData, categoriesData, ratesData] = await Promise.all([
         fetch('/api/admin/reservations?status=confirmed,pending,checked-in').then(r => r.json()),
         fetch('/api/chalet/bookings').then(r => r.json()),
         fetch('/api/admin/customers').then(r => r.json()),
+        fetch('/api/chalet/rooms').then(r => r.json()),
+        fetch('/api/chalet/packages').then(r => r.json()),
+        fetch('/api/chalet/room-categories').then(r => r.json()),
+        fetch('/api/chalet/rates').then(r => r.json()),
       ]);
 
       const allRes: Reservation[] = resData.reservations || [];
@@ -194,6 +210,10 @@ export default function FrontDeskPage() {
 
       const names: string[] = (customersData.customers || []).map((c: any) => c.name?.trim().toLowerCase()).filter(Boolean);
       setResolvableCustomerNames(new Set(names));
+      setChaletRooms(roomsData.rooms || []);
+      setChaletPackages(packagesData.packages || []);
+      setChaletRoomCategories(categoriesData.categories || []);
+      setChaletRates(ratesData.rates || []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -212,27 +232,88 @@ export default function FrontDeskPage() {
     }
   };
 
+  const applyCustomerDetails = (customer: Partial<Customer> | null | undefined) => {
+    if (!customer) return;
+    setCustomerName(current => current || customer.name || '');
+    setPhone(current => current || customer.phone || '');
+    setEmail(current => current || customer.email || '');
+    setIdNumber(current => current || customer.id_number || '');
+    setAddress(current => current || customer.address || '');
+  };
+
+  const fetchCustomerDetails = async (customerId?: string) => {
+    if (!customerId) return;
+    try {
+      const response = await fetch(`/api/admin/customers?id=${encodeURIComponent(customerId)}`);
+      const data = await response.json();
+      applyCustomerDetails(data.customers?.[0]);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const resetAdditionalGuests = () => setAdditionalGuests([]);
+
+  const addAdditionalGuest = () => {
+    setAdditionalGuests(current => [
+      ...current,
+      { id: crypto.randomUUID(), name: '', id_number: '', address: '' },
+    ]);
+  };
+
+  const updateAdditionalGuest = (id: string, field: keyof Omit<AdditionalGuestForm, 'id'>, value: string) => {
+    setAdditionalGuests(current => current.map(guest => (
+      guest.id === id ? { ...guest, [field]: value } : guest
+    )));
+  };
+
+  const removeAdditionalGuest = (id: string) => {
+    setAdditionalGuests(current => current.filter(guest => guest.id !== id));
+  };
+
+  const getFilledAdditionalGuests = () => additionalGuests
+    .map(({ name, id_number, address }) => ({
+      name: name.trim(),
+      id_number: id_number.trim(),
+      address: address.trim(),
+    }))
+    .filter(guest => guest.name || guest.id_number || guest.address);
+
   const handleOpenCheckIn = (res: Reservation) => {
+    const reservationDetails = res as Reservation & {
+      guest_phone?: string;
+      id_card_number?: string;
+      guest_address?: string;
+      customer?: Partial<Customer>;
+    };
     setSelectedReservation(res);
     setSelectedChaletBooking(null);
-    setCustomerName(res.guest_name || '');
-    setEmail(res.guest_email || '');
-    setPhone('');
-    setIdNumber('');
-    setAddress('');
-    setIsLoyalty(false);
+    setCustomerName(reservationDetails.customer?.name || res.guest_name || '');
+    setPhone(reservationDetails.customer?.phone || reservationDetails.guest_phone || '');
+    setEmail(reservationDetails.customer?.email || res.guest_email || '');
+    setIdNumber(reservationDetails.customer?.id_number || reservationDetails.id_card_number || '');
+    setAddress(reservationDetails.customer?.address || reservationDetails.guest_address || '');
+    resetAdditionalGuests();
+    setShowCheckInBillPreview(false);
     setIsCheckInModalOpen(true);
+    fetchCustomerDetails(res.customer_id);
   };
 
   const handleOpenChaletCheckIn = (booking: ChaletBooking) => {
+    const bookingDetails = booking as ChaletBooking & {
+      customer_address?: string;
+      address?: string;
+      customer?: Partial<Customer>;
+    };
     setSelectedChaletBooking(booking);
     setSelectedReservation(null);
-    setCustomerName(booking.customer_name || '');
-    setEmail(booking.customer_email || '');
-    setPhone(booking.customer_phone || '');
-    setIdNumber('');
-    setAddress('');
-    setIsLoyalty(false);
+    setCustomerName(bookingDetails.customer?.name || booking.customer_name || '');
+    setEmail(bookingDetails.customer?.email || booking.customer_email || '');
+    setPhone(bookingDetails.customer?.phone || booking.customer_phone || '');
+    setIdNumber(bookingDetails.customer?.id_number || booking.customer_nic || '');
+    setAddress(bookingDetails.customer?.address || bookingDetails.customer_address || bookingDetails.address || '');
+    resetAdditionalGuests();
+    setShowCheckInBillPreview(false);
     setIsCheckInModalOpen(true);
   };
 
@@ -251,7 +332,7 @@ export default function FrontDeskPage() {
             email,
             id_number: idNumber,
             address,
-            is_loyalty: isLoyalty,
+            additional_guests: getFilledAdditionalGuests(),
           }),
         });
         const result = await response.json();
@@ -276,7 +357,7 @@ export default function FrontDeskPage() {
             email,
             id_number: idNumber,
             address,
-            is_loyalty: isLoyalty,
+            additional_guests: getFilledAdditionalGuests(),
           }),
         });
         if (!res.ok) throw new Error('Check-in failed');
@@ -559,7 +640,7 @@ export default function FrontDeskPage() {
 
   const openRoomAssignment = async (booking: ChaletBooking) => {
     setRoomAssignmentBooking(booking);
-    setAssignedRoomId(booking.room_id || '');
+    setAssignedRoomIds(getBookingRoomSlots(booking).map(slot => slot.roomId || ''));
     setRoomAssignmentOpen(true);
     setIsLoadingAssignableRooms(true);
     try {
@@ -576,20 +657,56 @@ export default function FrontDeskPage() {
   };
 
   const handleAssignRoom = async () => {
-    if (!roomAssignmentBooking || !assignedRoomId) return;
+    if (!roomAssignmentBooking) return;
+    const slots = getBookingRoomSlots(roomAssignmentBooking);
+    const selectedRoomIds = assignedRoomIds.filter(Boolean);
+    if (selectedRoomIds.length !== slots.length) {
+      toast({ variant: 'destructive', title: 'Room Required', description: 'Please assign a room for each requested room.' });
+      return;
+    }
+    if (new Set(selectedRoomIds).size !== selectedRoomIds.length) {
+      toast({ variant: 'destructive', title: 'Duplicate Room', description: 'Each requested room must use a different chalet.' });
+      return;
+    }
+    for (const [index, roomId] of selectedRoomIds.entries()) {
+      const slot = slots[index];
+      const room = assignableRooms.find(item => item.id === roomId);
+      if (slot.categoryId && room?.category_id !== slot.categoryId) {
+        toast({ variant: 'destructive', title: 'Room Type Mismatch', description: 'Please choose a chalet from the requested room type.' });
+        return;
+      }
+      if (!isRoomAssignable(roomId, roomAssignmentBooking, slot)) {
+        toast({ variant: 'destructive', title: 'Room Unavailable', description: 'Please choose available chalet rooms for this booking date range.' });
+        return;
+      }
+    }
+    const roomAllocations = slots.map((slot, index) => ({
+      roomId: selectedRoomIds[index],
+      roomCategoryId: slot.categoryId || null,
+      packageId: slot.packageId || null,
+      adults: slot.adults,
+      children: slot.children,
+    }));
     setIsAssigningRoom(true);
     try {
       const res = await fetch('/api/chalet/bookings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: roomAssignmentBooking.id, room_id: assignedRoomId }),
+        body: JSON.stringify({
+          id: roomAssignmentBooking.id,
+          room_id: selectedRoomIds[0],
+          room_ids: selectedRoomIds,
+          room_allocations: roomAllocations,
+          room_packages: Object.fromEntries(roomAllocations.map(allocation => [allocation.roomId, allocation.packageId])),
+          room_guests: Object.fromEntries(roomAllocations.map(allocation => [allocation.roomId, { adults: allocation.adults, children: allocation.children }])),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to assign room');
-      toast({ title: 'Room Assigned', description: `Room assigned to ${roomAssignmentBooking.customer_name}.` });
+      toast({ title: 'Room Assigned', description: `${selectedRoomIds.length} room${selectedRoomIds.length === 1 ? '' : 's'} assigned to ${roomAssignmentBooking.customer_name}.` });
       setRoomAssignmentOpen(false);
       setRoomAssignmentBooking(null);
-      setAssignedRoomId('');
+      setAssignedRoomIds([]);
       fetchReservations();
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Room Not Assigned', description: error.message });
@@ -795,8 +912,159 @@ export default function FrontDeskPage() {
       row.item.customer_name?.toLowerCase().includes(q) ||
       row.item.booking_ref?.toLowerCase().includes(q) ||
       row.item.chalet_rooms?.name?.toLowerCase().includes(q) ||
-      row.item.chalet_rooms?.room_number?.toLowerCase().includes(q)
+      row.item.chalet_rooms?.room_number?.toLowerCase().includes(q) ||
+      getChaletBookingRoomText(row.item)?.toLowerCase().includes(q)
     );
+  };
+
+  const getChaletBookingRoomIds = (booking: ChaletBooking) => {
+    if (Array.isArray(booking.room_ids) && booking.room_ids.length > 0) return booking.room_ids.filter(Boolean);
+    const allocationIds = Array.isArray(booking.room_allocations)
+      ? booking.room_allocations.map(allocation => allocation.roomId || (allocation as any).room_id).filter(Boolean)
+      : [];
+    return allocationIds.length ? allocationIds : booking.room_id ? [booking.room_id] : [];
+  };
+
+  const allocationValue = (allocation: Record<string, any>, camelKey: string, snakeKey: string) => allocation?.[camelKey] ?? allocation?.[snakeKey] ?? null;
+
+  const getBookingRoomSlots = (booking: ChaletBooking) => {
+    if (Array.isArray(booking.room_allocations) && booking.room_allocations.length > 0) {
+      return booking.room_allocations.map((allocation, index) => {
+        const roomId = allocationValue(allocation as Record<string, any>, 'roomId', 'room_id') || getChaletBookingRoomIds(booking)[index] || '';
+        const room = chaletRooms.find(item => item.id === roomId);
+        return {
+          key: `${booking.id}-allocation-${index}`,
+          roomId,
+          room,
+          categoryId: room?.category_id || allocationValue(allocation as Record<string, any>, 'roomCategoryId', 'room_category_id') || booking.room_category_id || '',
+          packageId: allocationValue(allocation as Record<string, any>, 'packageId', 'package_id') || booking.room_packages?.[roomId] || booking.package_id || '',
+          adults: Number(allocation.adults ?? (index === 0 ? booking.adults : 1) ?? 1),
+          children: Number(allocation.children ?? (index === 0 ? booking.children : 0) ?? 0),
+        };
+      });
+    }
+
+    const roomIds = getChaletBookingRoomIds(booking);
+    const roomCount = Math.max(1, roomIds.length);
+    return Array.from({ length: roomCount }, (_, index) => {
+      const roomId = roomIds[index] || '';
+      const room = chaletRooms.find(item => item.id === roomId);
+      return {
+        key: `${booking.id}-room-${index}`,
+        roomId,
+        room,
+        categoryId: room?.category_id || booking.room_category_id || '',
+        packageId: booking.room_packages?.[roomId] || booking.package_id || '',
+        adults: index === 0 ? booking.adults ?? 1 : booking.room_guests?.[roomId]?.adults ?? 1,
+        children: index === 0 ? booking.children ?? 0 : booking.room_guests?.[roomId]?.children ?? 0,
+      };
+    });
+  };
+
+  const getSlotCategoryName = (slot: ReturnType<typeof getBookingRoomSlots>[number], booking: ChaletBooking) => (
+    chaletRoomCategories.find(category => category.id === slot.categoryId)?.name ||
+    slot.room?.chalet_room_categories?.name ||
+    booking.chalet_room_categories?.name ||
+    'Room type'
+  );
+
+  const getSlotPackageName = (slot: ReturnType<typeof getBookingRoomSlots>[number], booking: ChaletBooking) => (
+    chaletPackages.find(pkg => pkg.id === slot.packageId)?.name ||
+    booking.chalet_packages?.name ||
+    'Package'
+  );
+
+  const renderChaletRoomAllocation = (booking: ChaletBooking, compact = false) => {
+    const slots = getBookingRoomSlots(booking);
+    if (slots.length === 0 || (slots.length === 1 && !slots[0].roomId)) {
+      return <span className="text-muted-foreground italic">Unassigned</span>;
+    }
+
+    return (
+      <div className="space-y-1">
+        {slots.map((slot, index) => (
+          <div key={slot.key} className="text-sm">
+            <div className="font-medium">
+              {slot.room ? `Chalet ${slot.room.room_number} — ${slot.room.name}` : getChaletRoomLabel(slot.roomId)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {getSlotCategoryName(slot, booking)} · {getSlotPackageName(slot, booking)}
+              {!compact && ` · ${slot.adults} adult${slot.adults === 1 ? '' : 's'} · ${slot.children} child${slot.children === 1 ? '' : 'ren'}`}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const getChaletAllocationPrintLines = (booking: ChaletBooking) => getBookingRoomSlots(booking)
+    .filter(slot => slot.roomId)
+    .map(slot => {
+      const room = slot.room ? `Chalet ${slot.room.room_number}` : getChaletRoomShortLabel(slot.roomId);
+      return `${room} - ${getSlotCategoryName(slot, booking)} - ${getSlotPackageName(slot, booking)}`;
+    });
+
+  const isRoomAssignable = (roomId: string, booking: ChaletBooking, slot?: ReturnType<typeof getBookingRoomSlots>[number]) => {
+    const room = assignableRooms.find(item => item.id === roomId);
+    if (!room || room.status === 'maintenance') return false;
+    if (slot?.categoryId && room.category_id !== slot.categoryId) return false;
+    const adults = Number(slot?.adults ?? 1);
+    const children = Number(slot?.children ?? 0);
+    const category = room.chalet_room_categories;
+    const maxAdults = room.max_adults ?? category?.max_adults;
+    const maxChildren = room.max_children ?? category?.max_children;
+    const maxGuests = room.max_guests ?? category?.max_guests;
+    if (maxAdults != null && adults > maxAdults) return false;
+    if (maxChildren != null && children > maxChildren) return false;
+    if (maxGuests != null && adults + children > maxGuests) return false;
+    return ![...chaletArrivals, ...chaletInHouse, ...historyChalet].some(other => {
+      if (other.id === booking.id || other.status === 'cancelled') return false;
+      const overlaps = other.check_in_date < booking.check_out_date && other.check_out_date > booking.check_in_date;
+      return overlaps && getChaletBookingRoomIds(other).includes(roomId);
+    });
+  };
+
+  const getAssignableRoomLabel = (roomId: string, booking: ChaletBooking, slot: ReturnType<typeof getBookingRoomSlots>[number], selectedInOtherRows: Set<string>, assignedRoomId?: string) => {
+    if (assignedRoomId === roomId) return 'Assigned';
+    if (selectedInOtherRows.has(roomId)) return 'Already selected in this booking';
+    return isRoomAssignable(roomId, booking, slot) ? 'Available' : 'Unavailable';
+  };
+
+  const getChaletRoomLabel = (roomId: string) => {
+    const room = assignableRooms.find(item => item.id === roomId) || chaletRooms.find(item => item.id === roomId);
+    if (!room) return 'Chalet';
+    return `Chalet ${room.room_number} — ${room.name}`;
+  };
+
+  const getChaletRoomShortLabel = (roomId: string) => {
+    const room = assignableRooms.find(item => item.id === roomId) || chaletRooms.find(item => item.id === roomId);
+    if (!room) return 'Chalet';
+    return `Chalet ${room.room_number}`;
+  };
+
+  const getChaletBookingRoomText = (booking: ChaletBooking) => {
+    const roomIds = getChaletBookingRoomIds(booking);
+    if (roomIds.length === 0) return null;
+    if (booking.chalet_rooms && roomIds.length === 1) {
+      return `Chalet ${booking.chalet_rooms.room_number} — ${booking.chalet_rooms.name}`;
+    }
+    if (booking.chalet_rooms && booking.room_id && roomIds.includes(booking.room_id)) {
+      const others = roomIds.length - 1;
+      return `Chalet ${booking.chalet_rooms.room_number} — ${booking.chalet_rooms.name}${others > 0 ? ` + ${others} more` : ''}`;
+    }
+    const labels = roomIds.map(getChaletRoomLabel);
+    return labels.every(label => label !== 'Chalet') ? labels.join(', ') : `${roomIds.length} room${roomIds.length === 1 ? '' : 's'} assigned`;
+  };
+
+  const getChaletBookingRoomShortText = (booking: ChaletBooking) => {
+    const roomIds = getChaletBookingRoomIds(booking);
+    if (roomIds.length === 0) return null;
+    if (booking.chalet_rooms && roomIds.length === 1) return `Chalet ${booking.chalet_rooms.room_number}`;
+    const labels = roomIds.map(id => {
+      if (booking.room_id === id && booking.chalet_rooms?.room_number) return `Chalet ${booking.chalet_rooms.room_number}`;
+      return getChaletRoomShortLabel(id);
+    });
+    return labels.join(', ');
   };
 
   const arrivalRows: ArrivalRow[] = [
@@ -825,7 +1093,147 @@ export default function FrontDeskPage() {
   const billingCustomers = customers.filter(customer => (!billingFrom && !billingTo)
     || (customer.checkout_dates || []).some((date: string) => matchesDateRange(date, billingFrom, billingTo)));
 
-  const rowPrice = (row: ArrivalRow) => row.type === 'reservation' ? Number(row.item.total_cost || 0) : Number(row.item.grand_total || 0);
+  const formatMoney = (amount: number, currency: 'LKR' | 'USD' = 'LKR') => `${currency} ${Number(amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const customerBillCurrency = (nationality?: string | null): 'LKR' | 'USD' => (
+    nationality === 'Non Sri Lankan' ? 'USD' : 'LKR'
+  );
+
+  const chargeApplies = (chargeCurrency: 'LKR' | 'USD' | 'both' | undefined, billCurrency: 'LKR' | 'USD') => (
+    (chargeCurrency || 'both') === 'both' || chargeCurrency === billCurrency
+  );
+
+  const appliesLabel = (chargeCurrency: 'LKR' | 'USD' | 'both' | undefined) => (
+    (chargeCurrency || 'both') === 'both' ? 'Both' : chargeCurrency
+  );
+
+  const findChaletRate = (booking: ChaletBooking) => {
+    const allocation = Array.isArray(booking.room_allocations) ? booking.room_allocations[0] as any : null;
+    const packageId = booking.package_id || allocation?.packageId || allocation?.package_id || '';
+    const categoryId = booking.room_category_id || allocation?.roomCategoryId || allocation?.room_category_id || '';
+    return chaletRates.find(rate =>
+      rate.package_id === packageId &&
+      !rate.occupancy_type_id &&
+      (rate.room_category_id || '') === (categoryId || '')
+    ) || chaletRates.find(rate =>
+      rate.package_id === packageId &&
+      !rate.occupancy_type_id &&
+      !rate.room_category_id
+    );
+  };
+
+  const convertedPreviewAmount = (amount: number, currency: 'LKR' | 'USD', exchangeRate: number) => (
+    currency === 'USD' && exchangeRate > 0 ? amount * exchangeRate : amount
+  );
+
+  const formatPreviewAmount = (amount: number, currency: 'LKR' | 'USD', exchangeRate: number) => {
+    if (currency === 'USD' && exchangeRate > 0) {
+      return `${formatMoney(amount, 'USD')} (${formatMoney(convertedPreviewAmount(amount, currency, exchangeRate), 'LKR')})`;
+    }
+    return formatMoney(amount, 'LKR');
+  };
+
+  const getChaletBillCurrency = (booking: ChaletBooking): 'LKR' | 'USD' => (
+    booking.currency || customerBillCurrency(booking.nationality)
+  );
+
+  const getChaletExchangeRate = (booking: ChaletBooking) => Number(findChaletRate(booking)?.usd_to_lkr_rate || 0);
+
+  const getChaletAmountInLkr = (booking: ChaletBooking, amount: number) => {
+    const currency = getChaletBillCurrency(booking);
+    const exchangeRate = getChaletExchangeRate(booking);
+    return currency === 'USD' && exchangeRate > 0 ? amount * exchangeRate : amount;
+  };
+
+  const renderChaletMoney = (booking: ChaletBooking, amount: number, className = '') => {
+    const currency = getChaletBillCurrency(booking);
+    const exchangeRate = getChaletExchangeRate(booking);
+    if (currency !== 'USD') {
+      return <span className={className}>{formatMoney(amount, 'LKR')}</span>;
+    }
+
+    const lkrAmount = exchangeRate > 0 ? amount * exchangeRate : amount;
+    return (
+      <span className={className}>
+        <span className="block">{formatMoney(amount, 'USD')}</span>
+        <span className="block text-xs text-muted-foreground">{formatMoney(lkrAmount, 'LKR')}</span>
+      </span>
+    );
+  };
+
+  const getCheckInBillPreview = () => {
+    if (selectedReservation) {
+      const total = Number(selectedReservation.total_cost || 0);
+      const paid = selectedReservation.payment_status === 'paid' ? total : 0;
+      return {
+        title: selectedReservation.room?.title || selectedReservation.room_title || 'Room charge',
+        subtitle: `${new Date(selectedReservation.check_in_date).toLocaleDateString()} to ${new Date(selectedReservation.check_out_date).toLocaleDateString()}`,
+        lines: [
+          { label: 'Room total', value: total },
+        ],
+        currency: 'LKR' as const,
+        exchangeRate: 0,
+        total,
+        totalLkr: total,
+        paid,
+        paidLkr: paid,
+        balance: Math.max(0, total - paid),
+        balanceLkr: Math.max(0, total - paid),
+        paymentStatus: selectedReservation.payment_status || 'unpaid',
+      };
+    }
+
+    if (selectedChaletBooking) {
+      const booking = selectedChaletBooking as ChaletBooking & { total_amount?: number };
+      const currency = getChaletBillCurrency(booking);
+      const exchangeRate = getChaletExchangeRate(booking);
+      const nights = Number(booking.nights || booking.total_nights || 0);
+      const subtotal = Number(booking.subtotal ?? Number(booking.rate_per_night || 0) * nights);
+      const coupon = Number(booking.coupon_discount_amount || 0);
+      const discountedSubtotal = Math.max(0, subtotal - coupon);
+      const serviceCharge = chargeApplies(booking.service_charge_currency, currency)
+        ? discountedSubtotal * Number(booking.service_charge_pct || 0) / 100
+        : 0;
+      const vat = chargeApplies(booking.vat_currency, currency)
+        ? discountedSubtotal * Number(booking.vat_pct || 0) / 100
+        : 0;
+      const sscl = chargeApplies(booking.sscl_currency, currency)
+        ? discountedSubtotal * Number(booking.sscl_pct || 0) / 100
+        : 0;
+      const calculatedTotal = discountedSubtotal + serviceCharge + vat + sscl;
+      const total = Number(booking.bill_grand_total ?? booking.grand_total ?? booking.total_amount ?? calculatedTotal);
+      const paid = Number(booking.amount_paid || 0);
+      const totalLkr = convertedPreviewAmount(total, currency, exchangeRate);
+      const paidLkr = convertedPreviewAmount(paid, currency, exchangeRate);
+      const balance = Math.max(0, total - paid);
+      return {
+        title: getChaletBookingRoomShortText(booking) || 'Chalet charge',
+        subtitle: `${booking.booking_ref} · ${new Date(booking.check_in_date).toLocaleDateString()} to ${new Date(booking.check_out_date).toLocaleDateString()}`,
+        lines: [
+          { label: `Rate per night x ${nights}`, value: subtotal },
+          ...(coupon > 0 ? [{ label: `Coupon discount${booking.coupon_code ? ` (${booking.coupon_code})` : ''}`, value: -coupon }] : []),
+          ...(serviceCharge > 0 ? [{ label: `Service charge (${Number(booking.service_charge_pct || 0)}% · ${appliesLabel(booking.service_charge_currency)})`, value: serviceCharge }] : []),
+          ...(vat > 0 ? [{ label: `VAT (${Number(booking.vat_pct || 0)}% · ${appliesLabel(booking.vat_currency)})`, value: vat }] : []),
+          ...(sscl > 0 ? [{ label: `SSCL (${Number(booking.sscl_pct || 0)}% · ${appliesLabel(booking.sscl_currency)})`, value: sscl }] : []),
+        ],
+        currency,
+        exchangeRate,
+        total,
+        totalLkr,
+        paid,
+        paidLkr,
+        balance,
+        balanceLkr: convertedPreviewAmount(balance, currency, exchangeRate),
+        paymentStatus: booking.payment_status || (paid >= total && total > 0 ? 'paid' : 'unpaid'),
+      };
+    }
+
+    return null;
+  };
+
+  const rowPrice = (row: ArrivalRow) => row.type === 'reservation'
+    ? Number(row.item.total_cost || 0)
+    : getChaletAmountInLkr(row.item, Number(row.item.grand_total || 0));
 
   const historyRows: ArrivalRow[] = [
     ...historyReservations.map((item): ArrivalRow => ({ type: 'reservation', item })),
@@ -919,9 +1327,10 @@ export default function FrontDeskPage() {
                       <TableHead>Type</TableHead>
                       <TableHead>Guest Name</TableHead>
                       <TableHead>Room / Chalet</TableHead>
-                      <TableHead>Package</TableHead>
+                      <TableHead>Package / Room Type</TableHead>
                       <TableHead>Check-in</TableHead>
                       <TableHead>Check-out</TableHead>
+                      <TableHead className="text-right">Bill</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -934,6 +1343,7 @@ export default function FrontDeskPage() {
                         <TableCell className="text-muted-foreground">—</TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">{formatMoney(Number(row.item.total_cost || 0), 'LKR')}</TableCell>
                         <TableCell className="text-right">
                           <Button
                             size="sm"
@@ -953,21 +1363,25 @@ export default function FrontDeskPage() {
                           <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
                         </TableCell>
                         <TableCell>
-                          {row.item.chalet_rooms
-                            ? `Chalet ${row.item.chalet_rooms.room_number} — ${row.item.chalet_rooms.name}`
-                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                          {renderChaletRoomAllocation(row.item)}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {row.item.chalet_packages?.name || '—'}
-                          {row.item.chalet_occupancy_types && (
-                            <div className="text-xs text-muted-foreground">{row.item.chalet_occupancy_types.name}</div>
-                          )}
+                          {getBookingRoomSlots(row.item).map(slot => (
+                            <div key={slot.key} className="mb-1 last:mb-0">
+                              <div className="font-medium">{getSlotPackageName(slot, row.item)}</div>
+                              <div className="text-xs text-muted-foreground">{getSlotCategoryName(slot, row.item)}</div>
+                            </div>
+                          ))}
                         </TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
                         <TableCell className="text-right">
-                          {row.item.chalet_rooms ? (
-                            <Button size="sm" onClick={() => handleOpenChaletCheckIn(row.item)}>Check In</Button>
+                          {getChaletBookingRoomIds(row.item).length > 0 ? (
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="outline" onClick={() => openRoomAssignment(row.item)}>Rooms</Button>
+                              <Button size="sm" onClick={() => handleOpenChaletCheckIn(row.item)}>Check In</Button>
+                            </div>
                           ) : (
                             <Button size="sm" variant="outline" onClick={() => openRoomAssignment(row.item)}>Assign Room</Button>
                           )}
@@ -1026,6 +1440,7 @@ export default function FrontDeskPage() {
                       <TableHead>Guest QR</TableHead>
                       <TableHead>Check-in</TableHead>
                       <TableHead>Check-out</TableHead>
+                      <TableHead className="text-right">Bill</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1062,6 +1477,7 @@ export default function FrontDeskPage() {
                           )}
                         </TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">{formatMoney(Number(row.item.total_cost || 0), 'LKR')}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button size="sm" variant="outline" onClick={() => handleViewGuest(row)}>
@@ -1089,9 +1505,7 @@ export default function FrontDeskPage() {
                           <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
                         </TableCell>
                         <TableCell>
-                          {row.item.chalet_rooms
-                            ? `Chalet ${row.item.chalet_rooms.room_number}`
-                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                          {renderChaletRoomAllocation(row.item)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -1101,7 +1515,7 @@ export default function FrontDeskPage() {
                               onClick={() => setLargeGuestQr({
                                 code: row.item.booking_ref,
                                 guest: row.item.customer_name,
-                                room: row.item.chalet_rooms ? `Chalet ${row.item.chalet_rooms.room_number}` : 'Unassigned',
+                                room: getChaletBookingRoomShortText(row.item) || 'Unassigned',
                               })}
                               title="Click to enlarge QR"
                             >
@@ -1116,6 +1530,7 @@ export default function FrontDeskPage() {
                         </TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end items-center gap-2">
                             <Badge className="bg-green-100 text-green-800 border-green-200">In House</Badge>
@@ -1238,15 +1653,15 @@ export default function FrontDeskPage() {
                               {billData.chaletBookings.map(cb => (
                                 <TableRow key={cb.id}>
                                   <TableCell>
-                                    <div>
-                                      {cb.chalet_rooms ? `Chalet ${cb.chalet_rooms.room_number}` : 'Chalet'} — {cb.chalet_packages?.name || 'No package'}
-                                      {' '}({new Date(cb.check_in_date).toLocaleDateString()} to {new Date(cb.check_out_date).toLocaleDateString()})
-                                    </div>
+	                                    <div>{renderChaletRoomAllocation(cb, true)}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {new Date(cb.check_in_date).toLocaleDateString()} to {new Date(cb.check_out_date).toLocaleDateString()}
+                                      </div>
                                     <div className="text-xs text-muted-foreground">
-                                      Package price: LKR {Number(cb.rate_per_night || 0).toFixed(2)} / night × {cb.nights} night{cb.nights !== 1 ? 's' : ''} + {cb.service_charge_pct}% service charge
+                                      Package price: {renderChaletMoney(cb, Number(cb.rate_per_night || 0))} / night × {cb.nights} night{cb.nights !== 1 ? 's' : ''} + {cb.service_charge_pct}% service charge
                                     </div>
                                   </TableCell>
-                                  <TableCell className="text-right">LKR {Number(cb.grand_total || 0).toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">{renderChaletMoney(cb, Number(cb.grand_total || 0))}</TableCell>
                                 </TableRow>
                               ))}
                             </PaginatedTableBody>
@@ -1516,19 +1931,17 @@ export default function FrontDeskPage() {
                           <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
                         </TableCell>
                         <TableCell>
-                          {row.item.chalet_rooms
-                            ? `Chalet ${row.item.chalet_rooms.room_number}`
-                            : <span className="text-muted-foreground italic">Unassigned</span>}
+                          {renderChaletRoomAllocation(row.item)}
                         </TableCell>
-                        <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => handleViewHistoryBill(row)} disabled={row.item.status === 'cancelled'}>View Bill</Button></TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">LKR {Number(row.item.grand_total || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
                         <TableCell>
                           <Badge className={row.item.status === 'cancelled' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-green-100 text-green-800 border-green-200'}>
                             {row.item.status === 'cancelled' ? 'Cancelled' : 'Checked Out'}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => handleViewHistoryBill(row)} disabled={row.item.status === 'cancelled'}>View Bill</Button></TableCell>
                       </TableRow>
                     ))}
                   </PaginatedTableBody>
@@ -1600,7 +2013,7 @@ export default function FrontDeskPage() {
           ) : mealBooking && (
             <div className="space-y-6">
               <div className="rounded-lg bg-muted p-3 text-sm">
-                <p className="font-semibold">{mealBooking.customer_name} · {mealBooking.chalet_rooms ? `Chalet ${mealBooking.chalet_rooms.room_number}` : 'Unassigned'}</p>
+                <p className="font-semibold">{mealBooking.customer_name} · {getChaletBookingRoomShortText(mealBooking) || 'Unassigned'}</p>
                 <p className="text-muted-foreground">{mealPackage?.name || 'No package'} · {mealBooking.adults} adults, {mealBooking.children} children</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {mealPackage?.includes_breakfast && <Badge variant="outline">Breakfast included</Badge>}
@@ -1687,7 +2100,7 @@ export default function FrontDeskPage() {
 
       {/* Check-In Modal */}
       <Dialog open={isCheckInModalOpen} onOpenChange={setIsCheckInModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Formalize Check-in & Register Guest</DialogTitle>
           </DialogHeader>
@@ -1714,13 +2127,102 @@ export default function FrontDeskPage() {
               <Label>Address</Label>
               <Input value={address} onChange={e => setAddress(e.target.value)} />
             </div>
-            <div className="flex items-center space-x-2 pt-2 border-t mt-4">
-              <Checkbox 
-                id="loyalty" 
-                checked={isLoyalty} 
-                onCheckedChange={(checked) => setIsLoyalty(checked as boolean)}
-              />
-              <Label htmlFor="loyalty" className="font-medium">Register as Loyalty Customer</Label>
+            {(() => {
+              const preview = getCheckInBillPreview();
+              if (!preview) return null;
+              return (
+                <div className="space-y-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-between"
+                    onClick={() => setShowCheckInBillPreview(current => !current)}
+                  >
+                    <span>{showCheckInBillPreview ? 'Hide Bill Preview' : 'View Bill Preview'}</span>
+                    <span className="font-semibold">{formatMoney(preview.balanceLkr, 'LKR')}</span>
+                  </Button>
+                  {showCheckInBillPreview && (
+                    <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <Label>Bill Preview</Label>
+                          <p className="text-sm font-medium">{preview.title}</p>
+                          <p className="text-xs text-muted-foreground">{preview.subtitle}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Currency: {preview.currency}
+                            {preview.currency === 'USD' && preview.exchangeRate > 0 ? ` · 1 USD = ${formatMoney(preview.exchangeRate, 'LKR')}` : ''}
+                          </p>
+                        </div>
+                        <Badge variant={preview.balance > 0 ? 'outline' : 'default'}>
+                          {preview.balance > 0 ? 'Outstanding' : 'Paid'}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        {preview.lines.map((line, index) => (
+                          <div key={`${line.label}-${index}`} className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">{line.label}</span>
+                            <span className="text-right font-medium">{formatPreviewAmount(line.value, preview.currency, preview.exchangeRate)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between gap-4 border-t pt-2 font-semibold">
+                          <span>Total Bill</span>
+                          <span className="text-right">{formatPreviewAmount(preview.total, preview.currency, preview.exchangeRate)}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">Paid</span>
+                          <span className="text-right font-medium">{formatPreviewAmount(preview.paid, preview.currency, preview.exchangeRate)}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 text-base font-bold">
+                          <span>Balance</span>
+                          <span className="text-right">{formatPreviewAmount(preview.balance, preview.currency, preview.exchangeRate)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Other Guests</Label>
+                  <p className="text-xs text-muted-foreground">Name, ID / Passport Number, and Address are optional.</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addAdditionalGuest}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Guest
+                </Button>
+              </div>
+              {additionalGuests.length > 0 && (
+                <div className="space-y-3">
+                  {additionalGuests.map((guest, index) => (
+                    <div key={guest.id} className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_1fr_36px]">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Guest {index + 1} Name</Label>
+                        <Input value={guest.name} onChange={e => updateAdditionalGuest(guest.id, 'name', e.target.value)} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">ID / Passport Number</Label>
+                        <Input value={guest.id_number} onChange={e => updateAdditionalGuest(guest.id, 'id_number', e.target.value)} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Address</Label>
+                        <Input value={guest.address} onChange={e => updateAdditionalGuest(guest.id, 'address', e.target.value)} />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="self-end text-destructive"
+                        onClick={() => removeAdditionalGuest(guest.id)}
+                        title="Remove guest"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex justify-end pt-4">
               <Button type="submit" disabled={isCheckingIn}>
@@ -1863,18 +2365,10 @@ export default function FrontDeskPage() {
                   <p className="font-medium">{viewGuestRow.item.nationality || '—'}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Chalet</p>
-                  <p className="font-medium">
-                    {viewGuestRow.item.chalet_rooms
-                      ? `${viewGuestRow.item.chalet_rooms.name} (${viewGuestRow.item.chalet_rooms.room_number})`
-                      : 'Unassigned'}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Package</p>
-                  <p className="font-medium">{viewGuestRow.item.chalet_packages?.name || '—'}</p>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Rooms, Types & Packages</p>
+                <div className="rounded-md border p-3">
+                  {renderChaletRoomAllocation(viewGuestRow.item)}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -1898,10 +2392,10 @@ export default function FrontDeskPage() {
                 </div>
               </div>
               <div className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Rate per Night</span><span>LKR {Number(viewGuestRow.item.rate_per_night || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>LKR {Number(viewGuestRow.item.subtotal || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Service Charge</span><span>LKR {Number(viewGuestRow.item.service_charge_amount || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between font-semibold pt-1 border-t"><span>Grand Total</span><span>LKR {Number(viewGuestRow.item.grand_total || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Rate per Night</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.rate_per_night || 0), 'text-right')}</div>
+                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Subtotal</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.subtotal || 0), 'text-right')}</div>
+                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Service Charge</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.service_charge_amount || 0), 'text-right')}</div>
+                <div className="flex justify-between gap-4 font-semibold pt-1 border-t"><span>Grand Total</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.grand_total || 0), 'text-right')}</div>
               </div>
               {(viewGuestRow.item.special_requests || viewGuestRow.item.notes) && (
                 <div className="space-y-1">
@@ -1918,7 +2412,7 @@ export default function FrontDeskPage() {
 
       {/* Check Out Confirmation Modal */}
       <Dialog open={roomAssignmentOpen} onOpenChange={setRoomAssignmentOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Assign Room</DialogTitle>
           </DialogHeader>
@@ -1929,28 +2423,71 @@ export default function FrontDeskPage() {
                 {roomAssignmentBooking && `${new Date(roomAssignmentBooking.check_in_date).toLocaleDateString()} to ${new Date(roomAssignmentBooking.check_out_date).toLocaleDateString()}`}
               </p>
             </div>
-            <div className="space-y-2">
-              <Label>Room / Chalet</Label>
-              <Select value={assignedRoomId} onValueChange={setAssignedRoomId} disabled={isLoadingAssignableRooms}>
-                <SelectTrigger>
-                  <SelectValue placeholder={isLoadingAssignableRooms ? 'Loading rooms...' : 'Select a room'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {assignableRooms.map(room => (
-                    <SelectItem key={room.id} value={room.id}>
-                      Chalet {room.room_number} — {room.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!isLoadingAssignableRooms && assignableRooms.length === 0 && (
-                <p className="text-sm text-muted-foreground">No assignable rooms are available.</p>
-              )}
+            <div className="space-y-3">
+              <Label>Requested Rooms</Label>
+              {isLoadingAssignableRooms ? (
+                <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading rooms...</p>
+              ) : roomAssignmentBooking ? (
+                getBookingRoomSlots(roomAssignmentBooking).map((slot, index) => {
+                  const selectedInOtherRows = new Set(assignedRoomIds.filter((_, roomIndex) => roomIndex !== index).filter(Boolean));
+                  const availableRooms = assignableRooms
+                    .filter(room => !slot.categoryId || room.category_id === slot.categoryId)
+                    .map(room => ({
+                      room,
+                      label: getAssignableRoomLabel(room.id, roomAssignmentBooking, slot, selectedInOtherRows, assignedRoomIds[index]),
+                    }));
+                  const availableCount = availableRooms.filter(item => item.label === 'Available' || item.label === 'Assigned').length;
+                  const assignedRoom = assignedRoomIds[index]
+                    ? assignableRooms.find(room => room.id === assignedRoomIds[index]) || chaletRooms.find(room => room.id === assignedRoomIds[index])
+                    : null;
+                  return (
+                    <div key={slot.key} className="rounded-lg border p-3">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">Room {index + 1}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {getSlotCategoryName(slot, roomAssignmentBooking)} · {getSlotPackageName(slot, roomAssignmentBooking)} · {slot.adults} adult{slot.adults === 1 ? '' : 's'} · {slot.children} child{slot.children === 1 ? '' : 'ren'}
+                          </p>
+                        </div>
+                        <Badge variant="outline">{availableCount} available</Badge>
+                      </div>
+                      {assignedRoom && (
+                        <div className="mb-2 rounded-md bg-muted px-3 py-2 text-sm">
+                          <span className="text-muted-foreground">Assigned: </span>
+                          <span className="font-medium">Chalet {assignedRoom.room_number} — {assignedRoom.name}</span>
+                        </div>
+                      )}
+                      <Select
+                        value={assignedRoomIds[index] || undefined}
+                        onValueChange={value => setAssignedRoomIds(current => {
+                          const next = [...current];
+                          next[index] = value;
+                          return next;
+                        })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose a chalet" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableRooms.map(({ room, label }) => (
+                            <SelectItem key={room.id} value={room.id} disabled={label !== 'Available' && label !== 'Assigned'}>
+                              Chalet {room.room_number} — {room.name} ({label})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {availableRooms.length === 0 && (
+                        <p className="mt-2 text-xs text-muted-foreground">No chalets match this requested room type.</p>
+                      )}
+                    </div>
+                  );
+                })
+              ) : null}
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setRoomAssignmentOpen(false)}>Cancel</Button>
-              <Button onClick={handleAssignRoom} disabled={!assignedRoomId || isAssigningRoom}>
-                {isAssigningRoom ? 'Assigning...' : 'Assign Room'}
+              <Button onClick={handleAssignRoom} disabled={!roomAssignmentBooking || assignedRoomIds.filter(Boolean).length !== getBookingRoomSlots(roomAssignmentBooking).length || isAssigningRoom}>
+                {isAssigningRoom ? 'Assigning...' : 'Assign Rooms'}
               </Button>
             </div>
           </div>
@@ -1971,7 +2508,7 @@ export default function FrontDeskPage() {
                 <p className="font-medium">{checkoutPreview.customer.name}</p>
                 <p className="text-muted-foreground">
                   {checkoutRow?.type === 'chalet'
-                    ? `Chalet ${checkoutRow.item.chalet_rooms?.room_number ?? ''}`
+                    ? getChaletBookingRoomShortText(checkoutRow.item) || 'Unassigned'
                     : checkoutRow?.type === 'reservation' ? (checkoutRow.item.room?.title || 'Room') : ''}
                 </p>
               </div>
@@ -2046,9 +2583,11 @@ export default function FrontDeskPage() {
               {billData.chaletBookings.map(cb => (
                 <tr key={cb.id} className="border-b border-gray-100">
                   <td className="py-4 px-2 text-gray-800">
-                    Chalet Charge: {cb.chalet_rooms ? `Chalet ${cb.chalet_rooms.room_number}` : 'Chalet'} — {cb.chalet_packages?.name || 'No package'} (LKR {Number(cb.rate_per_night || 0).toFixed(2)}/night × {cb.nights})
+	                    Chalet Charge: {getChaletAllocationPrintLines(cb).join(', ') || 'Chalet'} ({getChaletBillCurrency(cb)} {Number(cb.rate_per_night || 0).toFixed(2)}/night × {cb.nights})
                   </td>
-                  <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(cb.grand_total || 0).toFixed(2)}</td>
+                  <td className="py-4 px-2 text-gray-800 text-right font-medium">
+                    {renderChaletMoney(cb, Number(cb.grand_total || 0))}
+                  </td>
                 </tr>
               ))}
               {billData.orders.map(ord => (

@@ -19,7 +19,7 @@ export async function GET() {
 
         const { data, error } = await supabase
             .from('chalet_rooms')
-            .select('*')
+            .select('*, chalet_room_categories (*)')
             .order('sort_order', { ascending: true });
 
         if (error) throw error;
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { name, room_number, floor, description, status, notes, sort_order } = body;
+        const { name, room_number, floor, description, category_id, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
 
         if (!name || !room_number) {
             return NextResponse.json({ error: 'Name and room number are required' }, { status: 400 });
@@ -45,8 +45,21 @@ export async function POST(request: Request) {
 
         const { data, error } = await supabase
             .from('chalet_rooms')
-            .insert({ name, room_number, floor, description, status: status || 'available', notes, sort_order: sort_order || 0 })
-            .select()
+            .insert({
+                name,
+                room_number,
+                floor,
+                description,
+                category_id: category_id || null,
+                max_adults: max_adults === '' || max_adults === undefined ? null : Number(max_adults),
+                max_children: max_children === '' || max_children === undefined ? null : Number(max_children),
+                max_guests: max_guests === '' || max_guests === undefined ? null : Number(max_guests),
+                bed_type: bed_type || null,
+                status: status || 'available',
+                notes,
+                sort_order: sort_order || 0
+            })
+            .select('*, chalet_room_categories (*)')
             .single();
 
         if (error) throw error;
@@ -64,15 +77,29 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, name, room_number, floor, description, status, notes, sort_order } = body;
+        const { id, name, room_number, floor, description, category_id, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
         const { data, error } = await supabase
             .from('chalet_rooms')
-            .update({ name, room_number, floor, description, status, notes, sort_order, updated_at: new Date().toISOString() })
+            .update({
+                ...(name !== undefined ? { name } : {}),
+                ...(room_number !== undefined ? { room_number } : {}),
+                ...(floor !== undefined ? { floor } : {}),
+                ...(description !== undefined ? { description } : {}),
+                ...(category_id !== undefined ? { category_id: category_id || null } : {}),
+                ...(max_adults !== undefined ? { max_adults: max_adults === '' ? null : Number(max_adults) } : {}),
+                ...(max_children !== undefined ? { max_children: max_children === '' ? null : Number(max_children) } : {}),
+                ...(max_guests !== undefined ? { max_guests: max_guests === '' ? null : Number(max_guests) } : {}),
+                ...(bed_type !== undefined ? { bed_type: bed_type || null } : {}),
+                ...(status !== undefined ? { status } : {}),
+                ...(notes !== undefined ? { notes } : {}),
+                ...(sort_order !== undefined ? { sort_order } : {}),
+                updated_at: new Date().toISOString()
+            })
             .eq('id', id)
-            .select()
+            .select('*, chalet_room_categories (*)')
             .single();
 
         if (error) throw error;

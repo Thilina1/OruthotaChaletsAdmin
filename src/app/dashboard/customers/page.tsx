@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Search, Mail, Phone, CalendarDays, Edit } from 'lucide-react';
+import { Users, Search, Mail, Phone, CalendarDays, Edit, History, Loader2 } from 'lucide-react';
 import type { Customer } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
@@ -34,6 +34,9 @@ export default function CustomersPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [historyCustomer, setHistoryCustomer] = useState<any | null>(null);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const fetchCustomers = async (searchQuery = '') => {
     setIsLoading(true);
@@ -83,6 +86,23 @@ export default function CustomersPage() {
   const handleEditClick = (customer: Customer) => {
     setEditingCustomer(customer);
     setIsEditModalOpen(true);
+  };
+
+  const handleHistoryClick = async (customer: Customer) => {
+    setIsHistoryModalOpen(true);
+    setIsHistoryLoading(true);
+    setHistoryCustomer(null);
+    try {
+      const res = await fetch(`/api/admin/customers?id=${encodeURIComponent(customer.id)}`);
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to load customer history');
+      setHistoryCustomer(data.customers?.[0] || customer);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to load customer history.' });
+      setIsHistoryModalOpen(false);
+    } finally {
+      setIsHistoryLoading(false);
+    }
   };
 
   const handleSaveCustomer = async (e: React.FormEvent) => {
@@ -192,6 +212,10 @@ export default function CustomersPage() {
                       <Edit className="w-4 h-4 mr-2" />
                       Edit
                     </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleHistoryClick(customer)}>
+                      <History className="w-4 h-4 mr-2" />
+                      History
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))
@@ -266,6 +290,101 @@ export default function CustomersPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Customer History</DialogTitle>
+          </DialogHeader>
+          {isHistoryLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading history...
+            </div>
+          ) : historyCustomer ? (
+            <div className="space-y-6">
+              <div className="rounded-md border bg-muted/30 p-4">
+                <h3 className="text-lg font-semibold">{historyCustomer.name}</h3>
+                <div className="mt-2 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                  <span>Phone: {historyCustomer.phone || 'Not saved'}</span>
+                  <span>Email: {historyCustomer.email || 'Not saved'}</span>
+                  <span>ID / Passport: {historyCustomer.id_number || 'Not saved'}</span>
+                  <span>Current Room: {historyCustomer.current_room || 'Not checked in'}</span>
+                </div>
+              </div>
+
+              <HistorySection
+                title="Chalet Bookings"
+                emptyText="No chalet bookings found for this ID / Passport."
+                rows={(historyCustomer.history?.chalet_bookings || []).map((booking: any) => ({
+                  id: booking.id,
+                  title: booking.chalet_room_categories?.name || booking.chalet_packages?.name || 'Chalet booking',
+                  subtitle: `${booking.customer_name || historyCustomer.name} · ${booking.customer_nic || historyCustomer.id_number || 'No ID'}`,
+                  dates: `${formatDate(booking.check_in_date)} - ${formatDate(booking.check_out_date)}`,
+                  meta: [
+                    `Guests: ${Number(booking.adults || 0) + Number(booking.children || 0)}`,
+                    `Status: ${booking.status || 'pending'}`,
+                    `Payment: ${booking.payment_status || 'unpaid'}`,
+                    booking.coupon_code ? `Coupon: ${booking.coupon_code}` : '',
+                  ].filter(Boolean).join(' · '),
+                  amount: formatAmount(booking.bill_grand_total ?? booking.total_amount, booking.currency),
+                  notes: booking.special_requests,
+                }))}
+              />
+
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return 'Not set';
+  return new Date(value).toLocaleDateString();
+}
+
+function formatAmount(value?: number | string | null, currency = 'LKR') {
+  const amount = Number(value || 0);
+  if (!amount) return `${currency} 0`;
+  return `${currency} ${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+function HistorySection({
+  title,
+  emptyText,
+  rows,
+}: {
+  title: string;
+  emptyText: string;
+  rows: Array<{ id: string; title: string; subtitle: string; dates: string; meta: string; amount: string; notes?: string | null }>;
+}) {
+  return (
+    <section>
+      <h3 className="mb-3 text-base font-semibold">{title}</h3>
+      {rows.length === 0 ? (
+        <div className="rounded-md border border-dashed p-5 text-sm text-muted-foreground">{emptyText}</div>
+      ) : (
+        <div className="space-y-3">
+          {rows.map(row => (
+            <div key={row.id} className="rounded-md border bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="font-semibold">{row.title}</h4>
+                  <p className="mt-1 text-sm text-muted-foreground">{row.subtitle}</p>
+                </div>
+                <div className="text-right text-sm">
+                  <p className="font-semibold">{row.amount}</p>
+                  <p className="text-muted-foreground">{row.dates}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">{row.meta}</p>
+              {row.notes ? <p className="mt-2 rounded bg-muted/40 p-2 text-sm">Notes: {row.notes}</p> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

@@ -7,9 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { DollarSign, Clock, Users, Coffee, CheckCircle2, RefreshCw } from 'lucide-react';
+import { DollarSign, Clock, Users, Coffee, CheckCircle2, RefreshCw, Search, ScanLine, Pencil } from 'lucide-react';
 import { PaymentModal } from '@/components/dashboard/billing/payment-modal';
+import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
 import { format } from 'date-fns';
 
 type ChargeEntry = { id: string; name: string; type: 'percentage' | 'fixed'; value: number; enabled: boolean };
@@ -19,6 +21,7 @@ type BillingConfig = {
   discounts: ChargeEntry[];
   other_charges: ChargeEntry[];
 };
+type GuestInfo = { id: string; name: string; current_room?: string; phone?: string };
 
 function calcGrandTotal(subtotal: number, cfg: BillingConfig): number {
   const apply = (base: number, e: ChargeEntry) => e.type === 'percentage' ? base * e.value / 100 : e.value;
@@ -40,6 +43,8 @@ export default function BillingPage() {
     const [billingModalMode, setBillingModalMode] = useState<'review' | 'payment'>('review');
     const [confirmingTableId, setConfirmingTableId] = useState<string | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [guestInfoByCustomerId, setGuestInfoByCustomerId] = useState<Record<string, GuestInfo>>({});
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -65,6 +70,23 @@ export default function BillingPage() {
                 }
             });
             setOrders(ordersMap);
+
+            const customerIds = Array.from(new Set(ordersData?.map((order: any) => order.customer_id).filter(Boolean) ?? []));
+            if (customerIds.length > 0) {
+                const guestEntries = await Promise.all(customerIds.map(async (customerId) => {
+                    try {
+                        const response = await fetch(`/api/admin/front-desk/guest-pass?customer_id=${encodeURIComponent(customerId)}`);
+                        if (!response.ok) return null;
+                        const data = await response.json();
+                        return [customerId, data.customer] as const;
+                    } catch {
+                        return null;
+                    }
+                }));
+                setGuestInfoByCustomerId(Object.fromEntries(guestEntries.filter(Boolean) as Array<readonly [string, GuestInfo]>));
+            } else {
+                setGuestInfoByCustomerId({});
+            }
 
             // 3. Fetch the tables that have active orders
             const tableIds = Object.keys(ordersMap);
@@ -158,6 +180,50 @@ export default function BillingPage() {
         }
     };
 
+    const getOrderSearchText = (table: TableType) => {
+        const order = orders[table.id];
+        const guest = order?.customer_id ? guestInfoByCustomerId[order.customer_id] : null;
+        return [
+            table.table_number,
+            table.location,
+            table.status,
+            order?.id,
+            order?.bill_number,
+            order?.table_number,
+            order?.waiter_name,
+            order?.customer_mobile,
+            order?.customer_id,
+            guest?.name,
+            guest?.current_room,
+            guest?.phone,
+        ].filter(Boolean).join(' ').toLowerCase();
+    };
+
+    const filteredTables = tables.filter(table => {
+        const q = searchTerm.trim().toLowerCase();
+        return !q || getOrderSearchText(table).includes(q);
+    });
+
+    const handleScan = async (decodedText: string) => {
+        const code = decodedText.trim();
+        setSearchTerm(code);
+        try {
+            const response = await fetch(`/api/admin/front-desk/guest-pass?code=${encodeURIComponent(code)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            const customer = data.customer as GuestInfo | undefined;
+            if (!customer?.id) return;
+            setGuestInfoByCustomerId(current => ({ ...current, [customer.id]: customer }));
+            const matchingEntry = Object.entries(orders).find(([, order]) => order.customer_id === customer.id);
+            if (matchingEntry) {
+                setSearchTerm(customer.current_room || customer.name || code);
+                openBillingModal(matchingEntry[0], 'review');
+            }
+        } catch {
+            // Keep the raw scanned text in the search box if it is not a guest pass.
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -198,16 +264,47 @@ export default function BillingPage() {
                 </div>
             </div>
 
+            <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        value={searchTerm}
+                        onChange={event => setSearchTerm(event.target.value)}
+                        placeholder="Search table, room, bill number, waiter, guest name or mobile"
+                        className="pl-10"
+                    />
+                </div>
+                <BarcodeScanner
+                    title="Scan Guest QR"
+                    description="Scan a guest pass QR code to find their active restaurant bill."
+                    successTitle="QR Scanned"
+                    onScan={handleScan}
+                    trigger={(
+                        <Button type="button" variant="outline" className="w-full sm:w-auto">
+                            <ScanLine className="mr-2 h-4 w-4" />
+                            Scan QR
+                        </Button>
+                    )}
+                />
+            </div>
+
             {tables.length === 0 ? (
                 <div className="text-center py-20 bg-muted/30 rounded-lg border border-dashed">
                     <Coffee className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
                     <h3 className="text-xl font-semibold">No Active Tables</h3>
                     <p className="text-muted-foreground">There are no occupied tables or active bills at the moment.</p>
                 </div>
+            ) : filteredTables.length === 0 ? (
+                <div className="text-center py-16 bg-muted/30 rounded-lg border border-dashed">
+                    <Search className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-semibold">No Matching Bills</h3>
+                    <p className="text-muted-foreground">Try another room, table, bill number, name or QR code.</p>
+                </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {tables.map(table => {
+                    {filteredTables.map(table => {
                         const order = orders[table.id];
+                        const guest = order?.customer_id ? guestInfoByCustomerId[order.customer_id] : null;
                         return (
                             <Card key={table.id} className={`flex flex-col border-t-4 ${order?.status === 'billed' ? 'border-t-green-500' : order ? 'border-t-yellow-400' : 'border-t-orange-500'}`}>
                                 <CardHeader className="pb-2">
@@ -237,6 +334,12 @@ export default function BillingPage() {
                                                         <span>Waiter: {order.waiter_name}</span>
                                                     </div>
                                                 )}
+                                                {guest && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>{guest.name}{guest.current_room ? ` · ${guest.current_room}` : ''}</span>
+                                                    </div>
+                                                )}
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-xs font-mono uppercase bg-muted px-1 rounded">#{order.id.slice(0, 6)}</span>
                                                 </div>
@@ -259,6 +362,17 @@ export default function BillingPage() {
                                             {order.confirmed_total
                                                 ? `Confirmed: LKR ${order.confirmed_total.toFixed(2)}`
                                                 : 'Review & Confirm Bill'}
+                                        </Button>
+                                    )}
+                                    {order && (
+                                        <Button
+                                            className="w-full"
+                                            variant="outline"
+                                            onClick={() => openBillingModal(table.id, 'review')}
+                                            disabled={order.status === 'open'}
+                                        >
+                                            <Pencil className="mr-2 h-4 w-4" />
+                                            {order.status === 'open' ? 'Edit After Payment Request' : 'Edit Bill'}
                                         </Button>
                                     )}
                                     <Button

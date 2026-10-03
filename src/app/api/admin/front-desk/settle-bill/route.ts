@@ -9,6 +9,37 @@ const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
+function customerBillCurrency(nationality?: string | null): 'LKR' | 'USD' {
+    return nationality === 'Non Sri Lankan' ? 'USD' : 'LKR';
+}
+
+function allocationValue(allocation: Record<string, any> | null | undefined, camelKey: string, snakeKey: string) {
+    return allocation?.[camelKey] ?? allocation?.[snakeKey] ?? '';
+}
+
+function chaletExchangeRate(booking: any, rates: any[] = []) {
+    const allocation = Array.isArray(booking.room_allocations) ? booking.room_allocations[0] : null;
+    const packageId = booking.package_id || allocationValue(allocation, 'packageId', 'package_id') || '';
+    const categoryId = booking.room_category_id || allocationValue(allocation, 'roomCategoryId', 'room_category_id') || '';
+    const rate = rates.find(item =>
+        item.package_id === packageId &&
+        !item.occupancy_type_id &&
+        (item.room_category_id || '') === (categoryId || '')
+    ) || rates.find(item =>
+        item.package_id === packageId &&
+        !item.occupancy_type_id &&
+        !item.room_category_id
+    );
+    return Number(rate?.usd_to_lkr_rate || 0);
+}
+
+function chaletAmountInLkr(booking: any, amount: unknown, rates: any[] = []) {
+    const value = Number(amount || 0);
+    const currency = booking.currency || customerBillCurrency(booking.nationality);
+    const exchangeRate = chaletExchangeRate(booking, rates);
+    return currency === 'USD' && exchangeRate > 0 ? value * exchangeRate : value;
+}
+
 // Paying a bill and checking a guest out are separate steps: "pay" settles
 // every outstanding charge without ending the stay, and "checkout" (only
 // meaningful once nothing is outstanding) moves the stay to its final status.
@@ -64,17 +95,23 @@ export async function POST(request: Request) {
         }
 
         // Capture the complete bill before changing any live record statuses.
-        const [reservationsDue, chaletsDue, ordersDue, servicesDue] = await Promise.all([
+        const [reservationsDue, chaletsDue, chaletRates, ordersDue, servicesDue] = await Promise.all([
             supabase.from('reservations').select('*,room:rooms(title,room_number)').eq('customer_id', customer_id).in('status', ['checked-in', 'confirmed']),
             customer?.name
                 ? supabase.from('chalet_bookings').select('*,chalet_rooms(name,room_number),chalet_packages(name)').ilike('customer_name', customer.name.trim()).in('status', ['checked_in', 'confirmed'])
                 : Promise.resolve({ data: [], error: null } as any),
+            supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
             supabase.from('orders').select('*').eq('customer_id', customer_id).in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
             supabase.from('service_incomes').select('*').eq('customer_id', customer_id).eq('payment_status', 'add_to_bill'),
         ]);
         const snapshotItems = [
             ...(reservationsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Room', description: `Room: ${item.room?.title || item.room?.room_number || 'Room'}`, amount: Number(item.total_cost || 0), source_id: item.id })),
-            ...(chaletsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Chalet', description: `Chalet ${item.chalet_rooms?.room_number || ''}: ${item.chalet_packages?.name || item.chalet_rooms?.name || 'Stay'}`, amount: Number(item.grand_total || 0), source_id: item.id })),
+            ...(chaletsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => {
+                const currency = item.currency || customerBillCurrency(item.nationality);
+                const amount = chaletAmountInLkr(item, item.grand_total, chaletRates.data || []);
+                const suffix = currency === 'USD' ? ` (${currency} ${Number(item.grand_total || 0).toFixed(2)})` : '';
+                return { category: 'Chalet', description: `Chalet ${item.chalet_rooms?.room_number || ''}: ${item.chalet_packages?.name || item.chalet_rooms?.name || 'Stay'}${suffix}`, amount, source_id: item.id };
+            }),
             ...(ordersDue.data || []).map((item: any) => ({ category: 'Restaurant', description: `Restaurant Order #${item.id.slice(0, 8).toUpperCase()}`, amount: Number(item.confirmed_total ?? item.total_price ?? 0), source_id: item.id, breakdown: item.bill_breakdown || null })),
             ...(servicesDue.data || []).map((item: any) => ({ category: item.service_type, description: `${item.service_type}: ${item.description}`, amount: Number(item.amount || 0), source_id: item.id, line_items: item.line_items || [] })),
         ];

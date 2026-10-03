@@ -8,6 +8,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!,
 );
 
+function allocationValue(allocation: Record<string, any>, camelKey: string, snakeKey: string) {
+  return allocation?.[camelKey] ?? allocation?.[snakeKey] ?? null;
+}
+
+function bookingRoomIds(booking: any) {
+  if (Array.isArray(booking.room_ids) && booking.room_ids.length > 0) return booking.room_ids.filter(Boolean);
+  const allocationIds = Array.isArray(booking.room_allocations)
+    ? booking.room_allocations
+      .map((allocation: Record<string, any>) => allocationValue(allocation, 'roomId', 'room_id'))
+      .filter(Boolean)
+    : [];
+  return allocationIds.length ? allocationIds : booking.room_id ? [booking.room_id] : [];
+}
+
+async function bookingRoomLabel(booking: any) {
+  const roomIds = bookingRoomIds(booking);
+  if (roomIds.length === 0) return '';
+  const { data: rooms, error } = await supabase
+    .from('chalet_rooms')
+    .select('id, room_number')
+    .in('id', roomIds);
+  if (error) throw error;
+  const roomNumberById = new Map((rooms || []).map(room => [room.id, room.room_number]));
+  return roomIds.map((roomId: string) => roomNumberById.get(roomId)).filter(Boolean).join(', ');
+}
+
 export async function GET(request: Request) {
   try {
     const token = (await cookies()).get('auth_token')?.value;
@@ -37,7 +63,8 @@ export async function GET(request: Request) {
       stay = data;
       const result = await supabase.from('customers').select('*').ilike('name', stay.customer_name.trim()).limit(1).maybeSingle();
       customer = result.data;
-      stayItem = { description: `Chalet ${stay.chalet_rooms?.room_number || ''}: ${stay.chalet_packages?.name || stay.chalet_rooms?.name || 'Stay'}`, amount: Number(stay.grand_total || 0), category: 'Chalet' };
+      const roomNumbers = await bookingRoomLabel(stay);
+      stayItem = { description: `Chalet ${roomNumbers || stay.chalet_rooms?.room_number || ''}: ${stay.chalet_packages?.name || stay.chalet_rooms?.name || 'Stay'}`, amount: Number(stay.grand_total || 0), category: 'Chalet' };
     }
 
     const from = `${stay.check_in_date}T00:00:00`;

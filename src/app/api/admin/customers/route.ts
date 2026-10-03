@@ -11,6 +11,10 @@ const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
+function normalizeIdentity(value?: string | null) {
+    return (value || '').trim().replace(/\s+/g, '').toUpperCase();
+}
+
 export async function GET(request: Request) {
     try {
         const token = (await cookies()).get('auth_token')?.value;
@@ -41,6 +45,7 @@ export async function GET(request: Request) {
         if (id && data && data.length > 0) {
             const customer = data[0];
             let currentRoom: string | null = null;
+            const identity = normalizeIdentity(customer.id_number);
 
             const { data: reservation } = await supabase
                 .from('reservations')
@@ -52,11 +57,11 @@ export async function GET(request: Request) {
             const reservationRoom = (reservation as any)?.room?.room_number;
             if (reservationRoom) currentRoom = reservationRoom;
 
-            if (!currentRoom && customer.name) {
+            if (!currentRoom && (identity || customer.name)) {
                 const { data: chaletBooking } = await supabase
                     .from('chalet_bookings')
                     .select('chalet_rooms(room_number)')
-                    .ilike('customer_name', customer.name.trim())
+                    .or(identity ? `customer_nic.eq.${identity}` : `customer_name.ilike.${customer.name.trim()}`)
                     .eq('status', 'checked_in')
                     .limit(1)
                     .maybeSingle();
@@ -64,7 +69,58 @@ export async function GET(request: Request) {
                 if (chaletRoomNumber) currentRoom = `Chalet ${chaletRoomNumber}`;
             }
 
-            return NextResponse.json({ customers: [{ ...customer, current_room: currentRoom }] });
+            const [reservationsRes, chaletBookingsRes] = await Promise.all([
+                supabase
+                    .from('reservations')
+                    .select('id, room_title, guest_name, guest_email, guest_phone, id_card_number, check_in_date, check_out_date, number_of_guests, total_cost, status, special_requests, created_at')
+                    .or(`customer_id.eq.${id},id_card_number.eq.${identity || '__none__'},guest_email.eq.${customer.email || '__none__'}`)
+                    .order('created_at', { ascending: false }),
+                supabase
+                    .from('chalet_bookings')
+                    .select(`
+                        id,
+                        customer_name,
+                        customer_email,
+                        customer_phone,
+                        customer_nic,
+                        nationality,
+                        check_in_date,
+                        check_out_date,
+                        adults,
+                        children,
+                        room_allocations,
+                        room_ids,
+                        rate_per_night,
+                        currency,
+                        coupon_code,
+                        coupon_discount_amount,
+                        bill_grand_total,
+                        total_amount,
+                        payment_status,
+                        status,
+                        special_requests,
+                        created_at,
+                        chalet_packages ( name ),
+                        chalet_room_categories ( name ),
+                        chalet_rooms ( name, room_number )
+                    `)
+                    .or(identity ? `customer_nic.eq.${identity}` : `customer_email.eq.${customer.email || '__none__'},customer_name.ilike.${customer.name.trim()}`)
+                    .order('created_at', { ascending: false }),
+            ]);
+
+            if (reservationsRes.error) throw reservationsRes.error;
+            if (chaletBookingsRes.error) throw chaletBookingsRes.error;
+
+            return NextResponse.json({
+                customers: [{
+                    ...customer,
+                    current_room: currentRoom,
+                    history: {
+                        reservations: reservationsRes.data || [],
+                        chalet_bookings: chaletBookingsRes.data || [],
+                    },
+                }],
+            });
         }
 
         return NextResponse.json({ customers: data });
@@ -81,6 +137,7 @@ export async function PUT(request: Request) {
 
         const body = await request.json();
         const { id, name, phone, email, id_number, address } = body;
+        const normalizedIdNumber = normalizeIdentity(id_number);
 
         if (!id || !name) {
             return NextResponse.json({ error: 'ID and Name are required' }, { status: 400 });
@@ -92,7 +149,7 @@ export async function PUT(request: Request) {
                 name, 
                 phone, 
                 email, 
-                id_number,
+                id_number: normalizedIdNumber || null,
                 address,
                 updated_at: new Date().toISOString() 
             })

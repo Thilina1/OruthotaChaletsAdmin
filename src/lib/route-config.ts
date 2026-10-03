@@ -123,6 +123,8 @@ export const eventManagementMenuItems: MenuItem[] = [
 
 export const chaletMenuItems: MenuItem[] = [
     { href: '/dashboard/chalet/bookings', icon: BedDouble, label: 'Chalet Bookings', roles: ['admin'] },
+    { href: '/dashboard/chalet/calendar', icon: CalendarDays, label: 'Booking Calendar', roles: ['admin'] },
+    { href: '/dashboard/chalet/coupons', icon: ReceiptText, label: 'Coupons', roles: ['admin'] },
     { href: '/dashboard/chalet/rooms', icon: BedDouble, label: 'Chalet Rooms', roles: ['admin'] },
     { href: '/dashboard/chalet/rates', icon: BedDouble, label: 'Room Rates & Packages', roles: ['admin'] },
 ];

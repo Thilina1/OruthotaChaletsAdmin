@@ -73,6 +73,8 @@ export const APP_SECTION_GROUPS = [
     name: 'Chalet Booking',
     sections: [
       { path: '/dashboard/chalet/bookings', label: 'Chalet Bookings' },
+      { path: '/dashboard/chalet/calendar', label: 'Booking Calendar' },
+      { path: '/dashboard/chalet/coupons', label: 'Coupons' },
       { path: '/dashboard/chalet/rooms', label: 'Chalet Rooms' },
       { path: '/dashboard/chalet/rates', label: 'Room Rates & Packages' },
     ],
