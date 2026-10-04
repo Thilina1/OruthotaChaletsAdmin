@@ -23,7 +23,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import type { ChaletBooking, ChaletBookingStatus, ChaletPackage, ChaletRoom, ChaletRoomCategory } from '@/lib/types';
+import type { ChaletBooking, ChaletBookingStatus, ChaletPackage, ChaletRate, ChaletRoom, ChaletRoomCategory } from '@/lib/types';
+import { parseRoomTextDetails } from '@/lib/chalet-room-details';
+import { chaletTotalLkr } from '@/lib/chalet-billing';
 
 const statusColors: Record<ChaletBookingStatus, string> = {
     pending: 'bg-orange-100 text-orange-800 border-orange-200',
@@ -53,8 +55,10 @@ function bookingRoomIds(booking: ChaletBooking) {
     return booking.room_ids?.length ? booking.room_ids : booking.room_id ? [booking.room_id] : [];
 }
 
-function bookingTotal(booking: ChaletBooking) {
-    return Number(booking.bill_grand_total ?? booking.grand_total ?? 0);
+// Full bill in LKR from the prices locked on the booking (same as Bookings
+// and Front Desk). The database's grand_total columns are not used.
+function bookingTotal(booking: ChaletBooking, rates: ChaletRate[]) {
+    return chaletTotalLkr(booking, rates);
 }
 
 function bookingOverlapsDate(booking: ChaletBooking, date: Date) {
@@ -63,32 +67,13 @@ function bookingOverlapsDate(booking: ChaletBooking, date: Date) {
     return isWithinInterval(date, { start: checkIn, end: checkOut }) && !isSameDay(date, checkOut);
 }
 
-function parseRoomTextDetails(text?: string | null) {
-    if (!text) return [];
-    const roomChunks = text.match(/Room\s+\d+:[\s\S]*?(?=Room\s+\d+:|$)/gi) || [];
-    return roomChunks.map(chunk => {
-        const headerMatch = chunk.match(/Room\s+(\d+):\s*([\s\S]*?)(?=\s+Bedding:|\s+Adults:|\s+Children:|$)/i);
-        const [roomType, packageName] = (headerMatch?.[2] || '').split('/').map(value => value.trim());
-        return {
-            roomNumber: headerMatch?.[1] || '',
-            roomType: roomType || '',
-            packageName: packageName || '',
-            bedding: chunk.match(/Bedding:\s*([\s\S]*?)(?=\s+Adults:|\s+Children:|\s+Child ages:|\s+Estimated arrival time:|\s+Use these guest details|$)/i)?.[1]?.trim() || '',
-            adults: chunk.match(/Adults:\s*(\d+)/i)?.[1] || '',
-            children: chunk.match(/Children:\s*(\d+)/i)?.[1] || '',
-            childAges: chunk.match(/Child ages:\s*([\s\S]*?)(?=\s+Estimated arrival time:|\s+Use these guest details|$)/i)?.[1]?.trim() || '',
-            arrivalTime: chunk.match(/Estimated arrival time:\s*([\s\S]*?)(?=\s+Use these guest details|$)/i)?.[1]?.trim() || '',
-            useForAllRooms: /Use these guest details for all rooms/i.test(chunk),
-        };
-    });
-}
-
 export default function ChaletBookingCalendarPage() {
     const { toast } = useToast();
     const [bookings, setBookings] = useState<ChaletBooking[]>([]);
     const [rooms, setRooms] = useState<ChaletRoom[]>([]);
     const [packages, setPackages] = useState<ChaletPackage[]>([]);
     const [roomCategories, setRoomCategories] = useState<ChaletRoomCategory[]>([]);
+    const [rates, setRates] = useState<ChaletRate[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentMonth, setCurrentMonth] = useState(() => new Date());
     const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -117,6 +102,11 @@ export default function ChaletBookingCalendarPage() {
             setRooms(roomsData.rooms || []);
             setPackages(packagesData.packages || []);
             setRoomCategories(categoriesData.categories || []);
+            // Rates are only a fallback for bookings without a locked exchange rate.
+            fetch('/api/chalet/rates')
+                .then(response => response.json())
+                .then(data => setRates(data.rates || []))
+                .catch(() => setRates([]));
         } catch (error: any) {
             toast({ title: 'Error', description: error.message || 'Failed to load calendar data', variant: 'destructive' });
         } finally {
@@ -150,7 +140,7 @@ export default function ChaletBookingCalendarPage() {
     const selectedBookings = bookingsForDate(selectedDate);
     const selectedRoomCount = selectedBookings.reduce((total, booking) => total + Math.max(1, bookingRoomIds(booking).length), 0);
     const selectedGuestCount = selectedBookings.reduce((total, booking) => total + Number(booking.guest_count || booking.adults + booking.children || 0), 0);
-    const selectedTotal = selectedBookings.reduce((total, booking) => total + bookingTotal(booking), 0);
+    const selectedTotal = selectedBookings.reduce((total, booking) => total + bookingTotal(booking, rates), 0);
     const roomMap = useMemo(() => new Map(rooms.map(room => [room.id, room])), [rooms]);
     const packageMap = useMemo(() => new Map(packages.map(pkg => [pkg.id, pkg])), [packages]);
     const categoryMap = useMemo(() => new Map(roomCategories.map(category => [category.id, category])), [roomCategories]);
@@ -361,7 +351,7 @@ export default function ChaletBookingCalendarPage() {
                                         </div>
                                         <div>
                                             <p className="text-xs text-muted-foreground">Total</p>
-                                            <p>LKR {formatCurrency(bookingTotal(booking))}</p>
+                                            <p>LKR {formatCurrency(bookingTotal(booking, rates))}</p>
                                         </div>
                                     </div>
 

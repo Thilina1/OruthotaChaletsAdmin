@@ -29,15 +29,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Printer, CheckCircle2, Search, ScanLine, ChefHat, Plus, Minus, Trash2 } from 'lucide-react';
+import { Printer, CheckCircle2, Search, ScanLine, ChefHat, Plus, Minus, Trash2, MoreHorizontal, Eye } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
 import type { Reservation, ConsolidatedBill, ChaletBooking, ChaletPackage, ChaletRate, ChaletRoom, ChaletRoomCategory, Customer } from '@/lib/types';
+import { chaletBillLinesForDisplay, chaletPaidLkr, chaletTotalLkr } from '@/lib/chalet-billing';
+import { GuestInvoice, type GuestInvoiceProps, type InvoiceLine, type InvoicePayment } from '@/components/dashboard/front-desk/guest-invoice';
 
 type ChaletCheckInPass = {
   booking_ref: string;
   guest_name: string;
   email: string | null;
+  email_recipients?: string[];
   room_number: string;
   qr_code: string;
   email_sent: boolean;
@@ -47,6 +51,7 @@ type ChaletCheckInPass = {
 type AdditionalGuestForm = {
   id: string;
   name: string;
+  email: string;
   id_number: string;
   address: string;
 };
@@ -96,6 +101,13 @@ export default function FrontDeskPage() {
   const [viewGuestRow, setViewGuestRow] = useState<ArrivalRow | null>(null);
   const [isGuestDetailOpen, setIsGuestDetailOpen] = useState(false);
   const [viewGuestCustomer, setViewGuestCustomer] = useState<any | null>(null);
+  // Every payment related to the viewed stay (LKR), from guest-payments API.
+  const [viewGuestPayments, setViewGuestPayments] = useState<{
+    payments: { id: string; paid_at: string | null; source: string; reference: string | null; payment_method: string | null; amount: number; account_name: string | null; recorded_by: string | null; note: string | null }[];
+    total: number;
+    balance?: { stay: number; restaurant: number; services: number; total: number };
+  } | null>(null);
+  const [isLoadingGuestPayments, setIsLoadingGuestPayments] = useState(false);
   const [isLoadingGuestDetail, setIsLoadingGuestDetail] = useState(false);
 
   const [customerName, setCustomerName] = useState('');
@@ -115,10 +127,12 @@ export default function FrontDeskPage() {
   const [selectedCustomerForBill, setSelectedCustomerForBill] = useState<any | null>(null);
   const [billData, setBillData] = useState<ConsolidatedBill | null>(null);
   const [isLoadingBill, setIsLoadingBill] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online'>('cash');
   const [isSettling, setIsSettling] = useState(false);
   const [isCheckingOutBill, setIsCheckingOutBill] = useState(false);
   const [cashReceived, setCashReceived] = useState('');
+  // Payment just taken for the open bill, printed on the receipt.
+  const [lastSettlement, setLastSettlement] = useState<{ billNumber: string | null; method: string; amount: number; cashReceived: number | null; paidAt: string } | null>(null);
 
   // Add Other Charge to bill
   const [otherChargeDesc, setOtherChargeDesc] = useState('');
@@ -257,7 +271,7 @@ export default function FrontDeskPage() {
   const addAdditionalGuest = () => {
     setAdditionalGuests(current => [
       ...current,
-      { id: crypto.randomUUID(), name: '', id_number: '', address: '' },
+      { id: crypto.randomUUID(), name: '', email: '', id_number: '', address: '' },
     ]);
   };
 
@@ -272,12 +286,13 @@ export default function FrontDeskPage() {
   };
 
   const getFilledAdditionalGuests = () => additionalGuests
-    .map(({ name, id_number, address }) => ({
+    .map(({ name, email, id_number, address }) => ({
       name: name.trim(),
+      email: email.trim(),
       id_number: id_number.trim(),
       address: address.trim(),
     }))
-    .filter(guest => guest.name || guest.id_number || guest.address);
+    .filter(guest => guest.name || guest.email || guest.id_number || guest.address);
 
   const handleOpenCheckIn = (res: Reservation) => {
     const reservationDetails = res as Reservation & {
@@ -315,6 +330,15 @@ export default function FrontDeskPage() {
     resetAdditionalGuests();
     setShowCheckInBillPreview(false);
     setIsCheckInModalOpen(true);
+    // The list may have been loaded before the latest payment; reload this
+    // booking so the bill preview shows its current paid amount.
+    fetch(`/api/chalet/bookings?id=${encodeURIComponent(booking.id)}`, { cache: 'no-store' })
+      .then(response => response.json())
+      .then(data => {
+        const fresh: ChaletBooking | undefined = data.bookings?.[0];
+        if (fresh) setSelectedChaletBooking(current => current?.id === fresh.id ? fresh : current);
+      })
+      .catch(() => {});
   };
 
   const handleCheckInSubmit = async (e: React.FormEvent) => {
@@ -343,7 +367,7 @@ export default function FrontDeskPage() {
         toast({
           title: 'Checked In',
           description: result.email?.sent
-            ? `${customerName} was checked in and the confirmation email was sent.`
+            ? `${customerName} was checked in and QR email was sent to ${result.email.sent_count || 1} recipient${(result.email.sent_count || 1) === 1 ? '' : 's'}.`
             : `${customerName} was checked in. ${result.email?.reason || 'Email was not sent.'}`
         });
       } else if (selectedReservation) {
@@ -381,6 +405,7 @@ export default function FrontDeskPage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setBillData(data.bill);
+      setLastSettlement(null);
     } catch (error: any) {
       toast({ variant: 'destructive', title: "Error", description: error.message });
     } finally {
@@ -783,6 +808,13 @@ export default function FrontDeskPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to settle bill');
+      setLastSettlement({
+        billNumber: data.bill_number || null,
+        method: paymentMethod,
+        amount: billData.totalOutstanding,
+        cashReceived: paymentMethod === 'cash' ? (parseFloat(cashReceived) || null) : null,
+        paidAt: data.paid_at || new Date().toISOString(),
+      });
 
       toast({ title: "Bill Paid", description: "All outstanding balances have been marked as paid. You can now check out the guest." });
       setCashReceived('');
@@ -875,10 +907,27 @@ export default function FrontDeskPage() {
     if (qrImage.complete) printWhenReady();
   };
 
+  const loadGuestPayments = async (row: ArrivalRow) => {
+    setViewGuestPayments(null);
+    setIsLoadingGuestPayments(true);
+    try {
+      const res = await fetch(`/api/admin/front-desk/guest-payments?type=${row.type}&record_id=${encodeURIComponent(row.item.id)}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setViewGuestPayments(data);
+    } catch (error) {
+      console.error(error);
+      setViewGuestPayments({ payments: [], total: 0 });
+    } finally {
+      setIsLoadingGuestPayments(false);
+    }
+  };
+
   const handleViewGuest = async (row: ArrivalRow) => {
     setViewGuestRow(row);
     setViewGuestCustomer(null);
     setIsGuestDetailOpen(true);
+    void loadGuestPayments(row);
 
     if (row.type === 'reservation' && row.item.customer_id) {
       setIsLoadingGuestDetail(true);
@@ -997,6 +1046,66 @@ export default function FrontDeskPage() {
     );
   };
 
+  // In-House table: rooms grouped by room type + package, one line each,
+  // e.g. "Chalet 01, Chalet 02" / "Superior Duplex King · Room Only · 2 adults".
+  const renderChaletRoomsCompact = (booking: ChaletBooking) => {
+    const groups = new Map<string, { rooms: string[]; detail: string; guests: number }>();
+    getBookingRoomSlots(booking).forEach(slot => {
+      const key = `${slot.categoryId}|${slot.packageId}`;
+      const group = groups.get(key) || { rooms: [], detail: `${getSlotCategoryName(slot, booking)} · ${getSlotPackageName(slot, booking)}`, guests: 0 };
+      group.rooms.push(slot.room ? `Chalet ${slot.room.room_number}` : slot.roomId ? getChaletRoomShortLabel(slot.roomId) : 'Unassigned');
+      group.guests += Number(slot.adults || 0) + Number(slot.children || 0);
+      groups.set(key, group);
+    });
+    return (
+      <div className="space-y-1.5">
+        {Array.from(groups.values()).map(group => (
+          <div key={group.detail} className="leading-tight">
+            <div className="font-medium">{group.rooms.join(', ')}</div>
+            <div className="text-xs text-muted-foreground">{group.detail} · {group.guests} guest{group.guests === 1 ? '' : 's'}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const formatStayDate = (value: string) => new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+
+  const renderStay = (checkIn: string, checkOut: string, checkInTime?: string | null) => {
+    const nights = Math.max(0, Math.round((new Date(checkOut.slice(0, 10)).getTime() - new Date(checkIn.slice(0, 10)).getTime()) / 86400000));
+    return (
+      <div className="whitespace-nowrap leading-tight">
+        <div className="font-medium">{formatStayDate(checkIn)} → {formatStayDate(checkOut)}</div>
+        <div className="text-xs text-muted-foreground">
+          {nights} night{nights === 1 ? '' : 's'}
+          {checkInTime ? ` · in ${new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+        </div>
+      </div>
+    );
+  };
+
+  // Total with what is paid and still owed, in the booking currency.
+  const renderChaletBillStatus = (booking: ChaletBooking) => {
+    const total = getChaletBillTotal(booking);
+    const exchangeRate = getChaletExchangeRate(booking);
+    const paidLkr = chaletPaidLkr(booking, chaletRates);
+    const paid = getChaletBillCurrency(booking) === 'USD' && exchangeRate > 0 ? paidLkr / exchangeRate : paidLkr;
+    const balance = booking.payment_status === 'paid' ? 0 : Math.max(0, total - paid);
+    return (
+      <div className="space-y-0.5 text-right leading-tight">
+        <div className="font-semibold">{renderChaletMoney(booking, total)}</div>
+        {balance <= 0.009 ? (
+          <Badge className="bg-green-100 text-green-800 border-green-200">Paid in full</Badge>
+        ) : (
+          <>
+            {paid > 0 && <div className="text-xs text-green-700">Paid {formatMoney(paid, getChaletBillCurrency(booking))}</div>}
+            <div className="text-xs font-medium text-amber-700">Due {formatMoney(balance, getChaletBillCurrency(booking))}</div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   const getChaletAllocationPrintLines = (booking: ChaletBooking) => getBookingRoomSlots(booking)
     .filter(slot => slot.roomId)
     .map(slot => {
@@ -1099,10 +1208,6 @@ export default function FrontDeskPage() {
     nationality === 'Non Sri Lankan' ? 'USD' : 'LKR'
   );
 
-  const chargeApplies = (chargeCurrency: 'LKR' | 'USD' | 'both' | undefined, billCurrency: 'LKR' | 'USD') => (
-    (chargeCurrency || 'both') === 'both' || chargeCurrency === billCurrency
-  );
-
   const appliesLabel = (chargeCurrency: 'LKR' | 'USD' | 'both' | undefined) => (
     (chargeCurrency || 'both') === 'both' ? 'Both' : chargeCurrency
   );
@@ -1137,13 +1242,11 @@ export default function FrontDeskPage() {
     booking.currency || customerBillCurrency(booking.nationality)
   );
 
-  const getChaletExchangeRate = (booking: ChaletBooking) => Number(findChaletRate(booking)?.usd_to_lkr_rate || 0);
-
-  const getChaletAmountInLkr = (booking: ChaletBooking, amount: number) => {
-    const currency = getChaletBillCurrency(booking);
-    const exchangeRate = getChaletExchangeRate(booking);
-    return currency === 'USD' && exchangeRate > 0 ? amount * exchangeRate : amount;
-  };
+  // The rate locked on the booking when it was made, else the current rate.
+  const getChaletExchangeRate = (booking: ChaletBooking) => (
+    Number((booking as ChaletBooking & { usd_to_lkr_rate?: number | null }).usd_to_lkr_rate || 0) ||
+    Number(findChaletRate(booking)?.usd_to_lkr_rate || 0)
+  );
 
   const renderChaletMoney = (booking: ChaletBooking, amount: number, className = '') => {
     const currency = getChaletBillCurrency(booking);
@@ -1159,6 +1262,266 @@ export default function FrontDeskPage() {
         <span className="block text-xs text-muted-foreground">{formatMoney(lkrAmount, 'LKR')}</span>
       </span>
     );
+  };
+
+  // The chalet bill in the booking's own currency: the booking form's saved
+  // LKR total when present, otherwise calculated from the booking's prices and
+  // charge settings (coupon, service charge, VAT, SSCL). The database's
+  // grand_total only adds the service charge, so it is not used.
+  const getChaletBillLines = (booking: ChaletBooking) => chaletBillLinesForDisplay(booking, chaletRates);
+  const getChaletBillTotal = (booking: ChaletBooking) => getChaletBillLines(booking).total;
+
+  // Amounts from the bill API are already in LKR; USD bookings also show USD.
+  const renderChaletLkrMoney = (booking: ChaletBooking, amountLkr: number, className = '') => {
+    const exchangeRate = getChaletExchangeRate(booking);
+    if (getChaletBillCurrency(booking) !== 'USD' || exchangeRate <= 0) {
+      return <span className={className}>{formatMoney(amountLkr, 'LKR')}</span>;
+    }
+    return (
+      <span className={className}>
+        <span className="block">{formatMoney(amountLkr / exchangeRate, 'USD')}</span>
+        <span className="block text-xs text-muted-foreground">{formatMoney(amountLkr, 'LKR')}</span>
+      </span>
+    );
+  };
+
+  const chaletBillAmounts = (booking: ChaletBooking) => {
+    const values = booking as ChaletBooking & { bill_total_lkr_resolved?: number; paid_lkr?: number; outstanding_lkr?: number };
+    return {
+      total: Number(values.bill_total_lkr_resolved ?? chaletTotalLkr(booking, chaletRates)),
+      paid: Number(values.paid_lkr || 0),
+      outstanding: Number(values.outstanding_lkr ?? 0),
+    };
+  };
+
+  type ChaletBillDetails = {
+    bill_breakdown?: {
+      nights: number;
+      rate_per_night: number;
+      subtotal: number;
+      coupon_code: string | null;
+      coupon_discount: number;
+      charges: { label: string; pct: number; amount: number }[];
+      total: number;
+    } | null;
+    payments?: { id: string; paid_at: string | null; payment_method: string | null; amount: number; account_name: string | null; label: string }[];
+  };
+
+  const chaletBillDetails = (booking: ChaletBooking) => booking as ChaletBooking & ChaletBillDetails;
+
+  const paymentMethodLabel = (method: string | null) => (
+    method ? method.replace('_', ' ').replace(/^\w/, letter => letter.toUpperCase()) : 'Payment'
+  );
+
+  // Full chalet bill (charges per the booking's settings) and every payment
+  // already made on it, so the front desk sees how the balance was reached.
+  const renderChaletBillDetails = (booking: ChaletBooking) => {
+    const { bill_breakdown: breakdown, payments = [] } = chaletBillDetails(booking);
+    return (
+      <div className="mt-2 space-y-2 text-xs">
+        {breakdown ? (
+          <div className="space-y-0.5 rounded-md bg-muted/40 p-2">
+            <div className="flex justify-between gap-4 text-muted-foreground">
+              <span>Rooms {renderChaletLkrMoney(booking, breakdown.rate_per_night)} / night × {breakdown.nights} night{breakdown.nights !== 1 ? 's' : ''}</span>
+              {renderChaletLkrMoney(booking, breakdown.subtotal, 'text-right')}
+            </div>
+            {breakdown.coupon_discount > 0 && (
+              <div className="flex justify-between gap-4 text-muted-foreground">
+                <span>Coupon{breakdown.coupon_code ? ` (${breakdown.coupon_code})` : ''}</span>
+                <span className="text-right">-{renderChaletLkrMoney(booking, breakdown.coupon_discount)}</span>
+              </div>
+            )}
+            {breakdown.charges.map(charge => (
+              <div key={charge.label} className="flex justify-between gap-4 text-muted-foreground">
+                <span>{charge.label} ({charge.pct}%)</span>
+                {renderChaletLkrMoney(booking, charge.amount, 'text-right')}
+              </div>
+            ))}
+            <div className="flex justify-between gap-4 border-t pt-1 font-semibold">
+              <span>Chalet Bill Total</span>
+              {renderChaletLkrMoney(booking, breakdown.total, 'text-right')}
+            </div>
+          </div>
+        ) : (
+          <div className="text-muted-foreground">
+            Package price: {renderChaletMoney(booking, Number(booking.rate_per_night || 0))} / night × {booking.nights} night{booking.nights !== 1 ? 's' : ''} + {booking.service_charge_pct}% service charge
+          </div>
+        )}
+        {payments.length > 0 && (
+          <div className="space-y-0.5 rounded-md border border-green-200 bg-green-50 p-2 text-green-800">
+            <div className="font-semibold">Payments received</div>
+            {payments.map(payment => (
+              <div key={payment.id} className="flex justify-between gap-4">
+                <span>
+                  {payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : payment.label} · {paymentMethodLabel(payment.payment_method)}
+                  {payment.account_name ? ` → ${payment.account_name}` : payment.payment_method === 'cash' ? ' → Front Desk cash' : ''}
+                </span>
+                {renderChaletLkrMoney(booking, payment.amount, 'text-right')}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Printed guest documents (A4) ─────────────────────────────────────────
+  const invoiceDate = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+  // Guest folio for the open bill, or the receipt once it has been settled.
+  const buildFolioInvoice = (): GuestInvoiceProps | null => {
+    if (!billData) return null;
+    const lines: InvoiceLine[] = [];
+    const payments: InvoicePayment[] = [];
+    let hasUsdChalet = false;
+
+    billData.reservations.forEach(res => {
+      const title = res.room?.title || 'Room';
+      lines.push({
+        category: 'Accommodation',
+        description: `Room — ${title}`,
+        detail: `${invoiceDate(res.check_in_date)} – ${invoiceDate(res.check_out_date)}`,
+        amount: Number(res.total_cost || 0),
+      });
+      if (res.payment_status === 'paid') payments.push({ label: `Room ${title}`, amount: Number(res.total_cost || 0) });
+    });
+
+    billData.chaletBookings.forEach(cb => {
+      const amounts = chaletBillAmounts(cb);
+      const { bill_breakdown: breakdown, payments: chaletPayments = [] } = chaletBillDetails(cb);
+      const exchangeRate = getChaletExchangeRate(cb);
+      const isUsd = getChaletBillCurrency(cb) === 'USD' && exchangeRate > 0;
+      if (isUsd) hasUsdChalet = true;
+      lines.push({
+        category: 'Accommodation',
+        description: `Chalet — ${getChaletAllocationPrintLines(cb).join('; ') || getChaletBookingRoomShortText(cb) || 'Chalet stay'}`,
+        detail: [
+          cb.booking_ref,
+          `${invoiceDate(cb.check_in_date)} – ${invoiceDate(cb.check_out_date)}`,
+          isUsd ? `USD ${(amounts.total / exchangeRate).toFixed(2)} at 1 USD = LKR ${exchangeRate.toFixed(2)}` : '',
+        ].filter(Boolean).join(' · '),
+        subLines: breakdown ? [
+          { label: `Room rate × ${breakdown.nights} night${breakdown.nights === 1 ? '' : 's'}`, amount: breakdown.subtotal },
+          ...(breakdown.coupon_discount > 0 ? [{ label: `Coupon${breakdown.coupon_code ? ` (${breakdown.coupon_code})` : ''}`, amount: -breakdown.coupon_discount }] : []),
+          ...breakdown.charges.map(charge => ({ label: `${charge.label} (${charge.pct}%)`, amount: charge.amount })),
+        ] : undefined,
+        amount: amounts.total,
+      });
+      chaletPayments.forEach(payment => payments.push({
+        date: payment.paid_at,
+        label: `${cb.booking_ref} ${payment.label === 'Booking payment' ? 'deposit' : payment.label.toLowerCase()}`,
+        method: payment.payment_method,
+        amount: payment.amount,
+      }));
+    });
+
+    billData.orders.forEach(ord => {
+      const breakdown = (ord as any).bill_breakdown as Record<string, number> | null | undefined;
+      const subLines = breakdown ? [
+        { label: 'Food & beverage', amount: Number(breakdown.subtotal || 0) },
+        ...(Number(breakdown.discount_total || 0) > 0 ? [{ label: 'Discount', amount: -Number(breakdown.discount_total) }] : []),
+        ...(Number(breakdown.service_charge_total || 0) > 0 ? [{ label: 'Service charge', amount: Number(breakdown.service_charge_total) }] : []),
+        ...(Number(breakdown.other_charge_total || 0) > 0 ? [{ label: 'Other charges', amount: Number(breakdown.other_charge_total) }] : []),
+        ...(Number(breakdown.vat_amount || 0) > 0 ? [{ label: `VAT${breakdown.vat_rate ? ` (${breakdown.vat_rate}%)` : ''}`, amount: Number(breakdown.vat_amount) }] : []),
+      ] : undefined;
+      lines.push({
+        category: 'Restaurant',
+        description: `Restaurant bill ${(ord as any).bill_number || `#${ord.id.substring(0, 8).toUpperCase()}`}`,
+        detail: invoiceDate(ord.created_at),
+        subLines,
+        amount: Number(ord.confirmed_total ?? ord.total_price ?? 0),
+      });
+    });
+
+    billData.serviceIncomes.forEach(svc => {
+      lines.push({
+        category: 'Services',
+        description: `${svc.service_type}: ${svc.description}`,
+        detail: invoiceDate((svc as any).date),
+        subLines: svc.line_items?.length ? svc.line_items.map(item => ({ label: item.description, amount: Number(item.amount || 0) })) : undefined,
+        amount: Number(svc.amount || 0),
+      });
+    });
+
+    const totalCharges = lines.reduce((sum, line) => sum + line.amount, 0);
+    const settled = billData.totalOutstanding <= 0.009 && lastSettlement ? lastSettlement : null;
+    const amountDueBefore = settled ? settled.amount : billData.totalOutstanding;
+    // Anything paid that isn't listed (older payments, adjustments).
+    const paidBefore = Math.max(0, totalCharges - amountDueBefore);
+    const listed = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    if (paidBefore - listed > 0.01) payments.push({ label: 'Other payments / adjustments', amount: paidBefore - listed });
+
+    const stayDates = [
+      ...billData.reservations.map(res => [res.check_in_date, res.check_out_date]),
+      ...billData.chaletBookings.map(cb => [cb.check_in_date, cb.check_out_date]),
+    ].filter(([checkIn, checkOut]) => checkIn && checkOut);
+    const rooms = [
+      ...billData.reservations.map(res => res.room?.title).filter(Boolean),
+      ...billData.chaletBookings.map(cb => getChaletBookingRoomShortText(cb)).filter(Boolean),
+    ].join(', ');
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+    return {
+      title: billData.totalOutstanding > 0.009 ? 'Guest Folio' : 'Receipt',
+      status: billData.totalOutstanding > 0.009 ? 'BALANCE DUE' : 'PAID',
+      documentNumber: settled?.billNumber || `FOLIO-${today}-${billData.customer.id.slice(0, 6).toUpperCase()}`,
+      issuedAt: settled?.paidAt || new Date().toISOString(),
+      guest: {
+        name: billData.customer.name,
+        phone: billData.customer.phone,
+        email: billData.customer.email,
+        idNumber: (billData.customer as any).id_number,
+        address: billData.customer.address,
+      },
+      stay: stayDates.length ? {
+        checkIn: stayDates.map(([checkIn]) => checkIn).sort()[0],
+        checkOut: stayDates.map(([, checkOut]) => checkOut).sort().slice(-1)[0],
+        rooms,
+      } : { rooms },
+      lines,
+      payments,
+      totalCharges,
+      settlement: settled ? {
+        method: settled.method,
+        amount: settled.amount,
+        cashReceived: settled.cashReceived,
+        change: settled.cashReceived != null ? Math.max(0, settled.cashReceived - settled.amount) : null,
+      } : null,
+      balanceDue: billData.totalOutstanding,
+      notes: hasUsdChalet ? ['USD chalet charges are shown in LKR at the exchange rate locked on the booking.'] : [],
+    };
+  };
+
+  // Receipt for a past (settled) bill.
+  const buildHistoryInvoice = (): GuestInvoiceProps | null => {
+    if (!historyBill) return null;
+    const categoryOf = (category?: string) => category === 'Room' || category === 'Chalet' ? 'Accommodation' : category === 'Restaurant' ? 'Restaurant' : 'Services';
+    const lines: InvoiceLine[] = (historyBill.items || []).map((item: any) => ({
+      category: categoryOf(item.category),
+      description: item.description,
+      subLines: item.line_items?.length ? item.line_items.map((line: any) => ({ label: line.description, amount: Number(line.amount || 0) })) : undefined,
+      amount: Number(item.amount || 0),
+    }));
+    const total = Number(historyBill.total || 0);
+    return {
+      title: 'Receipt',
+      status: 'PAID',
+      documentNumber: historyBill.number,
+      issuedAt: historyBill.paid_at || historyBill.check_out_date || new Date().toISOString(),
+      guest: {
+        name: historyBill.customer?.name || 'Guest',
+        phone: historyBill.customer?.phone,
+        email: historyBill.customer?.email,
+        idNumber: historyBill.customer?.id_number,
+        address: historyBill.customer?.address,
+      },
+      stay: { checkIn: historyBill.check_in_date, checkOut: historyBill.check_out_date },
+      lines,
+      payments: [],
+      totalCharges: lines.reduce((sum, line) => sum + line.amount, 0),
+      settlement: { method: historyBill.payment_method || 'payment', amount: total },
+      balanceDue: 0,
+    };
   };
 
   const getCheckInBillPreview = () => {
@@ -1188,21 +1551,13 @@ export default function FrontDeskPage() {
       const currency = getChaletBillCurrency(booking);
       const exchangeRate = getChaletExchangeRate(booking);
       const nights = Number(booking.nights || booking.total_nights || 0);
-      const subtotal = Number(booking.subtotal ?? Number(booking.rate_per_night || 0) * nights);
-      const coupon = Number(booking.coupon_discount_amount || 0);
-      const discountedSubtotal = Math.max(0, subtotal - coupon);
-      const serviceCharge = chargeApplies(booking.service_charge_currency, currency)
-        ? discountedSubtotal * Number(booking.service_charge_pct || 0) / 100
-        : 0;
-      const vat = chargeApplies(booking.vat_currency, currency)
-        ? discountedSubtotal * Number(booking.vat_pct || 0) / 100
-        : 0;
-      const sscl = chargeApplies(booking.sscl_currency, currency)
-        ? discountedSubtotal * Number(booking.sscl_pct || 0) / 100
-        : 0;
-      const calculatedTotal = discountedSubtotal + serviceCharge + vat + sscl;
-      const total = Number(booking.bill_grand_total ?? booking.grand_total ?? booking.total_amount ?? calculatedTotal);
-      const paid = Number(booking.amount_paid || 0);
+      const billLines = getChaletBillLines(booking);
+      const subtotal = billLines.subtotal;
+      const coupon = billLines.couponDiscount;
+      const total = getChaletBillTotal(booking);
+      // Paid amount is kept in LKR; show it in the booking currency.
+      const paidInLkr = chaletPaidLkr(booking, chaletRates);
+      const paid = currency === 'USD' && exchangeRate > 0 ? paidInLkr / exchangeRate : paidInLkr;
       const totalLkr = convertedPreviewAmount(total, currency, exchangeRate);
       const paidLkr = convertedPreviewAmount(paid, currency, exchangeRate);
       const balance = Math.max(0, total - paid);
@@ -1212,9 +1567,11 @@ export default function FrontDeskPage() {
         lines: [
           { label: `Rate per night x ${nights}`, value: subtotal },
           ...(coupon > 0 ? [{ label: `Coupon discount${booking.coupon_code ? ` (${booking.coupon_code})` : ''}`, value: -coupon }] : []),
-          ...(serviceCharge > 0 ? [{ label: `Service charge (${Number(booking.service_charge_pct || 0)}% · ${appliesLabel(booking.service_charge_currency)})`, value: serviceCharge }] : []),
-          ...(vat > 0 ? [{ label: `VAT (${Number(booking.vat_pct || 0)}% · ${appliesLabel(booking.vat_currency)})`, value: vat }] : []),
-          ...(sscl > 0 ? [{ label: `SSCL (${Number(booking.sscl_pct || 0)}% · ${appliesLabel(booking.sscl_currency)})`, value: sscl }] : []),
+          // Percent and "applies to" come from the bill lines (Chalet Bill Settings).
+          ...billLines.charges.map(charge => ({
+            label: `${charge.label === 'Service Charge' ? 'Service charge' : charge.label} (${charge.pct}% · ${appliesLabel(charge.appliesTo as 'LKR' | 'USD' | 'both')})`,
+            value: charge.amount,
+          })),
         ],
         currency,
         exchangeRate,
@@ -1233,7 +1590,7 @@ export default function FrontDeskPage() {
 
   const rowPrice = (row: ArrivalRow) => row.type === 'reservation'
     ? Number(row.item.total_cost || 0)
-    : getChaletAmountInLkr(row.item, Number(row.item.grand_total || 0));
+    : chaletTotalLkr(row.item, chaletRates);
 
   const historyRows: ArrivalRow[] = [
     ...historyReservations.map((item): ArrivalRow => ({ type: 'reservation', item })),
@@ -1375,7 +1732,7 @@ export default function FrontDeskPage() {
                         </TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
+                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, getChaletBillTotal(row.item))}</TableCell>
                         <TableCell className="text-right">
                           {getChaletBookingRoomIds(row.item).length > 0 ? (
                             <div className="flex justify-end gap-2">
@@ -1431,132 +1788,108 @@ export default function FrontDeskPage() {
               ) : inHouseRows.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">No guests match your search/filter.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Guest Name</TableHead>
-                      <TableHead>Room / Chalet</TableHead>
-                      <TableHead>Guest QR</TableHead>
-                      <TableHead>Check-in</TableHead>
-                      <TableHead>Check-out</TableHead>
+                      <TableHead>Guest</TableHead>
+                      <TableHead>Rooms</TableHead>
+                      <TableHead>Stay</TableHead>
+                      <TableHead>QR</TableHead>
                       <TableHead className="text-right">Bill</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <PaginatedTableBody showSinglePage key={JSON.stringify([inHouseSearch, inHouseTypeFilter, inHouseFrom, inHouseTo])}>
-                    {inHouseRows.map((row) => row.type === 'reservation' ? (
-                      <TableRow key={`res-${row.item.id}`}>
-                        <TableCell><Badge variant="outline">Reservation</Badge></TableCell>
-                        <TableCell className="font-medium">{row.item.guest_name}</TableCell>
-                        <TableCell>{row.item.room?.title || 'Unassigned'}</TableCell>
-                        <TableCell>
-                          <button
-                            type="button"
-                            className="rounded focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                            onClick={() => setLargeGuestQr({
-                              code: `RES:${row.item.id}`,
-                              guest: row.item.guest_name,
-                              room: row.item.room?.title || 'Unassigned',
-                            })}
-                            title="Click to enlarge QR"
-                          >
-                            <img
-                              src={`/api/admin/front-desk/guest-pass?format=png&code=${encodeURIComponent(`RES:${row.item.id}`)}`}
-                              alt={`QR pass for ${row.item.guest_name}`}
-                              className="h-16 w-16 rounded border bg-white p-1"
-                            />
-                          </button>
-                        </TableCell>
-                        <TableCell>
-                          <div>{new Date(row.item.check_in_date).toLocaleDateString()}</div>
-                          {row.item.check_in_time && (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {new Date(row.item.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {inHouseRows.map((row) => {
+                      const isChalet = row.type === 'chalet';
+                      const qrCode = isChalet ? row.item.booking_ref : `RES:${row.item.id}`;
+                      const guestName = isChalet ? row.item.customer_name : row.item.guest_name;
+                      const roomText = isChalet ? (getChaletBookingRoomShortText(row.item) || 'Unassigned') : (row.item.room?.title || 'Unassigned');
+                      const checkoutBlocked = isChalet
+                        ? getChaletBillTotal(row.item) > 0 && row.item.payment_status !== 'paid'
+                        : Number(row.item.total_cost) > 0 && row.item.payment_status !== 'paid';
+                      return (
+                        <TableRow key={`${row.type}-${row.item.id}`} className="align-top">
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{guestName}</span>
+                              {isChalet
+                                ? <Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge>
+                                : <Badge variant="outline">Reservation</Badge>}
                             </div>
-                          )}
-                        </TableCell>
-                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">{formatMoney(Number(row.item.total_cost || 0), 'LKR')}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => handleViewGuest(row)}>
-                              View
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleMoveToBill(row)}>
-                              Move to Bill
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => openCheckoutConfirm(row)}
-                              disabled={Number(row.item.total_cost) > 0 && row.item.payment_status !== 'paid'}
-                              title={Number(row.item.total_cost) > 0 && row.item.payment_status !== 'paid' ? 'Pay the bill before checking out' : undefined}
-                            >
-                              Check Out
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      <TableRow key={`chalet-${row.item.id}`}>
-                        <TableCell><Badge className="bg-amber-100 text-amber-800 border-amber-200">Chalet</Badge></TableCell>
-                        <TableCell className="font-medium">
-                          {row.item.customer_name}
-                          <div className="text-xs text-muted-foreground">{row.item.booking_ref}</div>
-                        </TableCell>
-                        <TableCell>
-                          {renderChaletRoomAllocation(row.item)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
+                            {isChalet && <div className="font-mono text-xs text-muted-foreground">{row.item.booking_ref}</div>}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isChalet ? renderChaletRoomsCompact(row.item) : <span className="font-medium">{roomText}</span>}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {renderStay(row.item.check_in_date, row.item.check_out_date, isChalet ? null : row.item.check_in_time)}
+                          </TableCell>
+                          <TableCell>
                             <button
                               type="button"
                               className="rounded focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                              onClick={() => setLargeGuestQr({
-                                code: row.item.booking_ref,
-                                guest: row.item.customer_name,
-                                room: getChaletBookingRoomShortText(row.item) || 'Unassigned',
-                              })}
+                              onClick={() => setLargeGuestQr({ code: qrCode, guest: guestName, room: roomText })}
                               title="Click to enlarge QR"
                             >
                               <img
-                                src={`/api/admin/front-desk/guest-pass?format=png&code=${encodeURIComponent(row.item.booking_ref)}`}
-                                alt={`QR pass for ${row.item.customer_name}`}
-                                className="h-16 w-16 rounded border bg-white p-1"
+                                src={`/api/admin/front-desk/guest-pass?format=png&code=${encodeURIComponent(qrCode)}`}
+                                alt={`QR pass for ${guestName}`}
+                                className="h-12 w-12 rounded border bg-white p-0.5"
                               />
                             </button>
-                            <span className="font-mono text-xs">{row.item.booking_ref}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end items-center gap-2">
-                            <Badge className="bg-green-100 text-green-800 border-green-200">In House</Badge>
-                            <Button size="sm" variant="outline" onClick={() => handleViewGuest(row)}>
-                              View
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => openPackageMeals(row.item)}>
-                              <ChefHat className="mr-1 h-4 w-4" /> Meals
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleMoveToBill(row)}>
-                              Move to Bill
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => openCheckoutConfirm(row)}
-                              disabled={Number(row.item.grand_total) > 0 && row.item.payment_status !== 'paid'}
-                              title={Number(row.item.grand_total) > 0 && row.item.payment_status !== 'paid' ? 'Pay the bill before checking out' : undefined}
-                            >
-                              Check Out
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isChalet ? renderChaletBillStatus(row.item) : (
+                              <div className="space-y-0.5 text-right leading-tight">
+                                <div className="font-semibold">{formatMoney(Number(row.item.total_cost || 0), 'LKR')}</div>
+                                {row.item.payment_status === 'paid'
+                                  ? <Badge className="bg-green-100 text-green-800 border-green-200">Paid in full</Badge>
+                                  : <div className="text-xs font-medium text-amber-700">Due {formatMoney(Number(row.item.total_cost || 0), 'LKR')}</div>}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2 whitespace-nowrap">
+                              <Button size="sm" variant="outline" onClick={() => handleMoveToBill(row)}>
+                                Move to Bill
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => openCheckoutConfirm(row)}
+                                disabled={checkoutBlocked}
+                                title={checkoutBlocked ? 'Pay the bill before checking out' : undefined}
+                              >
+                                Check Out
+                              </Button>
+                              {/* modal={false}: a modal menu that opens a dialog leaves the page
+                                  unclickable (pointer-events: none) after that dialog closes. */}
+                              <DropdownMenu modal={false}>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="ghost" className="px-2" aria-label="More actions">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleViewGuest(row)}>
+                                    <Eye className="mr-2 h-4 w-4" /> View details
+                                  </DropdownMenuItem>
+                                  {isChalet && (
+                                    <DropdownMenuItem onClick={() => openPackageMeals(row.item)}>
+                                      <ChefHat className="mr-2 h-4 w-4" /> Package meals
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </PaginatedTableBody>
                 </Table>
+                </div>
               )}
             </div>
           </TabsContent>
@@ -1657,11 +1990,17 @@ export default function FrontDeskPage() {
                                       <div className="text-xs text-muted-foreground">
                                         {new Date(cb.check_in_date).toLocaleDateString()} to {new Date(cb.check_out_date).toLocaleDateString()}
                                       </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      Package price: {renderChaletMoney(cb, Number(cb.rate_per_night || 0))} / night × {cb.nights} night{cb.nights !== 1 ? 's' : ''} + {cb.service_charge_pct}% service charge
-                                    </div>
+                                    {renderChaletBillDetails(cb)}
                                   </TableCell>
-                                  <TableCell className="text-right">{renderChaletMoney(cb, Number(cb.grand_total || 0))}</TableCell>
+                                  <TableCell className="text-right">
+                                    {chaletBillAmounts(cb).paid > 0 ? (
+                                      <div className="space-y-1">
+                                        <div className="text-xs text-muted-foreground">Total {renderChaletLkrMoney(cb, chaletBillAmounts(cb).total)}</div>
+                                        <div className="text-xs text-green-700">Paid -{renderChaletLkrMoney(cb, chaletBillAmounts(cb).paid)}</div>
+                                        <div className="font-semibold">Balance {renderChaletLkrMoney(cb, chaletBillAmounts(cb).outstanding)}</div>
+                                      </div>
+                                    ) : renderChaletLkrMoney(cb, chaletBillAmounts(cb).total)}
+                                  </TableCell>
                                 </TableRow>
                               ))}
                             </PaginatedTableBody>
@@ -1800,6 +2139,10 @@ export default function FrontDeskPage() {
                               <input type="radio" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} className="w-4 h-4 text-primary" />
                               <span>Credit/Debit Card</span>
                             </label>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input type="radio" checked={paymentMethod === 'online'} onChange={() => setPaymentMethod('online')} className="w-4 h-4 text-primary" />
+                              <span>Online</span>
+                            </label>
                           </div>
 
                           {paymentMethod === 'cash' && (
@@ -1935,7 +2278,7 @@ export default function FrontDeskPage() {
                         </TableCell>
                         <TableCell>{new Date(row.item.check_in_date).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(row.item.check_out_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, Number(row.item.grand_total || 0))}</TableCell>
+                        <TableCell className="text-right font-medium">{renderChaletMoney(row.item, getChaletBillTotal(row.item))}</TableCell>
                         <TableCell>
                           <Badge className={row.item.status === 'cancelled' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-green-100 text-green-800 border-green-200'}>
                             {row.item.status === 'cancelled' ? 'Cancelled' : 'Checked Out'}
@@ -2186,7 +2529,7 @@ export default function FrontDeskPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <Label>Other Guests</Label>
-                  <p className="text-xs text-muted-foreground">Name, ID / Passport Number, and Address are optional.</p>
+                  <p className="text-xs text-muted-foreground">Name, email, ID / Passport Number, and Address are optional.</p>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={addAdditionalGuest}>
                   <Plus className="mr-1 h-4 w-4" />
@@ -2196,10 +2539,14 @@ export default function FrontDeskPage() {
               {additionalGuests.length > 0 && (
                 <div className="space-y-3">
                   {additionalGuests.map((guest, index) => (
-                    <div key={guest.id} className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_1fr_36px]">
+                    <div key={guest.id} className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_36px]">
                       <div className="space-y-1">
                         <Label className="text-xs">Guest {index + 1} Name</Label>
                         <Input value={guest.name} onChange={e => updateAdditionalGuest(guest.id, 'name', e.target.value)} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Email</Label>
+                        <Input type="email" value={guest.email} onChange={e => updateAdditionalGuest(guest.id, 'email', e.target.value)} />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">ID / Passport Number</Label>
@@ -2213,7 +2560,7 @@ export default function FrontDeskPage() {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="self-end text-destructive"
+                        className="self-end text-destructive lg:col-auto"
                         onClick={() => removeAdditionalGuest(guest.id)}
                         title="Remove guest"
                       >
@@ -2252,7 +2599,7 @@ export default function FrontDeskPage() {
               </div>
               <div className="text-sm">
                 {checkInPass.email_sent ? (
-                  <p className="text-green-700">Confirmation sent to {checkInPass.email}.</p>
+                  <p className="text-green-700">Confirmation sent to {(checkInPass.email_recipients?.length ? checkInPass.email_recipients : [checkInPass.email]).filter(Boolean).join(', ')}.</p>
                 ) : (
                   <p className="text-amber-700">Email not sent: {checkInPass.email_reason || 'Email delivery is not configured.'}</p>
                 )}
@@ -2268,7 +2615,7 @@ export default function FrontDeskPage() {
 
       {/* Guest Detail Modal */}
       <Dialog open={isGuestDetailOpen} onOpenChange={setIsGuestDetailOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[95vw] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Guest Details</DialogTitle>
           </DialogHeader>
@@ -2393,9 +2740,14 @@ export default function FrontDeskPage() {
               </div>
               <div className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm">
                 <div className="flex justify-between gap-4"><span className="text-muted-foreground">Rate per Night</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.rate_per_night || 0), 'text-right')}</div>
-                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Subtotal</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.subtotal || 0), 'text-right')}</div>
-                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Service Charge</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.service_charge_amount || 0), 'text-right')}</div>
-                <div className="flex justify-between gap-4 font-semibold pt-1 border-t"><span>Grand Total</span>{renderChaletMoney(viewGuestRow.item, Number(viewGuestRow.item.grand_total || 0), 'text-right')}</div>
+                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Subtotal</span>{renderChaletMoney(viewGuestRow.item, getChaletBillLines(viewGuestRow.item).subtotal, 'text-right')}</div>
+                {getChaletBillLines(viewGuestRow.item).couponDiscount > 0 && (
+                  <div className="flex justify-between gap-4"><span className="text-muted-foreground">Coupon{viewGuestRow.item.coupon_code ? ` (${viewGuestRow.item.coupon_code})` : ''}</span><span className="text-right">-{renderChaletMoney(viewGuestRow.item, getChaletBillLines(viewGuestRow.item).couponDiscount)}</span></div>
+                )}
+                {getChaletBillLines(viewGuestRow.item).charges.map(charge => (
+                  <div key={charge.label} className="flex justify-between gap-4"><span className="text-muted-foreground">{charge.label} ({charge.pct}%)</span>{renderChaletMoney(viewGuestRow.item, charge.amount, 'text-right')}</div>
+                ))}
+                <div className="flex justify-between gap-4 font-semibold pt-1 border-t"><span>Grand Total</span>{renderChaletMoney(viewGuestRow.item, getChaletBillTotal(viewGuestRow.item), 'text-right')}</div>
               </div>
               {(viewGuestRow.item.special_requests || viewGuestRow.item.notes) && (
                 <div className="space-y-1">
@@ -2403,6 +2755,87 @@ export default function FrontDeskPage() {
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                     {[viewGuestRow.item.special_requests, viewGuestRow.item.notes].filter(Boolean).join('\n')}
                   </p>
+                </div>
+              )}
+            </div>
+          )}
+          {viewGuestRow && viewGuestPayments?.balance && (
+            <div className={`rounded-md border p-3 ${viewGuestPayments.balance.total > 0 ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Balance to Pay</p>
+                <p className={`text-xl font-bold ${viewGuestPayments.balance.total > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                  {viewGuestPayments.balance.total > 0 ? formatMoney(viewGuestPayments.balance.total, 'LKR') : 'Nothing to pay'}
+                </p>
+              </div>
+              {viewGuestPayments.balance.total > 0 && (
+                <div className="mt-2 space-y-0.5 text-sm">
+                  {[
+                    { label: viewGuestRow.type === 'chalet' ? 'Chalet stay' : 'Room stay', value: viewGuestPayments.balance.stay },
+                    { label: 'Restaurant (charged to room)', value: viewGuestPayments.balance.restaurant },
+                    { label: 'Services (added to bill)', value: viewGuestPayments.balance.services },
+                  ].filter(line => line.value > 0).map(line => (
+                    <div key={line.label} className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">{line.label}</span>
+                      <span className="font-medium">{formatMoney(line.value, 'LKR')}</span>
+                    </div>
+                  ))}
+                  {viewGuestRow.type === 'chalet' && getChaletBillCurrency(viewGuestRow.item) === 'USD' && getChaletExchangeRate(viewGuestRow.item) > 0 && viewGuestPayments.balance.stay > 0 && (
+                    <p className="text-right text-xs text-muted-foreground">Chalet stay ≈ {formatMoney(viewGuestPayments.balance.stay / getChaletExchangeRate(viewGuestRow.item), 'USD')}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {viewGuestRow && (
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Payments</p>
+                {viewGuestPayments && viewGuestPayments.payments.length > 0 && (
+                  <p className="text-sm font-semibold text-green-700">Total received {formatMoney(viewGuestPayments.total, 'LKR')}</p>
+                )}
+              </div>
+              {isLoadingGuestPayments || !viewGuestPayments ? (
+                <p className="text-sm text-muted-foreground">Loading payments...</p>
+              ) : viewGuestPayments.payments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No payments recorded for this stay yet.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date &amp; Time</TableHead>
+                        <TableHead>For</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead>Received Into</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {viewGuestPayments.payments.map(payment => (
+                        <TableRow key={payment.id}>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {payment.paid_at ? (
+                              <>
+                                <div>{new Date(payment.paid_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                                <div className="text-xs text-muted-foreground">{new Date(payment.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">Date not recorded</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            <div className="font-medium">{payment.source}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {[payment.reference, payment.note, payment.recorded_by ? `by ${payment.recorded_by}` : null].filter(Boolean).join(' · ')}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm capitalize">{payment.payment_method ? payment.payment_method.replace('_', ' ') : '—'}</TableCell>
+                          <TableCell className="text-sm">{payment.account_name || '—'}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right text-sm font-medium text-green-700">{formatMoney(payment.amount, 'LKR')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </div>
@@ -2543,95 +2976,16 @@ export default function FrontDeskPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Printable Master Invoice */}
-      {billData && (
-        <div id="print-area" className="hidden print:block font-sans text-black bg-white">
-          <div className="flex justify-between items-start border-b pb-6 mb-6">
-            <div>
-              <h1 className="text-3xl font-bold uppercase tracking-wider text-gray-900">MASTER FOLIO</h1>
-              <p className="text-sm text-gray-500 mt-1">Date: {new Date().toLocaleDateString()}</p>
-            </div>
-            <div className="text-right">
-              <h2 className="text-2xl font-bold text-gray-900">Oruthota Chalets</h2>
-              <p className="text-sm text-gray-500 mt-1">Digana, Kandy</p>
-              <p className="text-sm text-gray-500">Sri Lanka</p>
-              <p className="text-sm text-gray-500">+94 77 123 4567</p>
-            </div>
+      {/* Printed guest document: the past bill while its window is open,
+          otherwise the open bill (folio, or receipt once settled). */}
+      {(() => {
+        const invoice = isHistoryBillOpen && historyBill ? buildHistoryInvoice() : buildFolioInvoice();
+        return invoice ? (
+          <div id="print-area" className="hidden print:block bg-white text-black">
+            <GuestInvoice {...invoice} />
           </div>
-          
-          <div className="mb-8">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Billed To</h3>
-            <p className="font-medium text-lg text-gray-900">{billData.customer.name}</p>
-            <p className="text-gray-600 mt-1">{billData.customer.phone || billData.customer.email}</p>
-            {billData.customer.address && <p className="text-gray-600 mt-1">{billData.customer.address}</p>}
-          </div>
-
-          <table className="w-full mb-8 text-left border-collapse">
-            <thead>
-              <tr className="border-b-2 border-gray-200">
-                <th className="py-3 px-2 font-bold text-gray-700 uppercase text-xs tracking-wider">Item Description</th>
-                <th className="py-3 px-2 font-bold text-gray-700 uppercase text-xs tracking-wider text-right w-32">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {billData.reservations.map(res => (
-                <tr key={res.id} className="border-b border-gray-100">
-                  <td className="py-4 px-2 text-gray-800">Room Charge: {res.room?.title || 'Room'}</td>
-                  <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(res.total_cost || 0).toFixed(2)}</td>
-                </tr>
-              ))}
-              {billData.chaletBookings.map(cb => (
-                <tr key={cb.id} className="border-b border-gray-100">
-                  <td className="py-4 px-2 text-gray-800">
-	                    Chalet Charge: {getChaletAllocationPrintLines(cb).join(', ') || 'Chalet'} ({getChaletBillCurrency(cb)} {Number(cb.rate_per_night || 0).toFixed(2)}/night × {cb.nights})
-                  </td>
-                  <td className="py-4 px-2 text-gray-800 text-right font-medium">
-                    {renderChaletMoney(cb, Number(cb.grand_total || 0))}
-                  </td>
-                </tr>
-              ))}
-              {billData.orders.map(ord => (
-                <tr key={ord.id} className="border-b border-gray-100">
-                  <td className="py-4 px-2 text-gray-800">Restaurant Order #{ord.id.substring(0,8).toUpperCase()}</td>
-                  <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(ord.confirmed_total ?? ord.total_price ?? 0).toFixed(2)}</td>
-                </tr>
-              ))}
-              {billData.serviceIncomes.map(svc => (
-                <tr key={svc.id} className="border-b border-gray-100">
-                  <td className="py-4 px-2 text-gray-800">
-                    <div>{svc.service_type}: {svc.description}</div>
-                    {svc.line_items && svc.line_items.length > 0 && (
-                      <div className="mt-1 text-xs text-gray-500">
-                        {svc.line_items.map((item, index) => <div key={index}>{item.description} — LKR {Number(item.amount || 0).toFixed(2)}</div>)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-4 px-2 text-gray-800 text-right font-medium">LKR {Number(svc.amount || 0).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="flex justify-end mb-12">
-            <div className="w-1/3">
-              <div className="flex justify-between py-2 border-t-2 border-gray-900 font-bold text-lg">
-                <span>{billData.totalOutstanding > 0 ? 'Total Due' : 'Total Settled'}</span>
-                <span>LKR {(billData.totalOutstanding > 0 ? billData.totalOutstanding : billData.totalPaid).toFixed(2)}</span>
-              </div>
-              {billData.totalOutstanding === 0 && (
-                <div className="flex justify-between py-2 text-sm text-gray-500">
-                  <span>Payment Method</span>
-                  <span className="capitalize">{paymentMethod}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="text-center text-gray-500 text-sm mt-16 pt-8 border-t border-gray-200">
-            <p>Thank you for staying with us!</p>
-          </div>
-        </div>
-      )}
+        ) : null;
+      })()}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { chaletTotalLkr } from '@/lib/chalet-billing';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -64,7 +65,9 @@ export async function GET(request: Request) {
       const result = await supabase.from('customers').select('*').ilike('name', stay.customer_name.trim()).limit(1).maybeSingle();
       customer = result.data;
       const roomNumbers = await bookingRoomLabel(stay);
-      stayItem = { description: `Chalet ${roomNumbers || stay.chalet_rooms?.room_number || ''}: ${stay.chalet_packages?.name || stay.chalet_rooms?.name || 'Stay'}`, amount: Number(stay.grand_total || 0), category: 'Chalet' };
+      const { data: chaletRates } = await supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate');
+      // Full bill in LKR (coupon and charges per the booking's settings).
+      stayItem = { description: `Chalet ${roomNumbers || stay.chalet_rooms?.room_number || ''}: ${stay.chalet_packages?.name || stay.chalet_rooms?.name || 'Stay'}`, amount: chaletTotalLkr(stay, chaletRates || []), category: 'Chalet' };
     }
 
     const from = `${stay.check_in_date}T00:00:00`;

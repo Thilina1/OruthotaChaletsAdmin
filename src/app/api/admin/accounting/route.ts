@@ -88,6 +88,8 @@ export async function GET(request: Request) {
             accountTransactionsRes,
             guestBillsRes,
             eventPaymentsRes,
+            chaletBookingPaymentsRes,
+            chaletOnlineBookingsRes,
         ] = await Promise.all([
             applyDate(supabase.from('expenses').select('id,description,amount,category,date').order('date', { ascending: false }), 'date'),
             applyDate(supabase.from('other_incomes').select('id,description,amount,source,date').order('date', { ascending: false }), 'date'),
@@ -141,6 +143,17 @@ export async function GET(request: Request) {
                     .order('paid_at', { ascending: false }),
                 'paid_at'
             ),
+            // Payments taken on chalet bookings in the booking form.
+            applyDate(
+                supabase.from('chalet_booking_payments')
+                    .select('id,booking_ref,customer_name,amount,payment_method,paid_at')
+                    .order('paid_at', { ascending: false }),
+                'paid_at'
+            ),
+            // Website (PayHere) payments: posted to the Front Desk Online account.
+            supabase.from('chalet_bookings')
+                .select('booking_ref,customer_name,online_account_transaction_id')
+                .not('online_account_transaction_id', 'is', null),
         ]);
 
         // --- Income ---
@@ -227,6 +240,44 @@ export async function GET(request: Request) {
                 department: assignDepartment(category, source),
             };
         });
+
+        // Chalet booking payments. Card ones are already counted above through
+        // the card account posting, so only cash and online are added here.
+        const chaletBookingIncomes = (chaletBookingPaymentsRes.error ? [] : chaletBookingPaymentsRes.data || [])
+            .filter((r: any) => r.payment_method !== 'card')
+            .map((r: any) => ({
+                id: `chalet-payment-${r.id}`,
+                type: 'income' as const,
+                description: `Chalet booking ${r.booking_ref || ''}`.trim(),
+                amount: Number(r.amount || 0),
+                category: 'Room Income',
+                date: (r.paid_at || '').split('T')[0],
+                source: r.payment_method === 'online' ? 'Front Desk Online' : 'Front Desk Chalet',
+                meta: `${r.booking_ref || 'Chalet booking'} · ${r.payment_method}${r.customer_name ? ` · ${r.customer_name}` : ''}`,
+                department: assignDepartment('Room Income', 'Chalet'),
+            }))
+            .filter((row: any) => row.amount !== 0);
+
+        const websiteBookingByTransaction = new Map(
+            (chaletOnlineBookingsRes.error ? [] : chaletOnlineBookingsRes.data || [])
+                .map((booking: any) => [String(booking.online_account_transaction_id), booking])
+        );
+        const chaletWebsiteIncomes = (accountTransactionsRes.data || [])
+            .filter((tx: any) => tx.type === 'credit' && websiteBookingByTransaction.has(String(tx.id)))
+            .map((tx: any) => {
+                const booking: any = websiteBookingByTransaction.get(String(tx.id));
+                return {
+                    id: `chalet-website-${tx.id}`,
+                    type: 'income' as const,
+                    description: `Website chalet booking ${booking?.booking_ref || ''}`.trim(),
+                    amount: Number(tx.amount || 0),
+                    category: 'Room Income',
+                    date: tx.date,
+                    source: 'Front Desk Online',
+                    meta: `${tx.reference || booking?.booking_ref || 'Online payment'} · ${tx.account?.name || 'Account'}${booking?.customer_name ? ` · ${booking.customer_name}` : ''}`,
+                    department: assignDepartment('Room Income', 'Chalet'),
+                };
+            });
 
         const serviceIncomes = (serviceIncomesRes.data || []).filter((r: any) => r.payment_method !== 'card' && !guestBillSourceIds.has(String(r.id))).map((r: any) => {
             const source = r.service_type ? r.service_type.replace(/_/g, ' ') : 'Service';
@@ -407,7 +458,7 @@ export async function GET(request: Request) {
             // Column not yet migrated — skip silently
         }
 
-        const allIncomes = [...cardPaymentIncomes, ...frontDeskIncomes, ...eventIncomes, ...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
+        const allIncomes = [...cardPaymentIncomes, ...frontDeskIncomes, ...chaletBookingIncomes, ...chaletWebsiteIncomes, ...eventIncomes, ...otherIncomes, ...serviceIncomes, ...reservationIncomes, ...orderIncomes];
         const allExpenses = [...generalExpenses, ...payrollExpenses, ...dailyWageExpenses, ...inventoryCogs, ...cashPurchaseExpenses, ...inventoryLossExpenses];
 
         const totalIncome = allIncomes.reduce((s, r) => s + r.amount, 0);

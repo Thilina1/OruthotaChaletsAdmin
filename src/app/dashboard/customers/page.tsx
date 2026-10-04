@@ -24,6 +24,7 @@ import { Users, Search, Mail, Phone, CalendarDays, Edit, History, Loader2 } from
 import type { Customer } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import { chaletBillCurrency, chaletBillLines, chaletPaidLkr } from '@/lib/chalet-billing';
 
 export default function CustomersPage() {
   const { toast } = useToast();
@@ -326,8 +327,10 @@ export default function CustomersPage() {
                     `Status: ${booking.status || 'pending'}`,
                     `Payment: ${booking.payment_status || 'unpaid'}`,
                     booking.coupon_code ? `Coupon: ${booking.coupon_code}` : '',
+                    chaletPaidLkr(booking) > 0 ? `Paid: ${formatAmount(chaletPaidLkr(booking), 'LKR')}` : '',
                   ].filter(Boolean).join(' · '),
-                  amount: formatAmount(booking.bill_grand_total ?? booking.total_amount, booking.currency),
+                  // Same bill as Bookings / Front Desk (locked prices and charges).
+                  amount: formatAmount(chaletBillLines(booking).total, chaletBillCurrency(booking)),
                   notes: booking.special_requests,
                 }))}
               />

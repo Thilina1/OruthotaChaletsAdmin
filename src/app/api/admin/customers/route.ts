@@ -77,29 +77,9 @@ export async function GET(request: Request) {
                     .order('created_at', { ascending: false }),
                 supabase
                     .from('chalet_bookings')
+                    // All columns: the bill is worked out from the booking's locked prices.
                     .select(`
-                        id,
-                        customer_name,
-                        customer_email,
-                        customer_phone,
-                        customer_nic,
-                        nationality,
-                        check_in_date,
-                        check_out_date,
-                        adults,
-                        children,
-                        room_allocations,
-                        room_ids,
-                        rate_per_night,
-                        currency,
-                        coupon_code,
-                        coupon_discount_amount,
-                        bill_grand_total,
-                        total_amount,
-                        payment_status,
-                        status,
-                        special_requests,
-                        created_at,
+                        *,
                         chalet_packages ( name ),
                         chalet_room_categories ( name ),
                         chalet_rooms ( name, room_number )

@@ -29,6 +29,19 @@ function normalizeIdentity(value?: string | null) {
     return (value || '').trim().replace(/\s+/g, '').toUpperCase();
 }
 
+function uniqueEmails(values: Array<string | null | undefined>) {
+    const seen = new Set<string>();
+    return values
+        .map(value => value?.trim())
+        .filter((value): value is string => Boolean(value))
+        .filter(value => {
+            const key = value.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
 async function upsertCustomerRecord(customer: { name?: string; phone?: string; email?: string; id_number?: string; address?: string }) {
     const name = customer.name?.trim() || '';
     const idNumber = normalizeIdentity(customer.id_number);
@@ -131,6 +144,7 @@ export async function POST(request: Request) {
             for (const guest of additional_guests) {
                 const additionalGuestId = await upsertCustomerRecord({
                     name: guest?.name,
+                    email: guest?.email,
                     id_number: guest?.id_number,
                     address: guest?.address,
                 });
@@ -225,27 +239,54 @@ export async function POST(request: Request) {
             const qrCodeBuffer = await QRCode.toBuffer(booking.booking_ref, { width: 600, margin: 2 });
             const qrCodeDataUrl = `data:image/png;base64,${qrCodeBuffer.toString('base64')}`;
 
-            if (email) {
+            const emailRecipients = uniqueEmails([
+                email,
+                ...(Array.isArray(additional_guests) ? additional_guests.map((guest: any) => guest?.email) : []),
+            ]);
+
+            if (emailRecipients.length > 0) {
                 try {
-                    emailResult = await sendCheckInEmail({
-                        to: email,
+                    const sendResults = await Promise.allSettled(emailRecipients.map(recipient => sendCheckInEmail({
+                        to: recipient,
                         guestName: customer_name.trim(),
                         bookingRef: booking.booking_ref,
                         roomNumber: roomNumberText,
                         qrCode: qrCodeBuffer
+                    })));
+                    const failedRecipients = sendResults
+                        .map((result, index) => ({ result, recipient: emailRecipients[index] }))
+                        .filter(({ result }) => result.status === 'rejected' || (result.status === 'fulfilled' && result.value.sent === false));
+                    failedRecipients.forEach(({ result, recipient }) => {
+                        console.error(`Check-in email to ${recipient} failed:`, result.status === 'rejected' ? result.reason : result.value.reason);
                     });
+                    // Short reason shown at the front desk (e.g. "Invalid login").
+                    const firstFailure = failedRecipients[0]?.result;
+                    const firstFailureReason = firstFailure
+                        ? String(firstFailure.status === 'rejected' ? (firstFailure.reason?.message || firstFailure.reason || '') : (firstFailure.value.reason || '')).split('\n')[0].slice(0, 160)
+                        : '';
+
+                    emailResult = failedRecipients.length === 0
+                        ? { sent: true, sent_count: emailRecipients.length, recipients: emailRecipients }
+                        : {
+                            sent: failedRecipients.length < emailRecipients.length,
+                            sent_count: emailRecipients.length - failedRecipients.length,
+                            recipients: emailRecipients.filter(recipient => !failedRecipients.some(failed => failed.recipient === recipient)),
+                            failed_recipients: failedRecipients.map(({ recipient }) => recipient),
+                            reason: `${failedRecipients.length === emailRecipients.length ? 'Email delivery failed' : 'Some emails failed to send'}${firstFailureReason ? `: ${firstFailureReason}` : ''}`
+                        };
                 } catch (emailError) {
                     console.error('Check-in email failed:', emailError);
                     emailResult = { sent: false, reason: 'Email delivery failed' };
                 }
             } else {
-                emailResult = { sent: false, reason: 'No guest email provided' };
+                emailResult = { sent: false, reason: 'No guest email provided', recipients: [] };
             }
 
             chaletCheckIn = {
                 booking_ref: booking.booking_ref,
                 guest_name: customer_name.trim(),
                 email: email || null,
+                email_recipients: emailResult?.recipients || [],
                 room_number: roomNumberText,
                 qr_code: qrCodeDataUrl
             };

@@ -84,8 +84,24 @@ function normalizeRoomAllocations(roomAllocations: unknown) {
             packageId: getAllocationValue(allocation, 'packageId', 'package_id'),
             adults: Number(allocation?.adults ?? 1),
             children: Number(allocation?.children ?? 0),
+            // Room's nightly price locked when the booking was priced, in the
+            // booking currency (null when not known).
+            ratePerNight: Number.isFinite(Number(getAllocationValue(allocation, 'ratePerNight', 'rate_per_night'))) && getAllocationValue(allocation, 'ratePerNight', 'rate_per_night') !== null
+                ? Number(getAllocationValue(allocation, 'ratePerNight', 'rate_per_night'))
+                : null,
         }))
         : [];
+}
+
+// Room assignment saves allocations without prices; keep each room's locked
+// price from the booking as it was (matched by position).
+function keepLockedRoomRates(incoming: ReturnType<typeof normalizeRoomAllocations>, current: unknown) {
+    const currentAllocations = normalizeRoomAllocations(current);
+    return incoming.map((allocation, index) => (
+        allocation.ratePerNight === null && currentAllocations[index]?.ratePerNight != null
+            ? { ...allocation, ratePerNight: currentAllocations[index].ratePerNight }
+            : allocation
+    ));
 }
 
 // A room is double-booked if another (non-cancelled) booking's stay overlaps
@@ -201,14 +217,17 @@ async function syncChaletBookingNotifications() {
     }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        const tokenPayload = await verifyToken(token);
+        if (!tokenPayload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-        const { data, error } = await supabase
+        // Optional ?id= returns just that booking (still as a list).
+        const bookingId = new URL(request.url).searchParams.get('id');
+        let query = supabase
             .from('chalet_bookings')
             .select(`
                 *,
@@ -218,6 +237,8 @@ export async function GET() {
                 chalet_rooms ( name, room_number )
             `)
             .order('created_at', { ascending: false });
+        if (bookingId) query = query.eq('id', bookingId);
+        const { data, error } = await query;
 
         if (error) throw error;
         return NextResponse.json({ bookings: data }, { status: 200 });
@@ -226,12 +247,82 @@ export async function GET() {
     }
 }
 
+// A new payment taken in the booking form. Card and online payments post to
+// the Front Desk Card / Online Payment Accounts; cash stays in Front Desk cash.
+function parseNewPayment(amount: unknown, method: unknown) {
+    const value = Math.round(Number(amount || 0) * 100) / 100;
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return { amount: value, method: String(method || '') };
+}
+
+async function newPaymentSetupError(method: string) {
+    if (!['cash', 'card', 'online'].includes(method)) return 'Payment method must be cash, card or online.';
+    if (method === 'cash') return null;
+    const { data: settings, error } = await supabase
+        .from('front_desk_account_settings')
+        .select('card_account_id,online_account_id')
+        .eq('singleton', true)
+        .maybeSingle();
+    if (error) throw error;
+    const accountId = method === 'card' ? settings?.card_account_id : settings?.online_account_id;
+    const label = method === 'card' ? 'Card' : 'Online';
+    if (!accountId) return `Set the Front Desk ${label} Payment Account (Front Desk Account page) before accepting ${method} payments.`;
+    const { data: account } = await supabase.from('accounts').select('id').eq('id', accountId).eq('is_active', true).maybeSingle();
+    if (!account) return `The configured Front Desk ${label} Payment Account is inactive or unavailable.`;
+    return null;
+}
+
+async function recordNewPayment(bookingId: string, payment: { amount: number; method: string }, userId: string | null, markPaid: boolean) {
+    const { error } = await supabase.rpc('record_chalet_booking_payment', {
+        p_booking_id: bookingId,
+        p_amount: payment.amount,
+        p_method: payment.method,
+        p_user_id: userId,
+        p_mark_paid: markPaid,
+    });
+    return error ? error.message : null;
+}
+
+// Saves the booking form's full LKR bill (charges applied per the booking's settings),
+// which Front Desk settlement uses. Skipped quietly until the column exists.
+async function saveBillTotalLkr(id: string, billTotalLkr: unknown) {
+    const value = Math.round(Number(billTotalLkr) * 100) / 100;
+    if (billTotalLkr === undefined || billTotalLkr === null || !Number.isFinite(value) || value < 0) return;
+    const { error } = await supabase.from('chalet_bookings').update({ bill_total_lkr: value }).eq('id', id);
+    if (error && !/bill_total_lkr/i.test(error.message || '')) throw error;
+}
+
+// Saves the USD to LKR rate locked on the booking. Skipped quietly until the
+// column exists (the database also fills it for new bookings).
+async function saveLockedUsdRate(id: string, rate: unknown) {
+    const value = Number(rate);
+    if (rate === undefined || rate === null || !Number.isFinite(value) || value <= 0) return;
+    const { error } = await supabase.from('chalet_bookings').update({ usd_to_lkr_rate: value }).eq('id', id);
+    if (error && !/usd_to_lkr_rate/i.test(error.message || '')) throw error;
+}
+
+async function fetchBookingWithRelations(id: string) {
+    const { data } = await supabase
+        .from('chalet_bookings')
+        .select(`
+                *,
+                chalet_packages ( name ),
+                chalet_occupancy_types ( name ),
+                chalet_room_categories ( name, max_adults, max_children, max_guests, bed_configurations ),
+                chalet_rooms ( name, room_number )
+            `)
+        .eq('id', id)
+        .single();
+    return data;
+}
+
 export async function POST(request: Request) {
     try {
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        const tokenPayload = await verifyToken(token);
+        if (!tokenPayload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
         const {
@@ -271,6 +362,10 @@ export async function POST(request: Request) {
             status,
             special_requests,
             notes,
+            new_payment_amount,
+            new_payment_method,
+            bill_total_lkr,
+            usd_to_lkr_rate,
         } = body;
 
         if (!customer_name || !check_in_date || !check_out_date) {
@@ -279,6 +374,12 @@ export async function POST(request: Request) {
 
         if (new Date(check_out_date) <= new Date(check_in_date)) {
             return NextResponse.json({ error: 'Check-out date must be after check-in date' }, { status: 400 });
+        }
+
+        const newPayment = parseNewPayment(new_payment_amount, new_payment_method);
+        if (newPayment) {
+            const setupError = await newPaymentSetupError(newPayment.method);
+            if (setupError) return NextResponse.json({ error: setupError }, { status: 400 });
         }
 
         // If rate not provided but package given, look it up by room category.
@@ -373,11 +474,13 @@ export async function POST(request: Request) {
                 vat_currency: ['LKR', 'USD', 'both'].includes(vat_currency) ? vat_currency : 'both',
                 sscl_pct: sscl_pct ?? 2.5,
                 sscl_currency: ['LKR', 'USD', 'both'].includes(sscl_currency) ? sscl_currency : 'both',
-                amount_paid: Math.max(0, Number(amount_paid || 0)),
+                // A new payment is added by record_chalet_booking_payment below,
+                // together with its account posting.
+                amount_paid: Math.max(0, Number(amount_paid || 0) - (newPayment?.amount || 0)),
                 payment_option: ['none', 'half', 'full', 'custom'].includes(payment_option) ? payment_option : 'none',
-                payment_method: ['cash', 'card', 'bank_transfer', 'online'].includes(payment_method) ? payment_method : null,
+                payment_method: newPayment ? null : ['cash', 'card', 'bank_transfer', 'online'].includes(payment_method) ? payment_method : null,
                 payment_notes: payment_notes || null,
-                payment_status: payment_status === 'paid' ? 'paid' : 'unpaid',
+                payment_status: !newPayment && payment_status === 'paid' ? 'paid' : 'unpaid',
                 coupon_id: coupon_id || null,
                 coupon_code: coupon_code || null,
                 coupon_discount_amount: Math.max(0, Number(coupon_discount_amount || 0)),
@@ -396,7 +499,14 @@ export async function POST(request: Request) {
             .single();
 
         if (error) throw error;
+        await saveBillTotalLkr(data.id, bill_total_lkr);
+        await saveLockedUsdRate(data.id, usd_to_lkr_rate);
         if (data.status === 'pending') await syncChaletBookingNotifications();
+        if (newPayment) {
+            const paymentError = await recordNewPayment(data.id, newPayment, tokenPayload.userId || null, payment_status === 'paid');
+            if (paymentError) return NextResponse.json({ booking: data, payment_error: paymentError }, { status: 201 });
+            return NextResponse.json({ booking: (await fetchBookingWithRelations(data.id)) || data }, { status: 201 });
+        }
         return NextResponse.json({ booking: data }, { status: 201 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -408,7 +518,8 @@ export async function PUT(request: Request) {
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        const tokenPayload = await verifyToken(token);
+        if (!tokenPayload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
         const {
@@ -449,9 +560,20 @@ export async function PUT(request: Request) {
             status,
             special_requests,
             notes,
+            assign_only,
+            new_payment_amount,
+            new_payment_method,
+            bill_total_lkr,
+            usd_to_lkr_rate,
         } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        const newPayment = parseNewPayment(new_payment_amount, new_payment_method);
+        if (newPayment) {
+            const setupError = await newPaymentSetupError(newPayment.method);
+            if (setupError) return NextResponse.json({ error: setupError }, { status: 400 });
+        }
 
         const { data: currentBooking, error: currentBookingError } = await supabase
             .from('chalet_bookings')
@@ -518,7 +640,11 @@ export async function PUT(request: Request) {
             : currentBooking.room_guests || {};
         const effectiveRoomIdForLimits = updateRoomIds[0] || null;
         const effectiveCategoryIdForLimits = room_category_id !== undefined ? room_category_id : currentBooking.room_category_id;
-        const limitError = updateRoomIds.length > 0
+        // The Assign Chalet Room dialog only checks whether a chalet is already
+        // booked for the stay dates, so guest limits are not enforced there.
+        const limitError = assign_only === true
+            ? null
+            : updateRoomIds.length > 0
             ? await validateRoomGuests(updateRoomIds, effectiveRoomGuests)
             : await validateGuestLimits({
                 roomId: effectiveRoomIdForLimits || null,
@@ -551,7 +677,7 @@ export async function PUT(request: Request) {
             updatePayload.room_ids = updateRoomIds;
             updatePayload.room_id = updateRoomIds[0] || null;
         }
-        if (room_allocations !== undefined && Array.isArray(room_allocations)) updatePayload.room_allocations = normalizedAllocations;
+        if (room_allocations !== undefined && Array.isArray(room_allocations)) updatePayload.room_allocations = keepLockedRoomRates(normalizedAllocations, currentBooking.room_allocations);
         if (room_packages !== undefined && room_packages && typeof room_packages === 'object') updatePayload.room_packages = room_packages;
         if (room_guests !== undefined && room_guests && typeof room_guests === 'object') updatePayload.room_guests = room_guests;
         if (rate_per_night !== undefined) updatePayload.rate_per_night = rate_per_night;
@@ -561,11 +687,13 @@ export async function PUT(request: Request) {
         if (vat_currency !== undefined && ['LKR', 'USD', 'both'].includes(vat_currency)) updatePayload.vat_currency = vat_currency;
         if (sscl_pct !== undefined) updatePayload.sscl_pct = sscl_pct;
         if (sscl_currency !== undefined && ['LKR', 'USD', 'both'].includes(sscl_currency)) updatePayload.sscl_currency = sscl_currency;
-        if (amount_paid !== undefined) updatePayload.amount_paid = Math.max(0, Number(amount_paid || 0));
+        // With a new payment, the amount, method and paid status are applied by
+        // record_chalet_booking_payment after this update, with the account posting.
+        if (amount_paid !== undefined) updatePayload.amount_paid = Math.max(0, Number(amount_paid || 0) - (newPayment?.amount || 0));
         if (payment_option !== undefined && ['none', 'half', 'full', 'custom'].includes(payment_option)) updatePayload.payment_option = payment_option;
-        if (payment_method !== undefined) updatePayload.payment_method = ['cash', 'card', 'bank_transfer', 'online'].includes(payment_method) ? payment_method : null;
+        if (payment_method !== undefined && !newPayment) updatePayload.payment_method = ['cash', 'card', 'bank_transfer', 'online'].includes(payment_method) ? payment_method : null;
         if (payment_notes !== undefined) updatePayload.payment_notes = payment_notes || null;
-        if (payment_status !== undefined && ['unpaid', 'paid'].includes(payment_status)) updatePayload.payment_status = payment_status;
+        if (payment_status !== undefined && ['unpaid', 'paid'].includes(payment_status) && !(newPayment && payment_status === 'paid')) updatePayload.payment_status = payment_status;
         if (coupon_id !== undefined) updatePayload.coupon_id = coupon_id || null;
         if (coupon_code !== undefined) updatePayload.coupon_code = coupon_code || null;
         if (coupon_discount_amount !== undefined) updatePayload.coupon_discount_amount = Math.max(0, Number(coupon_discount_amount || 0));
@@ -599,8 +727,15 @@ export async function PUT(request: Request) {
             .single();
 
         if (error) throw error;
+        await saveBillTotalLkr(id, bill_total_lkr);
+        await saveLockedUsdRate(id, usd_to_lkr_rate);
         if (currentBooking.status !== data.status && (currentBooking.status === 'pending' || data.status === 'pending')) {
             await syncChaletBookingNotifications();
+        }
+        if (newPayment) {
+            const paymentError = await recordNewPayment(id, newPayment, tokenPayload.userId || null, payment_status === 'paid');
+            if (paymentError) return NextResponse.json({ booking: data, payment_error: paymentError }, { status: 200 });
+            return NextResponse.json({ booking: (await fetchBookingWithRelations(id)) || data }, { status: 200 });
         }
         return NextResponse.json({ booking: data }, { status: 200 });
     } catch (error: any) {
@@ -613,7 +748,8 @@ export async function DELETE(request: Request) {
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
         if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        const tokenPayload = await verifyToken(token);
+        if (!tokenPayload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');

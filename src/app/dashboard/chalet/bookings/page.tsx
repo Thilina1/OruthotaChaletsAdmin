@@ -48,9 +48,11 @@ import { usePagination } from '@/hooks/use-pagination';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar } from '@/components/ui/calendar';
 import type { ChaletBooking, ChaletPackage, ChaletRoom, ChaletRate, ChaletBookingStatus, ChaletRoomCategory, ChaletCoupon } from '@/lib/types';
-import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight, History } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
+import { chaletBillLines, chaletPaidLkr, type ChaletPaymentHistoryItem } from '@/lib/chalet-billing';
+import { parseBookingPaymentOption, parseRoomTextDetails, roomTextDetailsAt } from '@/lib/chalet-room-details';
 
 const statusColors: Record<ChaletBookingStatus, string> = {
     pending: 'bg-orange-100 text-orange-800 border-orange-200',
@@ -104,9 +106,19 @@ const emptyForm = {
     sscl_currency: 'both' as 'LKR' | 'USD' | 'both',
     status: 'pending' as ChaletBookingStatus,
     payment_option: 'none' as 'none' | 'half' | 'full' | 'custom',
-    payment_amount: 0,
-    payment_method: 'cash' as 'cash' | 'card' | 'bank_transfer' | 'online',
+    payment_amount: '',
+    payment_method: 'cash' as 'cash' | 'card' | 'online',
     payment_notes: '',
+    // Payment already recorded on the booking (LKR). Read-only in the form;
+    // the payment selector only adds a new payment on top of it.
+    already_paid: 0,
+    existing_payment_method: null as string | null,
+    // Price lock for an existing booking (LKR): prices it was made with.
+    // A room keeps its locked rate while its room type and package are unchanged.
+    locked_usd_to_lkr_rate: 0,
+    locked_room_rates: {} as Record<string, { rateLkr: number; package_id: string; room_category_id: string }>,
+    locked_coupon: null as null | { coupon_id: string; amountLkr: number; subtotalLkr: number },
+    existing_payment_option: 'none' as 'none' | 'half' | 'full' | 'custom',
     special_requests: '',
     notes: '',
 };
@@ -121,7 +133,7 @@ const defaultBillSettings = {
 };
 
 function formatCurrency(n: number) {
-    return n.toLocaleString('en-LK', { minimumFractionDigits: 2 });
+    return n.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatBillAmount(amountLkr: number, currency: 'LKR' | 'USD', usdToLkrRate: number) {
@@ -238,6 +250,11 @@ export default function ChaletBookingsPage() {
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
 
+    // Payment history of the booking being edited.
+    const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
+    const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+    const [paymentHistory, setPaymentHistory] = useState<{ payments: ChaletPaymentHistoryItem[]; total_lkr: number; paid_lkr: number; balance_lkr: number } | null>(null);
+
     // Checked-In Guests tab
     const [checkedInSearch, setCheckedInSearch] = useState('');
     const [checkedInDate, setCheckedInDate] = useState('');
@@ -252,17 +269,28 @@ export default function ChaletBookingsPage() {
     const fetchAll = useCallback(async () => {
         setLoading(true);
         try {
-            const [bRes, pRes, rRes, rateRes, catRes, couponRes, settingsRes] = await Promise.all([
-                fetch('/api/chalet/bookings'),
-                fetch('/api/chalet/packages'),
-                fetch('/api/chalet/rooms'),
-                fetch('/api/chalet/rates'),
-                fetch('/api/chalet/room-categories'),
-                fetch('/api/chalet/coupons'),
-                fetch('/api/admin/app-settings?key=chalet_bill_settings').catch(() => null),
-            ]);
+            const loadJson = async (url: string, label: string) => {
+                const response = await fetch(url);
+                const text = await response.text();
+                let data: any = {};
+                try {
+                    data = text ? JSON.parse(text) : {};
+                } catch {
+                    throw new Error(`${label} returned an invalid response.`);
+                }
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || `${label} failed to load.`);
+                }
+                return data;
+            };
             const [bData, pData, rData, rateData, catData, couponData, settingsData] = await Promise.all([
-                bRes.json(), pRes.json(), rRes.json(), rateRes.json(), catRes.json(), couponRes.json(), settingsRes ? settingsRes.json() : Promise.resolve({ value: null }),
+                loadJson('/api/chalet/bookings', 'Bookings'),
+                loadJson('/api/chalet/packages', 'Packages'),
+                loadJson('/api/chalet/rooms', 'Rooms'),
+                loadJson('/api/chalet/rates', 'Rates'),
+                loadJson('/api/chalet/room-categories', 'Room categories'),
+                loadJson('/api/chalet/coupons', 'Coupons'),
+                loadJson('/api/admin/app-settings?key=chalet_bill_settings', 'Bill settings').catch(() => ({ value: null })),
             ]);
             setBookings(bData.bookings || []);
             setPackages(pData.packages || []);
@@ -271,8 +299,8 @@ export default function ChaletBookingsPage() {
             setRoomCategories(catData.categories || []);
             setCoupons(couponData.coupons || []);
             if (settingsData.value) setBillDefaults({ ...defaultBillSettings, ...settingsData.value });
-        } catch {
-            toast({ title: 'Error', description: 'Failed to load data', variant: 'destructive' });
+        } catch (error: any) {
+            toast({ title: 'Error', description: error.message || 'Failed to load data', variant: 'destructive' });
         } finally {
             setLoading(false);
         }
@@ -313,15 +341,38 @@ export default function ChaletBookingsPage() {
     })();
 
     const roomSelections = form.room_selections;
+    const roomTextDetails = parseRoomTextDetails(form.special_requests);
+    const websitePaymentOption = parseBookingPaymentOption(form.special_requests);
     const selectedRoomIds = roomSelections.map(selection => selection.room_id).filter(Boolean);
     const selectedRooms = selectedRoomIds.map(id => rooms.find(room => room.id === id)).filter(Boolean) as ChaletRoom[];
     const selectedRoom = selectedRooms[0];
-    const selectedRoomNightlyTotal = selectedRooms.length > 0
-        ? roomSelections.reduce((sum, selection) => {
-            const room = rooms.find(item => item.id === selection.room_id);
-            if (!room) return sum;
-            return sum + rateForPackageAndCategory(rates, selection.package_id, room.category_id || selection.room_category_id, form.nationality);
-        }, 0)
+    // Price every room slot, including slots that have a category/package but
+    // no chalet assigned yet, so multi-room bookings aren't under-counted.
+    const pricedRoomSelections = roomSelections.filter(selection => selection.package_id);
+    // Exchange rate locked on the booking (0 for a new booking: current rates).
+    const lockedUsdRate = Number(form.locked_usd_to_lkr_rate || 0);
+    // A room's current price in LKR; for USD bookings with a locked rate the
+    // USD price is converted at that locked rate.
+    const currentRoomRateLkr = (packageId: string, categoryId?: string) => {
+        const rateRecord = findRateForPackageAndCategory(rates, packageId, categoryId);
+        if (!rateRecord) return 0;
+        const lkr = getLkrRateForNationality(rateRecord, form.nationality);
+        const recordRate = Number(rateRecord.usd_to_lkr_rate || 0);
+        return form.nationality === 'Non Sri Lankan' && lockedUsdRate > 0 && recordRate > 0 && Number(rateRecord.usd_rate_per_night || 0) > 0
+            ? lkr / recordRate * lockedUsdRate
+            : lkr;
+    };
+    const roomRateFor = (selection: typeof roomSelections[number]) => {
+        const room = rooms.find(item => item.id === selection.room_id);
+        const categoryId = room?.category_id || selection.room_category_id;
+        const lock = form.locked_room_rates[selection.id];
+        if (lock && lock.package_id === selection.package_id && lock.room_category_id === categoryId) return { rate: lock.rateLkr, locked: true };
+        return { rate: currentRoomRateLkr(selection.package_id, categoryId), locked: false };
+    };
+    const pricesLocked = Object.keys(form.locked_room_rates).length > 0;
+    const anyRoomRepriced = pricesLocked && pricedRoomSelections.some(selection => !roomRateFor(selection).locked);
+    const selectedRoomNightlyTotal = pricedRoomSelections.length > 0
+        ? pricedRoomSelections.reduce((sum, selection) => sum + roomRateFor(selection).rate, 0)
         : form.rate_per_night;
     const selectedRoomRateRows = roomSelections
         .map(selection => {
@@ -340,10 +391,24 @@ export default function ChaletBookingsPage() {
         };
     })
         .filter(Boolean) as { room: ChaletRoom; selection: typeof roomSelections[number]; categoryName: string; packageName: string; rate: number; usdToLkrRate: number }[];
+    const breakdownRateRows = pricedRoomSelections.map(selection => {
+        const room = rooms.find(item => item.id === selection.room_id);
+        const categoryId = room?.category_id || selection.room_category_id;
+        const rateRecord = findRateForPackageAndCategory(rates, selection.package_id, categoryId);
+        return {
+            key: selection.id,
+            roomLabel: room ? `Chalet ${room.room_number}` : 'Unassigned room',
+            categoryName: roomCategories.find(category => category.id === categoryId)?.name || 'No category',
+            packageName: packages.find(pkg => pkg.id === selection.package_id)?.name || '—',
+            rate: roomRateFor(selection).rate,
+            locked: roomRateFor(selection).locked,
+            usdToLkrRate: lockedUsdRate || Number(rateRecord?.usd_to_lkr_rate || 0),
+        };
+    });
     const subtotal = selectedRoomNightlyTotal * nights;
     const selectedRoomCategory = roomCategories.find(category => category.id === form.room_category_id);
     const selectedRate = findRateForPackageAndCategory(rates, form.package_id, form.room_category_id);
-    const billUsdToLkrRate = selectedRoomRateRows.find(row => row.usdToLkrRate > 0)?.usdToLkrRate || Number(selectedRate?.usd_to_lkr_rate || 0);
+    const billUsdToLkrRate = lockedUsdRate || breakdownRateRows.find(row => row.usdToLkrRate > 0)?.usdToLkrRate || selectedRoomRateRows.find(row => row.usdToLkrRate > 0)?.usdToLkrRate || Number(selectedRate?.usd_to_lkr_rate || 0);
     const billCurrency = customerBillCurrency(form.nationality);
     const activeCoupons = coupons.filter(coupon => {
         const today = new Date().toISOString().slice(0, 10);
@@ -367,24 +432,45 @@ export default function ChaletBookingsPage() {
             ? subtotal * Number(selectedCoupon.discount_value || 0) / 100
             : Number(selectedCoupon.discount_value || 0)
         : 0;
-    const couponDiscountAmount = Math.min(
+    const calculatedCouponDiscount = Math.min(
         subtotal,
         selectedCoupon?.discount_type === 'percentage' && Number(selectedCoupon.max_discount_amount || 0) > 0
             ? Math.min(rawCouponDiscount, Number(selectedCoupon.max_discount_amount || 0))
             : rawCouponDiscount
     );
+    // The coupon discount stays as booked while the coupon and room prices are unchanged.
+    const couponDiscountAmount = form.locked_coupon
+        && form.locked_coupon.coupon_id === (form.coupon_id || '')
+        && Math.abs(subtotal - form.locked_coupon.subtotalLkr) < 0.01
+        ? Math.min(subtotal, form.locked_coupon.amountLkr)
+        : calculatedCouponDiscount;
     const discountedSubtotal = Math.max(0, subtotal - couponDiscountAmount);
     const scAmount = chargeApplies(form.service_charge_currency, billCurrency) ? discountedSubtotal * form.service_charge_pct / 100 : 0;
     const vatAmount = chargeApplies(form.vat_currency, billCurrency) ? discountedSubtotal * form.vat_pct / 100 : 0;
     const ssclAmount = chargeApplies(form.sscl_currency, billCurrency) ? discountedSubtotal * form.sscl_pct / 100 : 0;
     const grandTotal = discountedSubtotal + scAmount + vatAmount + ssclAmount;
-    const resolvedPaymentAmount = form.payment_option === 'full'
-        ? grandTotal
-        : form.payment_option === 'half'
-            ? grandTotal / 2
-            : form.payment_option === 'custom'
-                ? Math.min(Math.max(0, Number(form.payment_amount || 0)), grandTotal)
-                : 0;
+    const alreadyPaidAmount = Math.max(0, Number(form.already_paid || 0));
+    const balanceBeforePayment = Math.max(0, grandTotal - alreadyPaidAmount);
+    // The payment amount is typed in the bill currency (USD for foreign guests)
+    // and converted to LKR, which is what the booking stores.
+    const paymentUsesUsd = billCurrency === 'USD' && billUsdToLkrRate > 0;
+    // The form works in LKR; bookings store prices in their own currency.
+    const toBookingCurrencyAmount = (amountLkr: number) => (
+        paymentUsesUsd ? Math.round(amountLkr / billUsdToLkrRate * 100) / 100 : amountLkr
+    );
+    const toPaymentInputAmount = (amountLkr: number) => paymentUsesUsd ? amountLkr / billUsdToLkrRate : amountLkr;
+    const paymentInputCurrency = paymentUsesUsd ? 'USD' : 'LKR';
+    const balanceBeforePaymentInput = Math.round(toPaymentInputAmount(balanceBeforePayment) * 100) / 100;
+    const enteredPaymentAmount = Math.max(0, Number(form.payment_amount || 0));
+    // Entering the shown (rounded) balance settles it fully, without leaving
+    // a few cents behind from currency rounding.
+    const payNowAmount = enteredPaymentAmount <= 0
+        ? 0
+        : enteredPaymentAmount >= balanceBeforePaymentInput - 0.005
+            ? balanceBeforePayment
+            : paymentUsesUsd ? enteredPaymentAmount * billUsdToLkrRate : enteredPaymentAmount;
+    // Total paid on the booking: the existing payment is never reduced here.
+    const resolvedPaymentAmount = alreadyPaidAmount + payNowAmount;
     const paymentBalance = Math.max(0, grandTotal - resolvedPaymentAmount);
     const appliedChargeRows = [
         { label: 'Service Charge', pct: form.service_charge_pct, appliesTo: form.service_charge_currency, amount: scAmount },
@@ -402,7 +488,9 @@ export default function ChaletBookingsPage() {
     const isRoomBooked = (roomId: string, checkIn: string, checkOut: string, excludeId?: string | null) => {
         if (!checkIn || !checkOut) return false;
         return bookings.some(b =>
-            (b.room_id === roomId || (Array.isArray(b.room_ids) && b.room_ids.includes(roomId))) &&
+            (b.room_id === roomId ||
+                (Array.isArray(b.room_ids) && b.room_ids.includes(roomId)) ||
+                (Array.isArray(b.room_allocations) && b.room_allocations.some(allocation => allocationValue(allocation as Record<string, any>, 'roomId', 'room_id') === roomId))) &&
             b.status !== 'cancelled' &&
             b.id !== excludeId &&
             b.check_in_date < checkOut &&
@@ -410,37 +498,15 @@ export default function ChaletBookingsPage() {
         );
     };
 
-    const getRoomAvailability = (
-        room: ChaletRoom,
-        checkIn: string,
-        checkOut: string,
-        excludeId?: string | null,
-        guests = { adults: form.adults, children: form.children }
-    ) => {
-        if (!checkIn || !checkOut) {
-            return { available: room.status === 'available', label: 'Select dates to check availability' };
-        }
+    // A chalet is selectable whenever no other booking holds it for the stay
+    // dates. Room status is ignored, and guest limits are validated per room
+    // separately (guestLimitErrors) using each room's own guest numbers.
+    const getRoomDateAvailability = (room: ChaletRoom, checkIn: string, checkOut: string, excludeId?: string | null) => (
+        isRoomBooked(room.id, checkIn, checkOut, excludeId)
+            ? { available: false, label: 'Booked for selected dates' }
+            : { available: true, label: 'Available for selected dates' }
+    );
 
-        const roomCategory = roomCategories.find(category => category.id === room.category_id);
-        const roomMaxAdults = room.max_adults ?? roomCategory?.max_adults ?? selectedRoomCategory?.max_adults;
-        const roomMaxChildren = room.max_children ?? roomCategory?.max_children ?? selectedRoomCategory?.max_children;
-        const roomMaxGuests = room.max_guests ?? roomCategory?.max_guests ?? selectedRoomCategory?.max_guests;
-        if (roomMaxAdults != null && guests.adults > roomMaxAdults) return { available: false, label: `Max ${roomMaxAdults} adults` };
-        if (roomMaxChildren != null && guests.children > roomMaxChildren) return { available: false, label: `Max ${roomMaxChildren} children` };
-        if (roomMaxGuests != null && guests.adults + guests.children > roomMaxGuests) return { available: false, label: `Max ${roomMaxGuests} guests` };
-
-        const booked = isRoomBooked(room.id, checkIn, checkOut, excludeId);
-        if (booked) return { available: false, label: 'Not available for selected dates' };
-        if (room.status !== 'available') return { available: false, label: room.status };
-        return { available: true, label: 'Available for selected dates' };
-    };
-
-    const eligibleRooms = rooms;
-    const roomAvailability = eligibleRooms.map(room => ({
-        room,
-        availability: getRoomAvailability(room, form.check_in_date, form.check_out_date, editingId),
-    }));
-    const availableRoomCount = roomAvailability.filter(item => item.availability.available).length;
     const getRoomGuestLimits = (room: ChaletRoom) => {
         const roomCategory = roomCategories.find(category => category.id === room.category_id);
         return {
@@ -539,13 +605,13 @@ export default function ChaletBookingsPage() {
                 room,
                 availability: selectedInOtherRows.has(room.id)
                     ? { available: false, label: 'Already selected in this booking' }
-                    : getRoomAvailability(room, form.check_in_date, form.check_out_date, editingId),
+                    : getRoomDateAvailability(room, form.check_in_date, form.check_out_date, editingId),
             }));
     };
 
     useEffect(() => {
         if (selectedRoomIds.length === 0 || !form.check_in_date || !form.check_out_date) return;
-        const unavailableRoom = selectedRooms.find(room => !getRoomAvailability(room, form.check_in_date, form.check_out_date, editingId).available);
+        const unavailableRoom = selectedRooms.find(room => !getRoomDateAvailability(room, form.check_in_date, form.check_out_date, editingId).available);
         if (unavailableRoom) {
             setForm(prev => {
                 const room_selections = prev.room_selections.filter(selection => selection.room_id !== unavailableRoom.id);
@@ -556,11 +622,29 @@ export default function ChaletBookingsPage() {
             });
             toast({
                 title: 'Room unavailable',
-                description: `Chalet ${unavailableRoom.room_number} is unavailable. Please choose another room.`,
+                description: `Chalet ${unavailableRoom.room_number} is already booked by another guest for these dates. Please choose another room.`,
                 variant: 'destructive',
             });
         }
     }, [form.check_in_date, form.check_out_date, form.room_selections, rooms, roomCategories, bookings, editingId, toast]);
+
+    const openPaymentHistory = async () => {
+        if (!editingId) return;
+        setPaymentHistoryOpen(true);
+        setPaymentHistoryLoading(true);
+        setPaymentHistory(null);
+        try {
+            const res = await fetch(`/api/chalet/bookings/payments?booking_id=${encodeURIComponent(editingId)}`, { cache: 'no-store' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            setPaymentHistory(data);
+        } catch (e: any) {
+            toast({ title: 'Payment history unavailable', description: e.message, variant: 'destructive' });
+            setPaymentHistoryOpen(false);
+        } finally {
+            setPaymentHistoryLoading(false);
+        }
+    };
 
     const openNew = () => {
         setEditingId(null);
@@ -576,10 +660,15 @@ export default function ChaletBookingsPage() {
             .filter(Boolean);
         const editRoomIds = b.room_ids?.length ? b.room_ids : allocationRoomIds.length ? allocationRoomIds : b.room_id ? [b.room_id] : [];
         const editRoomCount = Math.max(1, allocationRows.length || editRoomIds.length);
+        // An allocation without its own room may only take a room from room_ids
+        // that no other allocation already holds, otherwise one chalet would be
+        // loaded (and priced) twice.
+        const claimedRoomIds = new Set<string>(allocationRoomIds);
+        const spareRoomIds = editRoomIds.filter(roomId => !claimedRoomIds.has(roomId));
         const editRoomSelections = (allocationRows.length > 0 ? allocationRows : editRoomIds).map((row, index) => {
             const allocation = typeof row === 'string' ? null : row as Record<string, any>;
             const roomId = allocation
-                ? allocationValue(allocation, 'roomId', 'room_id') || editRoomIds[index] || ''
+                ? allocationValue(allocation, 'roomId', 'room_id') || spareRoomIds.shift() || ''
                 : row as string;
             const room = rooms.find(item => item.id === roomId);
             const guests = b.room_guests?.[roomId] || {
@@ -589,12 +678,55 @@ export default function ChaletBookingsPage() {
             return {
                 id: `${roomId || 'allocation'}-${index}`,
                 room_category_id: room?.category_id || (allocation ? allocationValue(allocation, 'roomCategoryId', 'room_category_id') : '') || b.room_category_id || '',
-                package_id: b.room_packages?.[roomId] || (allocation ? allocationValue(allocation, 'packageId', 'package_id') : '') || b.package_id || '',
+                package_id: (allocation ? allocationValue(allocation, 'packageId', 'package_id') : '') || (roomId ? b.room_packages?.[roomId] : '') || b.package_id || '',
                 room_id: roomId,
                 adults: guests.adults,
                 children: guests.children,
             };
         });
+        // Website (PayHere) payments are recorded in the booking currency, while
+        // the form works in LKR. Convert them so an online payment shows as paid.
+        const onlineBooking = b as ChaletBooking & { payhere_amount?: number | null; payhere_currency?: string | null };
+        const onlinePaidAmount = Number(onlineBooking.payhere_amount || 0);
+        const onlinePaidCurrency = String(onlineBooking.payhere_currency || b.currency || customerBillCurrency(b.nationality)).toUpperCase();
+        const firstSelection = editRoomSelections[0];
+        // The exchange rate locked on the booking, else today's rate.
+        const lockedBookingRate = Number((b as ChaletBooking & { usd_to_lkr_rate?: number | null }).usd_to_lkr_rate || 0);
+        const onlineExchangeRate = lockedBookingRate || Number(findRateForPackageAndCategory(rates, firstSelection?.package_id || b.package_id || '', firstSelection?.room_category_id || b.room_category_id || '')?.usd_to_lkr_rate || 0);
+        const onlinePaidLkr = onlinePaidCurrency === 'USD' ? (onlineExchangeRate > 0 ? onlinePaidAmount * onlineExchangeRate : 0) : onlinePaidAmount;
+        const editPaidAmount = Math.max(Number(b.amount_paid || 0), onlinePaidLkr);
+        const savedPaymentOption = b.payment_option as 'none' | 'half' | 'full' | 'custom' | undefined;
+
+        // Price lock: each room's nightly price as booked, in LKR. Uses the
+        // per-room prices saved with the booking, else splits the booked
+        // nightly total across the rooms in proportion to their rates.
+        const bookingCurrency = b.currency || customerBillCurrency(b.nationality);
+        const toLkrAtBookingRate = (value: number) => bookingCurrency === 'USD' && onlineExchangeRate > 0 ? value * onlineExchangeRate : value;
+        const savedRoomRates = allocationRows.map(allocation => {
+            const value = (allocation as Record<string, any>).ratePerNight ?? (allocation as Record<string, any>).rate_per_night;
+            return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+        });
+        const bookedNightlyTotalLkr = toLkrAtBookingRate(Number(b.rate_per_night || 0));
+        const rateWeights = editRoomSelections.map(selection => {
+            const room = rooms.find(item => item.id === selection.room_id);
+            return selection.package_id ? rateForPackageAndCategory(rates, selection.package_id, room?.category_id || selection.room_category_id, b.nationality || '') : 0;
+        });
+        const pricedCount = editRoomSelections.filter(selection => selection.package_id).length;
+        const weightTotal = rateWeights.reduce((sum, weight) => sum + weight, 0);
+        const lockedRoomRatesLkr = editRoomSelections.map((selection, index) => {
+            if (savedRoomRates.length === editRoomSelections.length && savedRoomRates.every(value => value !== null)) return toLkrAtBookingRate(savedRoomRates[index] as number);
+            if (!selection.package_id) return 0;
+            return weightTotal > 0 ? bookedNightlyTotalLkr * rateWeights[index] / weightTotal : bookedNightlyTotalLkr / Math.max(1, pricedCount);
+        });
+        const hasBookedPrices = Number(b.rate_per_night || 0) > 0 || savedRoomRates.some(value => value !== null);
+        const lockedRoomRates = hasBookedPrices
+            ? Object.fromEntries(editRoomSelections
+                .map((selection, index) => [selection, lockedRoomRatesLkr[index]] as const)
+                .filter(([selection]) => selection.package_id)
+                .map(([selection, rateLkr]) => [selection.id, { rateLkr, package_id: selection.package_id, room_category_id: selection.room_category_id }]))
+            : {};
+        const editNights = Math.max(0, Math.round((new Date(b.check_out_date).getTime() - new Date(b.check_in_date).getTime()) / 86400000));
+        const lockedSubtotalLkr = editRoomSelections.reduce((sum, selection, index) => sum + (selection.package_id ? lockedRoomRatesLkr[index] : 0), 0) * editNights;
         setEditingId(b.id);
         setForm({
             customer_name: b.customer_name,
@@ -613,20 +745,32 @@ export default function ChaletBookingsPage() {
             room_packages: b.room_packages || Object.fromEntries(editRoomIds.map(roomId => [roomId, b.package_id || ''])),
             room_guests: b.room_guests || Object.fromEntries(editRoomIds.map((roomId, index) => [roomId, index === 0 ? { adults: b.adults ?? 1, children: b.children ?? 0 } : { adults: 1, children: 0 }])),
             room_selections: editRoomSelections.length > 0 ? editRoomSelections : [createBlankRoomSelection()],
-            rate_per_night: Number(b.rate_per_night || 0) / editRoomCount,
+            // Stored in the booking currency; the form works in LKR.
+            rate_per_night: ((b.currency || customerBillCurrency(b.nationality)) === 'USD' && onlineExchangeRate > 0
+                ? Number(b.rate_per_night || 0) * onlineExchangeRate
+                : Number(b.rate_per_night || 0)) / editRoomCount,
             currency: b.currency || 'LKR',
             coupon_id: b.coupon_id || '',
             coupon_code_input: b.coupon_code || '',
-            service_charge_pct: b.service_charge_pct,
+            // Charges are locked as saved on the booking.
+            service_charge_pct: b.service_charge_pct ?? billDefaults.service_charge_pct,
             service_charge_currency: b.service_charge_currency || 'both',
-            vat_pct: b.vat_pct ?? 18,
+            vat_pct: b.vat_pct ?? billDefaults.vat_pct,
             vat_currency: b.vat_currency || 'both',
-            sscl_pct: b.sscl_pct ?? 2.5,
+            sscl_pct: b.sscl_pct ?? billDefaults.sscl_pct,
             sscl_currency: b.sscl_currency || 'both',
+            locked_usd_to_lkr_rate: onlineExchangeRate,
+            locked_room_rates: lockedRoomRates,
+            locked_coupon: hasBookedPrices
+                ? { coupon_id: b.coupon_id || '', amountLkr: toLkrAtBookingRate(Number(b.coupon_discount_amount || 0)), subtotalLkr: lockedSubtotalLkr }
+                : null,
             status: b.status,
-            payment_option: (b.payment_option as 'none' | 'half' | 'full' | 'custom') || (Number(b.amount_paid || 0) > 0 ? 'custom' : 'none'),
-            payment_amount: Number(b.amount_paid || 0),
-            payment_method: (b.payment_method as 'cash' | 'card' | 'bank_transfer' | 'online') || 'cash',
+            payment_option: 'none',
+            payment_amount: '',
+            already_paid: editPaidAmount,
+            existing_payment_method: b.payment_method || (onlinePaidLkr > 0 ? 'online' : null),
+            existing_payment_option: savedPaymentOption || 'none',
+            payment_method: b.payment_method === 'card' || b.payment_method === 'online' ? b.payment_method : 'cash',
             payment_notes: b.payment_notes || '',
             special_requests: b.special_requests || '',
             notes: b.notes || '',
@@ -681,7 +825,7 @@ export default function ChaletBookingsPage() {
             for (const roomId of selectedRoomIds) {
                 const room = rooms.find(item => item.id === roomId);
                 const availability = room
-                    ? getRoomAvailability(room, form.check_in_date, form.check_out_date, editingId)
+                    ? getRoomDateAvailability(room, form.check_in_date, form.check_out_date, editingId)
                     : { available: false, label: 'not available' };
                 if (!availability.available) {
                     toast({ title: 'Room unavailable', description: 'Please choose available chalet rooms for the selected dates.', variant: 'destructive' });
@@ -711,18 +855,32 @@ export default function ChaletBookingsPage() {
                     packageId: selection.package_id || null,
                     adults: selection.adults,
                     children: selection.children,
+                    // Room's nightly price locked with the booking (booking currency).
+                    ratePerNight: selection.package_id ? toBookingCurrencyAmount(roomRateFor(selection).rate) : null,
                 })),
+                // Exchange rate locked with the booking.
+                usd_to_lkr_rate: billUsdToLkrRate > 0 ? billUsdToLkrRate : null,
                 room_packages: Object.fromEntries(roomSelections.filter(selection => selection.room_id).map(selection => [selection.room_id, selection.package_id])),
                 room_guests: Object.fromEntries(roomSelections.filter(selection => selection.room_id).map(selection => [selection.room_id, { adults: selection.adults, children: selection.children }])),
-                rate_per_night: selectedRoomNightlyTotal,
+                // Stored in the booking's own currency (USD for foreign guests),
+                // the same as website bookings; bill_total_lkr keeps the LKR bill.
+                rate_per_night: toBookingCurrencyAmount(selectedRoomNightlyTotal),
                 coupon_id: selectedCoupon?.id || null,
                 coupon_code: selectedCoupon?.code || null,
-                coupon_discount_amount: couponDiscountAmount,
+                coupon_discount_amount: toBookingCurrencyAmount(couponDiscountAmount),
                 amount_paid: resolvedPaymentAmount,
-                payment_option: form.payment_option,
-                payment_method: resolvedPaymentAmount > 0 ? form.payment_method : null,
+                payment_option: payNowAmount > 0
+                    ? (alreadyPaidAmount <= 0 && payNowAmount >= grandTotal ? 'full' : 'custom')
+                    : (alreadyPaidAmount > 0 ? (form.existing_payment_option !== 'none' ? form.existing_payment_option : 'custom') : 'none'),
+                payment_method: payNowAmount > 0 ? form.payment_method : (alreadyPaidAmount > 0 ? form.existing_payment_method : null),
                 payment_notes: form.payment_notes || null,
                 payment_status: resolvedPaymentAmount >= grandTotal && grandTotal > 0 ? 'paid' : 'unpaid',
+                // Posted by the server to the Front Desk Card / Online Payment
+                // Account, or kept in Front Desk cash.
+                new_payment_amount: Math.round(payNowAmount * 100) / 100,
+                // Full bill in LKR, used by Front Desk settlement.
+                bill_total_lkr: Math.round(grandTotal * 100) / 100,
+                new_payment_method: form.payment_method,
                 ...(editingId ? { id: editingId } : {}),
             };
             const res = await fetch('/api/chalet/bookings', {
@@ -732,7 +890,11 @@ export default function ChaletBookingsPage() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            toast({ title: 'Success', description: editingId ? 'Booking updated' : 'Booking created' });
+            if (data.payment_error) {
+                toast({ title: 'Payment not recorded', description: `The booking was saved, but the payment was not recorded: ${data.payment_error}`, variant: 'destructive' });
+            } else {
+                toast({ title: 'Success', description: editingId ? 'Booking updated' : 'Booking created' });
+            }
             window.dispatchEvent(new Event('notifications-changed'));
             setDialogOpen(false);
             fetchAll();
@@ -765,7 +927,7 @@ export default function ChaletBookingsPage() {
             const selectedRoom = rooms.find(room => room.id === roomId);
             const slot = slots[index];
             const availability = selectedRoom
-                ? getRoomAvailability(selectedRoom, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id, { adults: slot.adults, children: slot.children })
+                ? getRoomDateAvailability(selectedRoom, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id)
                 : { available: false, label: 'not available' };
             if (!availability.available) {
                 toast({ title: 'Room unavailable', description: 'Please choose available chalet rooms for this booking date range.', variant: 'destructive' });
@@ -795,6 +957,7 @@ export default function ChaletBookingsPage() {
                     room_allocations: roomAllocations,
                     room_packages: Object.fromEntries(roomAllocations.map(allocation => [allocation.roomId, allocation.packageId])),
                     room_guests: Object.fromEntries(roomAllocations.map(allocation => [allocation.roomId, { adults: allocation.adults, children: allocation.children }])),
+                    assign_only: true,
                 }),
             });
             const data = await res.json();
@@ -878,23 +1041,13 @@ export default function ChaletBookingsPage() {
     const allBookingsPagination = usePagination(bookings, 20);
     const checkedInPagination = usePagination(checkedInGuests, 20);
 
-    const bookingBillTotal = (booking: ChaletBooking) => {
-        const subtotalAmount = Number(booking.subtotal ?? booking.rate_per_night * (booking.total_nights ?? booking.nights ?? 0));
-        const discountedSubtotalAmount = Math.max(0, subtotalAmount - Number(booking.coupon_discount_amount || 0));
-        const billCurrency = customerBillCurrency(booking.nationality);
-        const serviceCharge = chargeApplies(booking.service_charge_currency || 'both', billCurrency)
-            ? discountedSubtotalAmount * Number(booking.service_charge_pct || 0) / 100
-            : 0;
-        const vat = chargeApplies(booking.vat_currency || 'both', billCurrency)
-            ? discountedSubtotalAmount * Number(booking.vat_pct || 0) / 100
-            : 0;
-        const sscl = chargeApplies(booking.sscl_currency || 'both', billCurrency)
-            ? discountedSubtotalAmount * Number(booking.sscl_pct || 0) / 100
-            : 0;
-        return discountedSubtotalAmount + serviceCharge + vat + sscl;
-    };
+    // Bill in the booking currency, from the prices and charges locked on the booking.
+    const bookingBillTotal = (booking: ChaletBooking) => chaletBillLines(booking).total;
 
     const bookingUsdToLkrRate = (booking: ChaletBooking) => {
+        // The rate locked on the booking when it was made.
+        const lockedRate = Number((booking as ChaletBooking & { usd_to_lkr_rate?: number | null }).usd_to_lkr_rate || 0);
+        if (lockedRate > 0) return lockedRate;
         const roomCategoryId = booking.room_category_id || booking.room_allocations?.[0]?.roomCategoryId || (booking.room_allocations?.[0] as any)?.room_category_id || '';
         const packageId = booking.package_id || booking.room_allocations?.[0]?.packageId || (booking.room_allocations?.[0] as any)?.package_id || '';
         const matchingRate = rates.find(rate =>
@@ -919,16 +1072,32 @@ export default function ChaletBookingsPage() {
     const renderBookingBillAmount = (booking: ChaletBooking) => {
         const total = bookingBillTotal(booking);
         const currency = booking.currency || customerBillCurrency(booking.nationality);
+        const exchangeRate = bookingUsdToLkrRate(booking);
         if (currency !== 'USD') {
             return <span>LKR {formatCurrency(total)}</span>;
         }
 
-        const exchangeRate = bookingUsdToLkrRate(booking);
-        const lkrTotal = exchangeRate > 0 ? total * exchangeRate : Number(booking.grand_total || 0);
+        const lkrTotal = exchangeRate > 0 ? total * exchangeRate : total;
         return (
             <div className="space-y-0.5">
                 <div>USD {formatCurrency(total)}</div>
                 <div className="text-xs text-muted-foreground">LKR {formatCurrency(lkrTotal)}</div>
+            </div>
+        );
+    };
+
+    // Amount already paid on the booking (booking form payments or a website
+    // payment), shown in LKR and also in USD for foreign guests.
+    const renderBookingPaidAmount = (booking: ChaletBooking) => {
+        const paidLkr = chaletPaidLkr(booking, rates);
+        if (paidLkr <= 0) return <span className="text-muted-foreground">—</span>;
+        const currency = booking.currency || customerBillCurrency(booking.nationality);
+        const exchangeRate = bookingUsdToLkrRate(booking);
+        if (currency !== 'USD' || exchangeRate <= 0) return <span className="text-green-700">LKR {formatCurrency(paidLkr)}</span>;
+        return (
+            <div className="space-y-0.5 text-green-700">
+                <div>USD {formatCurrency(paidLkr / exchangeRate)}</div>
+                <div className="text-xs text-muted-foreground">LKR {formatCurrency(paidLkr)}</div>
             </div>
         );
     };
@@ -1109,6 +1278,7 @@ export default function ChaletBookingsPage() {
                                             <TableHead>Check Out</TableHead>
                                             <TableHead className="text-center">Nights</TableHead>
                                             <TableHead className="text-right">Grand Total</TableHead>
+                                            <TableHead className="text-right">Already Paid</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
@@ -1124,7 +1294,7 @@ export default function ChaletBookingsPage() {
                                             ))
                                         ) : bookings.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                                                     No bookings yet. Create your first booking.
                                                 </TableCell>
                                             </TableRow>
@@ -1149,6 +1319,7 @@ export default function ChaletBookingsPage() {
                                                     <TableCell className="text-sm">{b.check_out_date}</TableCell>
                                                     <TableCell className="text-center">{b.nights}</TableCell>
                                                     <TableCell className="text-right font-medium">{renderBookingBillAmount(b)}</TableCell>
+                                                    <TableCell className="text-right font-medium">{renderBookingPaidAmount(b)}</TableCell>
                                                     <TableCell>
                                                         <Badge className={`text-xs border ${statusColors[b.status]}`} variant="outline">
                                                             {statusLabels[b.status]}
@@ -1226,6 +1397,7 @@ export default function ChaletBookingsPage() {
                                             <TableHead>Check In</TableHead>
                                             <TableHead>Check Out</TableHead>
                                             <TableHead className="text-right">Bill</TableHead>
+                                            <TableHead className="text-right">Already Paid</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -1240,7 +1412,7 @@ export default function ChaletBookingsPage() {
                                             ))
                                         ) : checkedInGuests.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                                                     No checked-in guests match your filters.
                                                 </TableCell>
                                             </TableRow>
@@ -1262,6 +1434,7 @@ export default function ChaletBookingsPage() {
                                                     <TableCell className="text-sm">{b.check_in_date}</TableCell>
                                                     <TableCell className="text-sm">{b.check_out_date}</TableCell>
                                                     <TableCell className="text-right font-medium">{renderBookingBillAmount(b)}</TableCell>
+                                                    <TableCell className="text-right font-medium">{renderBookingPaidAmount(b)}</TableCell>
                                                     <TableCell className="text-right">
                                                         <Button size="sm" variant="outline" onClick={() => openActivities(b)}>
                                                             <ClipboardList className="mr-1.5 h-3 w-3" />
@@ -1447,6 +1620,9 @@ export default function ChaletBookingsPage() {
                                                 <div>
                                                     <h3 className="font-semibold">Rooms</h3>
                                                     <p className="text-sm text-muted-foreground">Add one row per chalet. Each row can use a different room type, package, and guest count.</p>
+                                                    {websitePaymentOption && (
+                                                        <p className="mt-1 text-xs text-blue-900"><span className="font-semibold">Payment option (all rooms):</span> {websitePaymentOption}</p>
+                                                    )}
                                                 </div>
                                                 <Button type="button" size="sm" onClick={addRoomSelection}>
                                                     <Plus className="mr-2 h-4 w-4" />
@@ -1481,7 +1657,7 @@ export default function ChaletBookingsPage() {
                                                                         <Label>Room Type</Label>
                                                                         <Select
                                                                             value={selection.room_category_id || undefined}
-                                                                            onValueChange={value => updateRoomSelection(selection.id, { room_category_id: value, room_id: '', adults: 1, children: 0 })}
+                                                                            onValueChange={value => updateRoomSelection(selection.id, { room_category_id: value, room_id: '' })}
                                                                         >
                                                                             <SelectTrigger><SelectValue placeholder="Select room type" /></SelectTrigger>
                                                                             <SelectContent>
@@ -1506,7 +1682,9 @@ export default function ChaletBookingsPage() {
                                                                         <Label>Available Room</Label>
                                                                         <Select value={selection.room_id || undefined} onValueChange={value => {
                                                                             const room = rooms.find(item => item.id === value);
-                                                                            updateRoomSelection(selection.id, { room_id: value, room_category_id: room?.category_id || selection.room_category_id, adults: 1, children: 0 });
+                                                                            // Keep the guest's entered adults/children; guest limits
+                                                                            // for the chosen chalet are checked separately.
+                                                                            updateRoomSelection(selection.id, { room_id: value, room_category_id: room?.category_id || selection.room_category_id });
                                                                         }}>
                                                                             <SelectTrigger><SelectValue placeholder="Select available room" /></SelectTrigger>
                                                                             <SelectContent>
@@ -1546,6 +1724,19 @@ export default function ChaletBookingsPage() {
                                                                             }}
                                                                         />
                                                                     </div>
+                                                                    {(() => {
+                                                                        // Child ages / bedding the guest entered on the website
+                                                                        // (kept in the booking's special requests).
+                                                                        const guestDetails = roomTextDetailsAt(roomTextDetails, index);
+                                                                        if (!guestDetails || (!guestDetails.childAges && !guestDetails.bedding && !guestDetails.arrivalTime)) return null;
+                                                                        return (
+                                                                            <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-900 md:col-span-2">
+                                                                                {guestDetails.childAges && <span><span className="font-semibold">Child ages:</span> {guestDetails.childAges}</span>}
+                                                                                {guestDetails.bedding && <span><span className="font-semibold">Bedding:</span> {guestDetails.bedding}</span>}
+                                                                                {guestDetails.arrivalTime && <span><span className="font-semibold">Arrival:</span> {guestDetails.arrivalTime}</span>}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                     <p className="text-xs text-muted-foreground md:col-span-2">
                                                                         {selection.room_id ? `Max ${limits.maxAdults} adult(s), ${limits.maxChildren} child(ren), ${limits.maxGuests} total guest(s).` : 'Select a room to apply its guest limits.'}
                                                                     </p>
@@ -1557,13 +1748,6 @@ export default function ChaletBookingsPage() {
                                             )}
                                         </div>
 
-                                        <div className="rounded-lg border bg-muted/30 p-4">
-                                            <div className="grid gap-3 text-sm sm:grid-cols-3">
-                                                <div><p className="text-muted-foreground">Nights</p><p className="text-xl font-bold">{nights}</p></div>
-                                                <div><p className="text-muted-foreground">Available Chalets</p><p className="text-xl font-bold">{canContinueStay ? availableRoomCount : '—'}</p></div>
-                                                <div><p className="text-muted-foreground">Rate / Room / Night</p><p className="text-xl font-bold">{formatBillAmount(form.rate_per_night || 0, billCurrency, billUsdToLkrRate)}</p></div>
-                                            </div>
-                                        </div>
                                     </div>
                                 )}
 
@@ -1642,35 +1826,51 @@ export default function ChaletBookingsPage() {
                                             </div>
                                         </div>
                                         <div className="rounded-lg border p-4">
-                                            <h3 className="font-semibold">Payment</h3>
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h3 className="font-semibold">Payment</h3>
+                                                {editingId && (
+                                                    <Button type="button" variant="outline" size="sm" onClick={openPaymentHistory}>
+                                                        <History className="mr-1 h-4 w-4" />
+                                                        Payment History
+                                                    </Button>
+                                                )}
+                                            </div>
+                                            {alreadyPaidAmount > 0 && (
+                                                <div className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                                                    <p className="font-semibold">Already Paid: {formatBillAmount(alreadyPaidAmount, billCurrency, billUsdToLkrRate)}{form.existing_payment_method ? ` · ${form.existing_payment_method.replace('_', ' ')}` : ''}</p>
+                                                    <p className="text-xs">This payment is kept as is. Use the options below only to record an additional payment.</p>
+                                                </div>
+                                            )}
                                             <div className="mt-4 grid gap-4 md:grid-cols-2">
                                                 <div className="space-y-1">
-                                                    <Label>Payment Amount</Label>
-                                                    <Select value={form.payment_option} onValueChange={value => setForm(p => ({ ...p, payment_option: value as 'none' | 'half' | 'full' | 'custom' }))}>
-                                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="none">No payment</SelectItem>
-                                                            <SelectItem value="half">Half payment</SelectItem>
-                                                            <SelectItem value="full">Full payment</SelectItem>
-                                                            <SelectItem value="custom">Custom amount</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
+                                                    <Label>{alreadyPaidAmount > 0 ? 'Additional Payment' : 'Payment Amount'}</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min={0}
+                                                        max={balanceBeforePaymentInput}
+                                                        step={0.01}
+                                                        placeholder="0.00"
+                                                        disabled={balanceBeforePayment <= 0}
+                                                        value={form.payment_amount}
+                                                        onChange={e => {
+                                                            const value = e.target.value;
+                                                            setForm(p => ({ ...p, payment_amount: Number(value) > balanceBeforePaymentInput ? String(balanceBeforePaymentInput) : value }));
+                                                        }}
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {balanceBeforePayment > 0
+                                                            ? `Enter amount in ${paymentInputCurrency}. Balance: ${paymentInputCurrency} ${formatCurrency(balanceBeforePaymentInput)}`
+                                                            : 'Booking is fully paid.'}
+                                                    </p>
                                                 </div>
-                                                {form.payment_option === 'custom' && (
-                                                    <div className="space-y-1">
-                                                        <Label>Custom Amount</Label>
-                                                        <Input type="number" min={0} max={grandTotal} step={0.01} value={form.payment_amount} onChange={e => setForm(p => ({ ...p, payment_amount: parseFloat(e.target.value) || 0 }))} />
-                                                    </div>
-                                                )}
-                                                {resolvedPaymentAmount > 0 && (
+                                                {payNowAmount > 0 && (
                                                     <div className="space-y-1">
                                                         <Label>Payment Method</Label>
-                                                        <Select value={form.payment_method} onValueChange={value => setForm(p => ({ ...p, payment_method: value as 'cash' | 'card' | 'bank_transfer' | 'online' }))}>
+                                                        <Select value={form.payment_method} onValueChange={value => setForm(p => ({ ...p, payment_method: value as 'cash' | 'card' | 'online' }))}>
                                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                                             <SelectContent>
                                                                 <SelectItem value="cash">Cash</SelectItem>
                                                                 <SelectItem value="card">Card</SelectItem>
-                                                                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                                                                 <SelectItem value="online">Online</SelectItem>
                                                             </SelectContent>
                                                         </Select>
@@ -1681,8 +1881,11 @@ export default function ChaletBookingsPage() {
                                                     <Input value={form.payment_notes} onChange={e => setForm(p => ({ ...p, payment_notes: e.target.value }))} placeholder="Reference or notes" />
                                                 </div>
                                             </div>
-                                            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-                                                <div><p className="text-muted-foreground">Paid Now</p><p className="font-semibold">{formatBillAmount(resolvedPaymentAmount, billCurrency, billUsdToLkrRate)}</p></div>
+                                            <div className={`mt-4 grid gap-3 text-sm ${alreadyPaidAmount > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                                                {alreadyPaidAmount > 0 && (
+                                                    <div><p className="text-muted-foreground">Already Paid</p><p className="font-semibold">{formatBillAmount(alreadyPaidAmount, billCurrency, billUsdToLkrRate)}</p></div>
+                                                )}
+                                                <div><p className="text-muted-foreground">Paid Now</p><p className="font-semibold">{formatBillAmount(payNowAmount, billCurrency, billUsdToLkrRate)}</p></div>
                                                 <div><p className="text-muted-foreground">Balance</p><p className="font-semibold">{formatBillAmount(paymentBalance, billCurrency, billUsdToLkrRate)}</p></div>
                                                 <div><p className="text-muted-foreground">Payment Status</p><p className="font-semibold">{paymentBalance <= 0 && grandTotal > 0 ? 'Paid' : resolvedPaymentAmount > 0 ? 'Partially Paid' : 'Unpaid'}</p></div>
                                             </div>
@@ -1705,19 +1908,40 @@ export default function ChaletBookingsPage() {
                             </div>
 
                             <div className="rounded-lg border bg-muted/20 p-4">
-                                <h3 className="font-semibold">Price Breakdown</h3>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h3 className="font-semibold">Price Breakdown</h3>
+                                    {pricesLocked && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setForm(p => ({ ...p, locked_room_rates: {}, locked_coupon: null, locked_usd_to_lkr_rate: 0 }))}
+                                        >
+                                            Update to current rates
+                                        </Button>
+                                    )}
+                                </div>
+                                {pricesLocked && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Prices are locked as booked{lockedUsdRate > 0 && billCurrency === 'USD' ? ` (1 USD = LKR ${formatCurrency(lockedUsdRate)})` : ''}.
+                                        {anyRoomRepriced ? ' Rooms you changed use current rates.' : ' Changing a room\'s type or package reprices that room.'}
+                                    </p>
+                                )}
                                 {!form.nationality ? (
                                     <p className="mt-4 text-sm text-muted-foreground">Select guest nationality to view the relevant currency, rates, and charges.</p>
                                 ) : (
                                     <div className="mt-4 space-y-3 text-sm">
-                                        <div className="flex justify-between"><span className="text-muted-foreground">Rooms</span><span className="font-medium">{selectedRoomIds.length || '—'}</span></div>
+                                        <div className="flex justify-between"><span className="text-muted-foreground">Rooms</span><span className="font-medium">{breakdownRateRows.length || selectedRoomIds.length || '—'}</span></div>
                                         <div className="flex justify-between"><span className="text-muted-foreground">Nights</span><span className="font-medium">{nights}</span></div>
                                         <div className="flex justify-between"><span className="text-muted-foreground">Customer Currency</span><span className="font-medium">{billCurrency}</span></div>
-                                        {selectedRoomRateRows.length > 0 ? (
-                                            selectedRoomRateRows.map(row => (
-                                                <div key={row.room.id} className="flex justify-between gap-3">
-                                                    <span className="text-muted-foreground">Chalet {row.room.room_number} · {row.categoryName} · {row.packageName}</span>
-                                                    <span className="font-medium">{formatBillAmount(row.rate, billCurrency, billUsdToLkrRate)}</span>
+                                        {breakdownRateRows.length > 0 ? (
+                                            breakdownRateRows.map(row => (
+                                                <div key={row.key} className="flex justify-between gap-3">
+                                                    <span className="text-muted-foreground">
+                                                        {row.roomLabel} · {row.categoryName} · {row.packageName}
+                                                        {pricesLocked && !row.locked && <Badge variant="outline" className="ml-2 text-[10px]">current rate</Badge>}
+                                                    </span>
+                                                    <span className="font-medium">{formatBillAmount(row.rate, billCurrency, row.usdToLkrRate || billUsdToLkrRate)}</span>
                                                 </div>
                                             ))
                                         ) : (
@@ -1740,6 +1964,29 @@ export default function ChaletBookingsPage() {
                                         <div className="border-t pt-3 flex justify-between text-lg font-bold"><span>Grand Total</span><span>{formatBillAmount(grandTotal, billCurrency, billUsdToLkrRate)}</span></div>
                                         {billCurrency === 'USD' && (
                                             <p className="text-right text-xs text-muted-foreground">System total: LKR {formatCurrency(grandTotal)}</p>
+                                        )}
+                                        {resolvedPaymentAmount > 0 && (
+                                            <>
+                                                {alreadyPaidAmount > 0 && (
+                                                    <div className="flex justify-between text-green-700">
+                                                        <span>Already Paid{form.existing_payment_method ? ` (${form.existing_payment_method.replace('_', ' ')})` : ''}</span>
+                                                        <span className="font-medium">-{formatBillAmount(alreadyPaidAmount, billCurrency, billUsdToLkrRate)}</span>
+                                                    </div>
+                                                )}
+                                                {payNowAmount > 0 && (
+                                                    <div className="flex justify-between text-green-700">
+                                                        <span>{alreadyPaidAmount > 0 ? 'Paid Now' : 'Amount Paid'} ({form.payment_method.replace('_', ' ')})</span>
+                                                        <span className="font-medium">-{formatBillAmount(payNowAmount, billCurrency, billUsdToLkrRate)}</span>
+                                                    </div>
+                                                )}
+                                                <div className="border-t pt-3 flex justify-between text-base font-bold">
+                                                    <span>{paymentBalance > 0 ? 'Balance Due' : 'Fully Paid'}</span>
+                                                    <span className={paymentBalance > 0 ? 'text-amber-600' : 'text-green-700'}>{formatBillAmount(paymentBalance, billCurrency, billUsdToLkrRate)}</span>
+                                                </div>
+                                                {billCurrency === 'USD' && paymentBalance > 0 && (
+                                                    <p className="text-right text-xs text-muted-foreground">Balance in system: LKR {formatCurrency(paymentBalance)}</p>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 )}
@@ -1768,6 +2015,63 @@ export default function ChaletBookingsPage() {
                 </DialogContent>
             </Dialog>
             {/* Assign Room Dialog */}
+            <Dialog open={paymentHistoryOpen} onOpenChange={setPaymentHistoryOpen}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Payment History</DialogTitle>
+                    </DialogHeader>
+                    {paymentHistoryLoading || !paymentHistory ? (
+                        <div className="space-y-2 py-2">
+                            <Skeleton className="h-8 w-full" />
+                            <Skeleton className="h-8 w-full" />
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="grid gap-3 text-sm sm:grid-cols-3">
+                                <div className="rounded-md border p-3"><p className="text-muted-foreground">Bill Total</p><p className="font-semibold">{formatBillAmount(paymentHistory.total_lkr, billCurrency, billUsdToLkrRate)}</p></div>
+                                <div className="rounded-md border p-3"><p className="text-muted-foreground">Paid</p><p className="font-semibold text-green-700">{formatBillAmount(paymentHistory.paid_lkr, billCurrency, billUsdToLkrRate)}</p></div>
+                                <div className="rounded-md border p-3"><p className="text-muted-foreground">Balance</p><p className={`font-semibold ${paymentHistory.balance_lkr > 0 ? 'text-amber-600' : 'text-green-700'}`}>{formatBillAmount(paymentHistory.balance_lkr, billCurrency, billUsdToLkrRate)}</p></div>
+                            </div>
+                            <div className="overflow-x-auto rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Date</TableHead>
+                                            <TableHead>Method</TableHead>
+                                            <TableHead>Received Into</TableHead>
+                                            <TableHead>Recorded By</TableHead>
+                                            <TableHead className="text-right">Amount</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {paymentHistory.payments.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">No payments yet.</TableCell>
+                                            </TableRow>
+                                        ) : paymentHistory.payments.map(payment => (
+                                            <TableRow key={payment.id}>
+                                                <TableCell>
+                                                    {payment.paid_at ? format(new Date(payment.paid_at), 'dd MMM yyyy HH:mm') : '—'}
+                                                    {payment.label !== 'Booking payment' && <div className="text-xs text-muted-foreground">{payment.label}</div>}
+                                                </TableCell>
+                                                <TableCell className="capitalize">{payment.payment_method ? payment.payment_method.replace('_', ' ') : '—'}</TableCell>
+                                                <TableCell>{payment.account_name || (payment.payment_method === 'cash' && payment.label === 'Booking payment' ? 'Front Desk cash' : '—')}</TableCell>
+                                                <TableCell>{payment.recorded_by || '—'}</TableCell>
+                                                <TableCell className="text-right font-medium text-green-700">{formatBillAmount(payment.amount, billCurrency, billUsdToLkrRate)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Shows saved payments only. A payment entered in the form is added after you save the booking.</p>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPaymentHistoryOpen(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
@@ -1792,7 +2096,7 @@ export default function ChaletBookingsPage() {
                                             room,
                                             availability: selectedInOtherRows.has(room.id)
                                                 ? { available: false, label: 'Already selected in this booking' }
-                                                : getRoomAvailability(room, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id, { adults: slot.adults, children: slot.children }),
+                                                : getRoomDateAvailability(room, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id),
                                         }));
                                     return (
                                         <div key={slot.key} className="rounded-lg border p-3">
