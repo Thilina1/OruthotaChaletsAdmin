@@ -22,7 +22,7 @@ export function DataTablePagination({
             <div className="text-sm text-muted-foreground">
                 Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
                 <Button
                     type="button"
                     variant="outline"
@@ -32,8 +32,8 @@ export function DataTablePagination({
                 >
                     Previous
                 </Button>
-                <div className="flex items-center justify-center text-sm font-medium w-8">
-                    {currentPage}
+                <div className="flex min-w-20 items-center justify-center text-sm font-medium">
+                    Page {currentPage} of {totalPages}
                 </div>
                 <Button
                     type="button"

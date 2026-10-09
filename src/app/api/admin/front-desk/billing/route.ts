@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { chaletBillBreakdown, chaletOutstandingLkr, chaletPaidLkr, chaletPaymentHistory, chaletTotalLkr } from '@/lib/chalet-billing';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -23,14 +24,15 @@ export async function GET(request: Request) {
 
         if (outstanding) {
             const search = (searchParams.get('search') || '').trim().toLowerCase();
-            const [customersResult, reservationsResult, chaletResult, ordersResult, servicesResult] = await Promise.all([
+            const [customersResult, reservationsResult, chaletResult, ratesResult, ordersResult, servicesResult] = await Promise.all([
                 supabase.from('customers').select('*'),
                 supabase.from('reservations').select('customer_id,total_cost,payment_status,check_out_date').in('status', ['checked-in', 'confirmed']),
-                supabase.from('chalet_bookings').select('customer_name,grand_total,payment_status,check_out_date').in('status', ['checked_in', 'confirmed']),
+                supabase.from('chalet_bookings').select('*').in('status', ['checked_in', 'confirmed']),
+                supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
                 supabase.from('orders').select('customer_id,total_price,confirmed_total').in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
                 supabase.from('service_incomes').select('customer_id,amount').eq('payment_status', 'add_to_bill'),
             ]);
-            const firstError = [customersResult.error, reservationsResult.error, chaletResult.error, ordersResult.error, servicesResult.error].find(Boolean);
+            const firstError = [customersResult.error, reservationsResult.error, chaletResult.error, ratesResult.error, ordersResult.error, servicesResult.error].find(Boolean);
             if (firstError) throw firstError;
 
             const checkoutDates = new Map<string, string[]>();
@@ -59,7 +61,7 @@ export async function GET(request: Request) {
                 const customerId = customersByName.get(item.customer_name?.trim().toLowerCase()) || null;
                 addCheckoutDate(customerId, item.check_out_date);
                 if (customerId) activeStayCustomerIds.add(customerId);
-                if (item.payment_status !== 'paid') add(customerId, item.grand_total);
+                add(customerId, chaletOutstandingLkr(item, ratesResult.data || []));
             });
 
             const customers = (customersResult.data || [])
@@ -98,7 +100,8 @@ export async function GET(request: Request) {
         // 2b. Get Chalet Bookings for this customer. Chalet bookings aren't
         // linked by customer_id (they store the guest's details directly), so
         // match by name instead.
-        const { data: chaletBookings } = await supabase
+        const [{ data: chaletBookings }, { data: chaletRates }] = await Promise.all([
+            supabase
             .from('chalet_bookings')
             .select(`
                 *,
@@ -107,7 +110,9 @@ export async function GET(request: Request) {
                 chalet_rooms ( name, room_number )
             `)
             .ilike('customer_name', customer.name.trim())
-            .in('status', ['checked_in', 'confirmed']);
+            .in('status', ['checked_in', 'confirmed']),
+            supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
+        ]);
 
         // 3. Get unpaid Orders (status = billed or open)
         const { data: orders } = await supabase
@@ -133,8 +138,37 @@ export async function GET(request: Request) {
             if (res.total_cost && res.payment_status !== 'paid') totalOutstanding += Number(res.total_cost);
         });
 
-        chaletBookings?.forEach(cb => {
-            if (cb.grand_total && cb.payment_status !== 'paid') totalOutstanding += Number(cb.grand_total);
+        // Chalet charges are the bill minus anything already paid (deposits
+        // taken in the booking form or online), all in LKR.
+        // Payments taken against these bookings in the booking form (tolerates
+        // the table not existing before its migration is applied).
+        const chaletIds = (chaletBookings || []).map(cb => cb.id);
+        const { data: chaletPaymentRows, error: chaletPaymentsError } = chaletIds.length > 0
+            ? await supabase
+                .from('chalet_booking_payments')
+                .select('id,booking_id,amount,payment_method,paid_at,account:accounts(name)')
+                .in('booking_id', chaletIds)
+                .order('paid_at', { ascending: true })
+            : { data: [], error: null };
+        const paymentsByBooking = new Map<string, any[]>();
+        (chaletPaymentsError ? [] : chaletPaymentRows || []).forEach((payment: any) => {
+            paymentsByBooking.set(payment.booking_id, [...(paymentsByBooking.get(payment.booking_id) || []), payment]);
+        });
+
+        const chaletBookingsWithBalance = (chaletBookings || []).map(cb => {
+            const paidLkr = chaletPaidLkr(cb, chaletRates || []);
+            const payments = chaletPaymentHistory(cb, paymentsByBooking.get(cb.id) || [], chaletRates || []);
+            return {
+                ...cb,
+                bill_total_lkr_resolved: chaletTotalLkr(cb, chaletRates || []),
+                paid_lkr: paidLkr,
+                outstanding_lkr: chaletOutstandingLkr(cb, chaletRates || []),
+                bill_breakdown: chaletBillBreakdown(cb, chaletRates || []),
+                payments,
+            };
+        });
+        chaletBookingsWithBalance.forEach(cb => {
+            totalOutstanding += cb.outstanding_lkr;
         });
 
         orders?.forEach(ord => {
@@ -149,7 +183,7 @@ export async function GET(request: Request) {
             bill: {
                 customer,
                 reservations: reservations || [],
-                chaletBookings: chaletBookings || [],
+                chaletBookings: chaletBookingsWithBalance,
                 orders: orders || [],
                 serviceIncomes: serviceIncomes || [],
                 totalOutstanding,

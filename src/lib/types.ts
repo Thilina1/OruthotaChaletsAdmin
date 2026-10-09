@@ -765,11 +765,17 @@ export type ChaletRoom = {
     room_number: string;
     floor?: string;
     description?: string;
+    category_id?: string | null;
+    max_adults?: number | null;
+    max_children?: number | null;
+    max_guests?: number | null;
+    bed_type?: string | null;
     status: ChaletRoomStatus;
     notes?: string;
     sort_order: number;
     created_at?: string;
     updated_at?: string;
+    chalet_room_categories?: ChaletRoomCategory | null;
 };
 
 export type ChaletPackageFacility = {
@@ -777,10 +783,46 @@ export type ChaletPackageFacility = {
     name: string;
 };
 
+export type ChaletMealPlan = {
+    id: string;
+    name: string;
+    description?: string | null;
+    food_items?: Array<{ id: string; name: string; rate: number }>;
+    other_costs?: Array<{ id: string; name: string; rate: number }>;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export type ChaletRoomCategory = {
+    id: string;
+    name: string;
+    slug?: string;
+    description?: string;
+    area_sqm?: number;
+    room_count: number;
+    max_adults: number;
+    max_children: number;
+    max_guests: number;
+    bed_configurations: string[];
+    bathroom_features: Array<string | { name: string; icon?: string }>;
+    entertainment_features: Array<string | { name: string; icon?: string }>;
+    general_amenities: Array<string | { name: string; icon?: string }>;
+    internet_features: Array<string | { name: string; icon?: string }>;
+    image_urls: string[];
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+};
+
 export type ChaletPackage = {
     id: string;
     name: string;
     description?: string;
+    meal_plan_id?: string | null;
+    meal_plan?: string | null;
     includes_breakfast: boolean;
     includes_lunch: boolean;
     includes_dinner: boolean;
@@ -812,8 +854,17 @@ export type ChaletOccupancyType = {
 export type ChaletRate = {
     id: string;
     package_id: string;
-    occupancy_type_id: string;
+    occupancy_type_id?: string | null;
+    room_category_id?: string | null;
     rate_per_night: number;
+    usd_rate_per_night?: number | null;
+    usd_to_lkr_rate?: number | null;
+    offer_name?: string | null;
+    discount_percent?: number | null;
+    lkr_discount_value?: number | null;
+    lkr_discount_fixed_value?: number | null;
+    usd_discount_value?: number | null;
+    usd_discount_fixed_value?: number | null;
     updated_at?: string;
 };
 
@@ -853,6 +904,25 @@ export type BuffetMenuItem = {
 
 export type ChaletBookingStatus = 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled';
 
+export type ChaletCoupon = {
+    id: string;
+    code: string;
+    name?: string | null;
+    description?: string | null;
+    discount_type: 'fixed' | 'percentage';
+    discount_value: number;
+    max_discount_amount?: number | null;
+    min_bill_amount?: number | null;
+    max_bill_amount?: number | null;
+    valid_from?: string | null;
+    valid_to?: string | null;
+    max_usage?: number | null;
+    is_active: boolean;
+    used_count?: number;
+    created_at?: string;
+    updated_at?: string;
+};
+
 export type ChaletBooking = {
     id: string;
     booking_ref: string;
@@ -871,13 +941,40 @@ export type ChaletBooking = {
     adults: number;
     children: number;
     room_id?: string;
+    room_ids?: string[];
+    room_allocations?: {
+        roomId?: string | null;
+        roomCategoryId?: string | null;
+        packageId?: string | null;
+        adults?: number | null;
+        children?: number | null;
+    }[];
+    room_packages?: Record<string, string>;
+    room_guests?: Record<string, { adults: number; children: number }>;
+    room_category_id?: string;
     rate_per_night: number;
+    currency?: 'LKR' | 'USD';
     service_charge_pct: number;
+    service_charge_currency?: 'LKR' | 'USD' | 'both';
+    vat_pct?: number;
+    vat_currency?: 'LKR' | 'USD' | 'both';
+    sscl_pct?: number;
+    sscl_currency?: 'LKR' | 'USD' | 'both';
     subtotal: number;
     service_charge_amount: number;
+    vat_amount?: number;
+    sscl_amount?: number;
+    bill_grand_total?: number;
     grand_total: number;
+    coupon_id?: string | null;
+    coupon_code?: string | null;
+    coupon_discount_amount?: number;
     status: ChaletBookingStatus;
     payment_status?: 'unpaid' | 'paid';
+    payment_option?: 'none' | 'half' | 'full' | 'custom';
+    amount_paid?: number;
+    payment_method?: 'cash' | 'card' | 'bank_transfer' | 'online';
+    payment_notes?: string;
     special_requests?: string;
     notes?: string;
     created_by?: string;
@@ -887,6 +984,7 @@ export type ChaletBooking = {
     chalet_packages?: { name: string };
     chalet_occupancy_types?: { name: string };
     chalet_rooms?: { name: string; room_number: string };
+    chalet_room_categories?: { name: string; max_adults?: number; max_children?: number; max_guests?: number; bed_configurations?: string[] };
 };
 
 

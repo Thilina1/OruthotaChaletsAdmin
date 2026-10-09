@@ -2,12 +2,19 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { chaletBillCurrency, chaletOutstandingLkr, chaletPaidLkr, chaletTotalLkr } from '@/lib/chalet-billing';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
+
+function paymentAccountKey(paymentMethod: string) {
+    if (paymentMethod === 'card') return 'card_account_id';
+    if (paymentMethod === 'online') return 'online_account_id';
+    return null;
+}
 
 // Paying a bill and checking a guest out are separate steps: "pay" settles
 // every outstanding charge without ending the stay, and "checkout" (only
@@ -64,54 +71,70 @@ export async function POST(request: Request) {
         }
 
         // Capture the complete bill before changing any live record statuses.
-        const [reservationsDue, chaletsDue, ordersDue, servicesDue] = await Promise.all([
+        const [reservationsDue, chaletsDue, chaletRates, ordersDue, servicesDue] = await Promise.all([
             supabase.from('reservations').select('*,room:rooms(title,room_number)').eq('customer_id', customer_id).in('status', ['checked-in', 'confirmed']),
             customer?.name
                 ? supabase.from('chalet_bookings').select('*,chalet_rooms(name,room_number),chalet_packages(name)').ilike('customer_name', customer.name.trim()).in('status', ['checked_in', 'confirmed'])
                 : Promise.resolve({ data: [], error: null } as any),
+            supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
             supabase.from('orders').select('*').eq('customer_id', customer_id).in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
             supabase.from('service_incomes').select('*').eq('customer_id', customer_id).eq('payment_status', 'add_to_bill'),
         ]);
         const snapshotItems = [
             ...(reservationsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Room', description: `Room: ${item.room?.title || item.room?.room_number || 'Room'}`, amount: Number(item.total_cost || 0), source_id: item.id })),
-            ...(chaletsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Chalet', description: `Chalet ${item.chalet_rooms?.room_number || ''}: ${item.chalet_packages?.name || item.chalet_rooms?.name || 'Stay'}`, amount: Number(item.grand_total || 0), source_id: item.id })),
+            // Only the unpaid balance is charged: deposits already taken in the
+            // booking form or paid online are not collected again.
+            ...(chaletsDue.data || []).filter((item: any) => chaletOutstandingLkr(item, chaletRates.data || []) > 0).map((item: any) => {
+                const amount = chaletOutstandingLkr(item, chaletRates.data || []);
+                const paid = chaletPaidLkr(item, chaletRates.data || []);
+                const currency = chaletBillCurrency(item);
+                const paidNote = paid > 0 ? ` (balance after LKR ${paid.toFixed(2)} paid)` : '';
+                const currencyNote = currency === 'USD' ? ' [USD booking]' : '';
+                return { category: 'Chalet', description: `Chalet ${item.chalet_rooms?.room_number || ''}: ${item.chalet_packages?.name || item.chalet_rooms?.name || 'Stay'}${paidNote}${currencyNote}`, amount, source_id: item.id };
+            }),
             ...(ordersDue.data || []).map((item: any) => ({ category: 'Restaurant', description: `Restaurant Order #${item.id.slice(0, 8).toUpperCase()}`, amount: Number(item.confirmed_total ?? item.total_price ?? 0), source_id: item.id, breakdown: item.bill_breakdown || null })),
             ...(servicesDue.data || []).map((item: any) => ({ category: item.service_type, description: `${item.service_type}: ${item.description}`, amount: Number(item.amount || 0), source_id: item.id, line_items: item.line_items || [] })),
         ];
         const snapshotTotal = snapshotItems.reduce((sum: number, item: any) => sum + item.amount, 0);
+        // Returned so the Front Desk can print the receipt with its number.
+        let settledBillNumber: string | null = null;
         if (snapshotItems.length > 0) {
             const billNumber = `GB-${Date.now()}-${customer_id.slice(0, 6).toUpperCase()}`;
+            settledBillNumber = billNumber;
             let accountTransactionId: string | null = null;
 
-            if (payment_method === 'card' && snapshotTotal > 0) {
+            const accountKey = paymentAccountKey(payment_method);
+            if (accountKey && snapshotTotal > 0) {
                 const { data: settings, error: settingsError } = await supabase
                     .from('front_desk_account_settings')
-                    .select('card_account_id')
+                    .select('card_account_id,online_account_id')
                     .eq('singleton', true)
                     .maybeSingle();
                 if (settingsError) throw settingsError;
-                if (!settings?.card_account_id) {
-                    return NextResponse.json({ error: 'Set the Front Desk Card Payment Account before accepting card payments.' }, { status: 400 });
+                const destinationAccountId = settings?.[accountKey];
+                if (!destinationAccountId) {
+                    const label = payment_method === 'online' ? 'Online Payment' : 'Card Payment';
+                    return NextResponse.json({ error: `Set the Front Desk ${label} Account before accepting ${payment_method} payments.` }, { status: 400 });
                 }
 
                 const { data: account, error: accountError } = await supabase
                     .from('accounts')
                     .select('current_balance')
-                    .eq('id', settings.card_account_id)
+                    .eq('id', destinationAccountId)
                     .eq('is_active', true)
                     .single();
                 if (accountError || !account) {
-                    return NextResponse.json({ error: 'The configured Front Desk Card Payment Account is inactive or unavailable.' }, { status: 400 });
+                    return NextResponse.json({ error: `The configured Front Desk ${payment_method} payment account is inactive or unavailable.` }, { status: 400 });
                 }
 
                 const newBalance = Number(account.current_balance || 0) + snapshotTotal;
                 const { data: transaction, error: transactionError } = await supabase
                     .from('account_transactions')
                     .insert({
-                        account_id: settings.card_account_id,
+                        account_id: destinationAccountId,
                         type: 'credit',
                         amount: snapshotTotal,
-                        description: 'Front Desk card payment',
+                        description: `Front Desk ${payment_method} payment`,
                         reference: billNumber,
                         date: new Date().toISOString().split('T')[0],
                         balance_after: newBalance,
@@ -123,7 +146,7 @@ export async function POST(request: Request) {
                 const { error: balanceError } = await supabase
                     .from('accounts')
                     .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
-                    .eq('id', settings.card_account_id);
+                    .eq('id', destinationAccountId);
                 if (balanceError) throw balanceError;
                 accountTransactionId = transaction.id;
             }
@@ -147,6 +170,17 @@ export async function POST(request: Request) {
             .eq('customer_id', customer_id)
             .in('status', ['checked-in', 'confirmed']);
         if (resError) throw resError;
+
+        // Record the settled balance on each chalet booking so its paid amount
+        // matches the full bill.
+        for (const item of chaletsDue.data || []) {
+            if (chaletOutstandingLkr(item, chaletRates.data || []) <= 0) continue;
+            const { error: paidError } = await supabase
+                .from('chalet_bookings')
+                .update({ amount_paid: chaletTotalLkr(item, chaletRates.data || []) })
+                .eq('id', item.id);
+            if (paidError) throw paidError;
+        }
 
         if (customer?.name) {
             const { error: chaletError } = await supabase
@@ -175,7 +209,7 @@ export async function POST(request: Request) {
             .eq('payment_status', 'add_to_bill');
         if (svcError) throw svcError;
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, bill_number: settledBillNumber, total: snapshotTotal, paid_at: new Date().toISOString() });
 
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

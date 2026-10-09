@@ -45,7 +45,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
+        const { name, description, meal_plan_id, meal_plan, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
 
         if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
@@ -54,6 +54,8 @@ export async function POST(request: Request) {
             .insert({
                 name,
                 description,
+                meal_plan_id: meal_plan_id || null,
+                meal_plan: meal_plan?.trim() || null,
                 includes_breakfast: includes_breakfast ?? false,
                 includes_lunch: includes_lunch ?? false,
                 includes_dinner: includes_dinner ?? false,
@@ -79,13 +81,13 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
+        const { id, name, description, meal_plan_id, meal_plan, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
         const { data, error } = await supabase
             .from('chalet_packages')
-            .update({ name, description, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active, updated_at: new Date().toISOString() })
+            .update({ name, description, meal_plan_id: meal_plan_id || null, meal_plan: meal_plan?.trim() || null, includes_breakfast, includes_lunch, includes_dinner, facilities, sort_order, is_active, updated_at: new Date().toISOString() })
             .eq('id', id)
             .select()
             .single();
