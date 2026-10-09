@@ -40,6 +40,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import type { ChaletPackage, ChaletRate, ChaletPackageFacility, ChaletRoomCategory, ChaletMealPlan } from '@/lib/types';
 import { Pencil, Trash2, Plus, Save, AlertCircle, Coffee, UtensilsCrossed, X, Settings } from 'lucide-react';
+import { ExchangeRateCard } from '@/components/dashboard/chalet/exchange-rate-card';
 
 const emptyPackageForm = {
     name: '',
@@ -105,6 +106,12 @@ export default function ChaletRatesPage() {
     const [usdDiscountValueMatrix, setUsdDiscountValueMatrix] = useState<Record<string, Record<string, number>>>({});
     const [usdDiscountFixedMatrix, setUsdDiscountFixedMatrix] = useState<Record<string, Record<string, number>>>({});
     const [usdToLkrRate, setUsdToLkrRate] = useState(0);
+    // 'auto': the live daily rate is used and the field below is read-only.
+    const [fxMode, setFxMode] = useState<'auto' | 'manual'>('manual');
+    const handleExchangeRateChange = useCallback((rate: number, mode: 'auto' | 'manual') => {
+        setFxMode(mode);
+        if (rate > 0) setUsdToLkrRate(rate);
+    }, []);
     const [savingRates, setSavingRates] = useState(false);
 
     // Package dialog
@@ -510,6 +517,9 @@ export default function ChaletRatesPage() {
 
                 {/* Rate Matrix Tab */}
                 <TabsContent value="rates" className="space-y-4">
+                    <div className="mb-4">
+                        <ExchangeRateCard onChange={handleExchangeRateChange} />
+                    </div>
                     <Card>
                         <CardHeader>
                             <div className="flex items-center justify-between">
@@ -526,6 +536,8 @@ export default function ChaletRatesPage() {
                                             step={0.01}
                                             className="h-9 w-full text-right sm:w-36"
                                             value={usdToLkrRate}
+                                            disabled={fxMode === 'auto'}
+                                            title={fxMode === 'auto' ? 'Set automatically from the live daily rate' : undefined}
                                             onChange={e => setUsdToLkrRate(parseFloat(e.target.value) || 0)}
                                         />
                                     </div>
