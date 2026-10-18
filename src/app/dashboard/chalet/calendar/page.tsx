@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     addDays,
@@ -119,6 +119,13 @@ export default function ChaletBookingCalendarPage() {
     const [timelineStart, setTimelineStart] = useState(() => addDays(new Date(new Date().setHours(0, 0, 0, 0)), -2));
     const [timelineDays, setTimelineDays] = useState(30);
     const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+    // Clicking a booking or a day scrolls down to its details (after they render).
+    const detailsRef = useRef<HTMLDivElement>(null);
+    const [detailsScrollRequest, setDetailsScrollRequest] = useState(0);
+    const showDetails = () => setDetailsScrollRequest(request => request + 1);
+    useEffect(() => {
+        if (detailsScrollRequest > 0) detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [detailsScrollRequest]);
     const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
     const [editingTimes, setEditingTimes] = useState<StayTimes | null>(null);
     const [savingTimes, setSavingTimes] = useState(false);
@@ -400,7 +407,7 @@ export default function ChaletBookingCalendarPage() {
                         <button
                             key={segment.key}
                             type="button"
-                            onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); }}
+                            onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); showDetails(); }}
                             title={`${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
                             className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
                             style={{
@@ -544,7 +551,7 @@ export default function ChaletBookingCalendarPage() {
                                             <button
                                                 key={index}
                                                 type="button"
-                                                onClick={() => { setSelectedDate(day); setSelectedBookingId(null); }}
+                                                onClick={() => { setSelectedDate(day); setSelectedBookingId(null); showDetails(); }}
                                                 className={`border-r px-0.5 py-1 text-center leading-tight hover:bg-muted ${isSameDay(day, today) ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''} ${isSameDay(day, selectedDate) && !selectedBookingId ? 'ring-2 ring-inset ring-primary' : ''}`}
                                             >
                                                 <div className="text-[10px] uppercase opacity-70">{format(day, timelineColumnWidth < 40 ? 'EEEEE' : 'EEE')}</div>
@@ -629,7 +636,7 @@ export default function ChaletBookingCalendarPage() {
                                     <button
                                         key={day.toISOString()}
                                         type="button"
-                                        onClick={() => { setSelectedDate(day); setSelectedBookingId(null); }}
+                                        onClick={() => { setSelectedDate(day); setSelectedBookingId(null); showDetails(); }}
                                         className={`min-h-[132px] border-b border-r p-2 text-left transition hover:bg-muted/60 ${!isSameMonth(day, currentMonth) ? 'bg-muted/30 text-muted-foreground' : 'bg-background'} ${selected ? 'ring-2 ring-primary ring-inset' : ''}`}
                                     >
                                         <div className="flex items-center justify-between gap-2">
@@ -659,6 +666,7 @@ export default function ChaletBookingCalendarPage() {
                 </Card>
                 )}
 
+                <div ref={detailsRef} className="scroll-mt-24">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
                         <CardTitle>{selectedBookingId ? 'Booking details' : format(selectedDate, 'dd MMMM yyyy')}</CardTitle>
@@ -759,6 +767,7 @@ export default function ChaletBookingCalendarPage() {
                         })}
                     </CardContent>
                 </Card>
+                </div>
             </div>
         </div>
     );
