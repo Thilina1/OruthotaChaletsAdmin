@@ -34,7 +34,8 @@ export async function GET() {
     }
 }
 
-// PUT: upsert array of {room_category_id?, package_id, rate_per_night, usd_rate_per_night, usd_to_lkr_rate, offer_name, discounts}
+// PUT: upsert array of {room_category_id?, package_id, rate_per_night, usd_rate_per_night, usd_to_lkr_rate, offer_name, discounts,
+// adult_rate, child_rate, usd_adult_rate, usd_child_rate (per guest per night)}
 export async function PUT(request: Request) {
     try {
         const cookieStore = await cookies();
@@ -56,6 +57,10 @@ export async function PUT(request: Request) {
             lkr_discount_fixed_value?: number | null;
             usd_discount_value?: number | null;
             usd_discount_fixed_value?: number | null;
+            adult_rate?: number | null;
+            child_rate?: number | null;
+            usd_adult_rate?: number | null;
+            usd_child_rate?: number | null;
         }[] = body;
 
         if (!Array.isArray(rates) || rates.length === 0) {
@@ -89,13 +94,24 @@ export async function PUT(request: Request) {
                 lkr_discount_fixed_value: rate.lkr_discount_fixed_value ?? 0,
                 usd_discount_value: rate.usd_discount_value ?? 0,
                 usd_discount_fixed_value: rate.usd_discount_fixed_value ?? 0,
+                adult_rate: Math.max(0, Number(rate.adult_rate ?? 0)),
+                child_rate: Math.max(0, Number(rate.child_rate ?? 0)),
+                usd_adult_rate: Math.max(0, Number(rate.usd_adult_rate ?? 0)),
+                usd_child_rate: Math.max(0, Number(rate.usd_child_rate ?? 0)),
                 updated_at: new Date().toISOString(),
             };
 
             const result = existing
                 ? await supabase.from('chalet_rates').update(payload).eq('id', existing.id).select().single()
                 : await supabase.from('chalet_rates').insert(payload).select().single();
-            if (result.error) throw result.error;
+            if (result.error) {
+                if (/adult_rate|child_rate/.test(result.error.message || '')) {
+                    return NextResponse.json({
+                        error: 'Adult and child rates need a database update first: run supabase/migrations/20261013000001_chalet_rate_guest_charges.sql in the Supabase SQL Editor.',
+                    }, { status: 500 });
+                }
+                throw result.error;
+            }
             saved.push(result.data);
         }
 

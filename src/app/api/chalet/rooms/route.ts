@@ -37,7 +37,7 @@ export async function POST(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { name, room_number, floor, description, category_id, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
+        const { name, room_number, floor, description, category_id, min_adults, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
 
         if (!name || !room_number) {
             return NextResponse.json({ error: 'Name and room number are required' }, { status: 400 });
@@ -51,6 +51,7 @@ export async function POST(request: Request) {
                 floor,
                 description,
                 category_id: category_id || null,
+                min_adults: min_adults === '' || min_adults === undefined ? null : Number(min_adults),
                 max_adults: max_adults === '' || max_adults === undefined ? null : Number(max_adults),
                 max_children: max_children === '' || max_children === undefined ? null : Number(max_children),
                 max_guests: max_guests === '' || max_guests === undefined ? null : Number(max_guests),
@@ -77,7 +78,7 @@ export async function PUT(request: Request) {
         if (!(await verifyToken(token))) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
         const body = await request.json();
-        const { id, name, room_number, floor, description, category_id, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
+        const { id, name, room_number, floor, description, category_id, min_adults, max_adults, max_children, max_guests, bed_type, status, notes, sort_order } = body;
 
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
@@ -89,6 +90,7 @@ export async function PUT(request: Request) {
                 ...(floor !== undefined ? { floor } : {}),
                 ...(description !== undefined ? { description } : {}),
                 ...(category_id !== undefined ? { category_id: category_id || null } : {}),
+                ...(min_adults !== undefined ? { min_adults: min_adults === '' ? null : Number(min_adults) } : {}),
                 ...(max_adults !== undefined ? { max_adults: max_adults === '' ? null : Number(max_adults) } : {}),
                 ...(max_children !== undefined ? { max_children: max_children === '' ? null : Number(max_children) } : {}),
                 ...(max_guests !== undefined ? { max_guests: max_guests === '' ? null : Number(max_guests) } : {}),

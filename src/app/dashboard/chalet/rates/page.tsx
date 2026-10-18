@@ -105,6 +105,11 @@ export default function ChaletRatesPage() {
     const [lkrDiscountFixedMatrix, setLkrDiscountFixedMatrix] = useState<Record<string, Record<string, number>>>({});
     const [usdDiscountValueMatrix, setUsdDiscountValueMatrix] = useState<Record<string, Record<string, number>>>({});
     const [usdDiscountFixedMatrix, setUsdDiscountFixedMatrix] = useState<Record<string, Record<string, number>>>({});
+    // Guest rates per night (added to the room rate for each adult / child).
+    const [adultRateMatrix, setAdultRateMatrix] = useState<Record<string, Record<string, number>>>({});
+    const [childRateMatrix, setChildRateMatrix] = useState<Record<string, Record<string, number>>>({});
+    const [usdAdultRateMatrix, setUsdAdultRateMatrix] = useState<Record<string, Record<string, number>>>({});
+    const [usdChildRateMatrix, setUsdChildRateMatrix] = useState<Record<string, Record<string, number>>>({});
     const [usdToLkrRate, setUsdToLkrRate] = useState(0);
     // 'auto': the live daily rate is used and the field below is read-only.
     const [fxMode, setFxMode] = useState<'auto' | 'manual'>('manual');
@@ -159,6 +164,10 @@ export default function ChaletRatesPage() {
             const lkrDiscountFixedValues: Record<string, Record<string, number>> = {};
             const usdDiscountValues: Record<string, Record<string, number>> = {};
             const usdDiscountFixedValues: Record<string, Record<string, number>> = {};
+            const adultRates: Record<string, Record<string, number>> = {};
+            const childRates: Record<string, Record<string, number>> = {};
+            const usdAdultRates: Record<string, Record<string, number>> = {};
+            const usdChildRates: Record<string, Record<string, number>> = {};
             ratesArr.forEach(r => {
                 if (r.occupancy_type_id) return;
                 const categoryKey = r.room_category_id || '__default__';
@@ -176,6 +185,10 @@ export default function ChaletRatesPage() {
                 lkrDiscountFixedValues[categoryKey][r.package_id] = Number(r.lkr_discount_fixed_value || 0);
                 usdDiscountValues[categoryKey][r.package_id] = Number(r.usd_discount_value ?? r.discount_percent ?? 0);
                 usdDiscountFixedValues[categoryKey][r.package_id] = Number(r.usd_discount_fixed_value || 0);
+                (adultRates[categoryKey] ||= {})[r.package_id] = Number(r.adult_rate || 0);
+                (childRates[categoryKey] ||= {})[r.package_id] = Number(r.child_rate || 0);
+                (usdAdultRates[categoryKey] ||= {})[r.package_id] = Number(r.usd_adult_rate || 0);
+                (usdChildRates[categoryKey] ||= {})[r.package_id] = Number(r.usd_child_rate || 0);
             });
             setRateMatrix(matrix);
             setUsdRateMatrix(usdMatrix);
@@ -184,6 +197,10 @@ export default function ChaletRatesPage() {
             setLkrDiscountFixedMatrix(lkrDiscountFixedValues);
             setUsdDiscountValueMatrix(usdDiscountValues);
             setUsdDiscountFixedMatrix(usdDiscountFixedValues);
+            setAdultRateMatrix(adultRates);
+            setChildRateMatrix(childRates);
+            setUsdAdultRateMatrix(usdAdultRates);
+            setUsdChildRateMatrix(usdChildRates);
             setUsdToLkrRate(Number(ratesArr.find(r => Number(r.usd_to_lkr_rate || 0) > 0)?.usd_to_lkr_rate || 0));
         } catch {
             toast({ title: 'Error', description: 'Failed to load data', variant: 'destructive' });
@@ -272,8 +289,9 @@ export default function ChaletRatesPage() {
     const handleSaveRates = async () => {
         setSavingRates(true);
         try {
-            const payload: { room_category_id?: string | null; package_id: string; rate_per_night: number; usd_rate_per_night: number; usd_to_lkr_rate: number; offer_name: string; discount_percent: number; lkr_discount_value: number; lkr_discount_fixed_value: number; usd_discount_value: number; usd_discount_fixed_value: number }[] = [];
-            const categoryRows = ['__default__', ...roomCategories.map(category => category.id)];
+            const payload: { room_category_id?: string | null; package_id: string; rate_per_night: number; usd_rate_per_night: number; usd_to_lkr_rate: number; offer_name: string; discount_percent: number; lkr_discount_value: number; lkr_discount_fixed_value: number; usd_discount_value: number; usd_discount_fixed_value: number; adult_rate: number; child_rate: number; usd_adult_rate: number; usd_child_rate: number }[] = [];
+            // Only room type rates; the old "Default Rates" fallback row is no longer shown or saved.
+            const categoryRows = roomCategories.map(category => category.id);
             categoryRows.forEach(categoryId => {
                 packages.forEach(pkg => {
                     const rate = rateMatrix[categoryId]?.[pkg.id] ?? 0;
@@ -289,6 +307,10 @@ export default function ChaletRatesPage() {
                         lkr_discount_fixed_value: lkrDiscountFixedMatrix[categoryId]?.[pkg.id] ?? 0,
                         usd_discount_value: usdDiscountValueMatrix[categoryId]?.[pkg.id] ?? 0,
                         usd_discount_fixed_value: usdDiscountFixedMatrix[categoryId]?.[pkg.id] ?? 0,
+                        adult_rate: adultRateMatrix[categoryId]?.[pkg.id] ?? 0,
+                        child_rate: childRateMatrix[categoryId]?.[pkg.id] ?? 0,
+                        usd_adult_rate: usdAdultRateMatrix[categoryId]?.[pkg.id] ?? 0,
+                        usd_child_rate: usdChildRateMatrix[categoryId]?.[pkg.id] ?? 0,
                     });
                 });
             });
@@ -569,7 +591,6 @@ export default function ChaletRatesPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {[
-                                                { id: '__default__', name: 'Default Rates', description: 'Fallback when a room category rate is not set' },
                                                 ...roomCategories.map(category => ({
                                                     id: category.id,
                                                     name: category.name,
@@ -616,6 +637,43 @@ export default function ChaletRatesPage() {
                                                                             </p>
                                                                         </div>
                                                                     </div>
+                                                                </div>
+
+                                                                <div className="rounded-md border bg-muted/20 p-3">
+                                                                    <p className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">Guest Rates (per guest / night)</p>
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        {([
+                                                                            { label: 'Adult', lkr: adultRateMatrix, setLkr: setAdultRateMatrix, usd: usdAdultRateMatrix, setUsd: setUsdAdultRateMatrix },
+                                                                            { label: 'Child (0-11 yrs)', lkr: childRateMatrix, setLkr: setChildRateMatrix, usd: usdChildRateMatrix, setUsd: setUsdChildRateMatrix },
+                                                                        ]).map(guest => (
+                                                                            <div key={guest.label} className="space-y-1.5">
+                                                                                <span className="text-[11px] font-medium text-muted-foreground">{guest.label}</span>
+                                                                                <div className="relative">
+                                                                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">LKR</span>
+                                                                                    <Input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        step={50}
+                                                                                        className="h-9 pl-12 text-right text-sm"
+                                                                                        value={guest.lkr[row.id]?.[pkg.id] ?? 0}
+                                                                                        onChange={e => setNestedDiscountValue(guest.setLkr, row.id, pkg.id, e.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="relative">
+                                                                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">$</span>
+                                                                                    <Input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        step={1}
+                                                                                        className="h-9 pl-7 text-right text-sm"
+                                                                                        value={guest.usd[row.id]?.[pkg.id] ?? 0}
+                                                                                        onChange={e => setNestedDiscountValue(guest.setUsd, row.id, pkg.id, e.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    <p className="mt-2 text-[11px] text-muted-foreground">Added to the room rate for each guest in the room. Discounts apply to the room rate only.</p>
                                                                 </div>
 
                                                                 <div className="rounded-md border p-3">

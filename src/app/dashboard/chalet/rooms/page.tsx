@@ -50,6 +50,7 @@ const emptyForm = {
     floor: '',
     description: '',
     category_id: '',
+    min_adults: '',
     max_adults: '',
     max_children: '',
     max_guests: '',
@@ -181,6 +182,7 @@ export default function ChaletRoomsPage() {
             floor: room.floor || '',
             description: room.description || '',
             category_id: room.category_id || '',
+            min_adults: room.min_adults == null ? '' : String(room.min_adults),
             max_adults: room.max_adults == null ? '' : String(room.max_adults),
             max_children: room.max_children == null ? '' : String(room.max_children),
             max_guests: room.max_guests == null ? '' : String(room.max_guests),
@@ -192,9 +194,16 @@ export default function ChaletRoomsPage() {
         setDialogOpen(true);
     };
 
+    const formCategory = categories.find(item => item.id === form.category_id);
+
     const handleSave = async () => {
         if (!form.name || !form.room_number) {
             toast({ title: 'Validation', description: 'Name and room number are required', variant: 'destructive' });
+            return;
+        }
+        const maxAdults = form.max_adults !== '' ? Number(form.max_adults) : formCategory?.max_adults;
+        if (form.min_adults !== '' && maxAdults != null && Number(form.min_adults) > maxAdults) {
+            toast({ title: 'Validation', description: `Min adults cannot be more than max adults (${maxAdults})`, variant: 'destructive' });
             return;
         }
         setSaving(true);
@@ -605,6 +614,12 @@ export default function ChaletRoomsPage() {
                                     <p className="text-xs text-muted-foreground">{room.description}</p>
                                 )}
                                 <div className="flex flex-wrap gap-2">
+                                    {room.min_adults ? (
+                                        <Badge variant="outline" className="text-xs font-normal">
+                                            <Users className="mr-1 h-3 w-3" />
+                                            Min {room.min_adults} adult{room.min_adults === 1 ? '' : 's'}
+                                        </Badge>
+                                    ) : null}
                                     {(room.max_guests || room.chalet_room_categories?.max_guests) && (
                                         <Badge variant="outline" className="text-xs font-normal">
                                             <Users className="mr-1 h-3 w-3" />
@@ -661,12 +676,12 @@ export default function ChaletRoomsPage() {
 
             {/* Edit Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>{editingId ? 'Edit Chalet Room' : 'Add Chalet Room'}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-5 py-2">
+                        <div className="grid gap-4 sm:grid-cols-[1fr_160px_1fr]">
                             <div className="space-y-1">
                                 <Label>Room Name *</Label>
                                 <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Chalet 01" />
@@ -675,65 +690,78 @@ export default function ChaletRoomsPage() {
                                 <Label>Room Number *</Label>
                                 <Input value={form.room_number} onChange={e => setForm(p => ({ ...p, room_number: e.target.value }))} placeholder="01" />
                             </div>
+                            <div className="space-y-1">
+                                <Label>Room Category</Label>
+                                <Select value={form.category_id || '__none__'} onValueChange={applyCategoryToRoomForm}>
+                                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__none__">No Category</SelectItem>
+                                        {categories.map(category => (
+                                            <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
-                        <div className="space-y-1">
-                            <Label>Room Category</Label>
-                            <Select value={form.category_id || '__none__'} onValueChange={applyCategoryToRoomForm}>
-                                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="__none__">No Category</SelectItem>
-                                    {categories.map(category => (
-                                        <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                        <div className="rounded-lg border bg-muted/30 p-4">
+                            <p className="text-sm font-semibold">Guest Limits</p>
+                            <p className="mb-3 mt-1 text-xs text-muted-foreground">
+                                The website only offers this room to parties that fit. Leave a max blank to use the category&apos;s limit.
+                                Min adults counts adults only; leave blank for no minimum.
+                            </p>
+                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                                <div className="space-y-1">
+                                    <Label>Min Adults</Label>
+                                    <Input type="number" min={1} value={form.min_adults} onChange={e => setForm(p => ({ ...p, min_adults: e.target.value }))} placeholder="None" />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label>Max Adults</Label>
+                                    <Input type="number" min={0} value={form.max_adults} onChange={e => setForm(p => ({ ...p, max_adults: e.target.value }))} placeholder={formCategory ? `Category (${formCategory.max_adults})` : 'Category'} />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label>Max Children</Label>
+                                    <Input type="number" min={0} value={form.max_children} onChange={e => setForm(p => ({ ...p, max_children: e.target.value }))} placeholder={formCategory ? `Category (${formCategory.max_children})` : 'Category'} />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label>Max Guests</Label>
+                                    <Input type="number" min={0} value={form.max_guests} onChange={e => setForm(p => ({ ...p, max_guests: e.target.value }))} placeholder={formCategory ? `Category (${formCategory.max_guests})` : 'Category'} />
+                                </div>
+                            </div>
                         </div>
-                        <div className="grid grid-cols-4 gap-4">
-                            <div className="space-y-1">
-                                <Label>Adults</Label>
-                                <Input type="number" min={0} value={form.max_adults} onChange={e => setForm(p => ({ ...p, max_adults: e.target.value }))} placeholder="Category" />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Children</Label>
-                                <Input type="number" min={0} value={form.max_children} onChange={e => setForm(p => ({ ...p, max_children: e.target.value }))} placeholder="Category" />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Guests</Label>
-                                <Input type="number" min={0} value={form.max_guests} onChange={e => setForm(p => ({ ...p, max_guests: e.target.value }))} placeholder="Category" />
-                            </div>
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                             <div className="space-y-1">
                                 <Label>Bed Type</Label>
                                 <Input value={form.bed_type} onChange={e => setForm(p => ({ ...p, bed_type: e.target.value }))} placeholder="1 King" />
                             </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
                                 <Label>Floor</Label>
                                 <Input value={form.floor} onChange={e => setForm(p => ({ ...p, floor: e.target.value }))} placeholder="Ground" />
+                            </div>
+                            <div className="space-y-1">
+                                <Label>Status</Label>
+                                <Select value={form.status} onValueChange={v => setForm(p => ({ ...p, status: v as ChaletRoomStatus }))}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {(Object.keys(statusConfig) as ChaletRoomStatus[]).map(s => (
+                                            <SelectItem key={s} value={s}>{statusConfig[s].label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="space-y-1">
                                 <Label>Sort Order</Label>
                                 <Input type="number" value={form.sort_order} onChange={e => setForm(p => ({ ...p, sort_order: parseInt(e.target.value) || 0 }))} />
                             </div>
                         </div>
-                        <div className="space-y-1">
-                            <Label>Status</Label>
-                            <Select value={form.status} onValueChange={v => setForm(p => ({ ...p, status: v as ChaletRoomStatus }))}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {(Object.keys(statusConfig) as ChaletRoomStatus[]).map(s => (
-                                        <SelectItem key={s} value={s}>{statusConfig[s].label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-1">
-                            <Label>Description</Label>
-                            <Textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Room description..." rows={2} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label>Notes</Label>
-                            <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Internal notes..." rows={2} />
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1">
+                                <Label>Description</Label>
+                                <Textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Room description..." rows={4} />
+                            </div>
+                            <div className="space-y-1">
+                                <Label>Notes</Label>
+                                <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Internal notes..." rows={4} />
+                            </div>
                         </div>
                     </div>
                     <DialogFooter>

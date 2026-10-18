@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { blockOverlapsStay, describeBlock, loadStayTimes } from '@/lib/chalet-stay';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -124,7 +125,30 @@ async function findRoomConflict(roomId: string, checkIn: string, checkOut: strin
             .filter(Boolean);
         return booking.room_id === roomId || roomIds.includes(roomId) || allocationRoomIds.includes(roomId);
     });
-    return conflict || null;
+    if (conflict) return conflict;
+
+    // Maintenance whose hours overlap the stay hours (check-in time on the
+    // arrival day to check-out time on the departure day). Ignored if the
+    // blocks table does not exist yet.
+    const { data: blocks, error: blocksError } = await supabase
+        .from('chalet_room_blocks')
+        .select('*')
+        .eq('room_id', roomId)
+        .lte('start_date', checkOut)
+        .gte('end_date', checkIn);
+    if (!blocksError && blocks && blocks.length > 0) {
+        const stayTimes = await loadStayTimes(supabase);
+        const block = blocks.find((item: any) => blockOverlapsStay(item, checkIn, checkOut, stayTimes));
+        if (block) return { maintenance: true, ...block };
+    }
+    return null;
+}
+
+function roomConflictMessage(conflict: any) {
+    if (conflict?.maintenance) {
+        return `This chalet is closed for maintenance ${describeBlock(conflict)}${conflict.reason ? ` (${conflict.reason})` : ''}, during this stay.`;
+    }
+    return `This chalet is already booked ${conflict.check_in_date} to ${conflict.check_out_date} for ${conflict.customer_name} (${conflict.booking_ref})`;
 }
 
 async function validateGuestLimits(args: {
@@ -133,17 +157,20 @@ async function validateGuestLimits(args: {
     adults: number;
     children: number;
 }) {
-    let limits: { max_adults?: number | null; max_children?: number | null; max_guests?: number | null } | null = null;
+    let limits: { min_adults?: number | null; max_adults?: number | null; max_children?: number | null; max_guests?: number | null } | null = null;
 
     if (args.roomId) {
         const { data: room, error } = await supabase
             .from('chalet_rooms')
-            .select('max_adults, max_children, max_guests, category_id, chalet_room_categories ( max_adults, max_children, max_guests )')
+            // All room columns, so min_adults is included once its migration is run.
+            .select('*, chalet_room_categories ( max_adults, max_children, max_guests )')
             .eq('id', args.roomId)
             .single();
         if (error) throw error;
         const category = Array.isArray(room.chalet_room_categories) ? room.chalet_room_categories[0] : room.chalet_room_categories;
         limits = {
+            // Min adults is set per chalet only.
+            min_adults: room.min_adults ?? null,
             max_adults: room.max_adults ?? category?.max_adults ?? null,
             max_children: room.max_children ?? category?.max_children ?? null,
             max_guests: room.max_guests ?? category?.max_guests ?? null,
@@ -159,6 +186,7 @@ async function validateGuestLimits(args: {
     }
 
     if (!limits) return null;
+    if (limits.min_adults != null && args.adults < limits.min_adults) return `This chalet needs at least ${limits.min_adults} adults.`;
     if (limits.max_adults != null && args.adults > limits.max_adults) return `Adults cannot exceed ${limits.max_adults}.`;
     if (limits.max_children != null && args.children > limits.max_children) return `Children cannot exceed ${limits.max_children}.`;
     if (limits.max_guests != null && args.adults + args.children > limits.max_guests) return `Total guests cannot exceed ${limits.max_guests}.`;
@@ -431,7 +459,7 @@ export async function POST(request: Request) {
             const conflict = await findRoomConflict(finalRoomId, check_in_date, check_out_date);
             if (conflict) {
                 return NextResponse.json({
-                    error: `This chalet is already booked ${conflict.check_in_date} to ${conflict.check_out_date} for ${conflict.customer_name} (${conflict.booking_ref})`,
+                    error: roomConflictMessage(conflict),
                 }, { status: 409 });
             }
             }
@@ -614,7 +642,7 @@ export async function PUT(request: Request) {
                 const conflict = await findRoomConflict(effectiveRoomId, effectiveCheckIn, effectiveCheckOut, id);
                 if (conflict) {
                     return NextResponse.json({
-                        error: `This chalet is already booked ${conflict.check_in_date} to ${conflict.check_out_date} for ${conflict.customer_name} (${conflict.booking_ref})`,
+                        error: roomConflictMessage(conflict),
                     }, { status: 409 });
                 }
                 }

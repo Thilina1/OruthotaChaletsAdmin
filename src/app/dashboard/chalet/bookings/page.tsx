@@ -48,11 +48,13 @@ import { usePagination } from '@/hooks/use-pagination';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar } from '@/components/ui/calendar';
 import type { ChaletBooking, ChaletPackage, ChaletRoom, ChaletRate, ChaletBookingStatus, ChaletRoomCategory, ChaletCoupon } from '@/lib/types';
-import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight, History } from 'lucide-react';
+import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight, History, Wrench, Loader2 } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { chaletBillLines, chaletPaidLkr, type ChaletPaymentHistoryItem } from '@/lib/chalet-billing';
 import { parseBookingPaymentOption, parseRoomTextDetails, roomTextDetailsAt } from '@/lib/chalet-room-details';
+import { MaintenanceDialog, chaletLabel, type ChaletRoomBlock } from '@/components/dashboard/chalet/maintenance-dialog';
+import { blockOverlapsStay, blockWindow, DEFAULT_STAY_TIMES, describeBlock, formatClock, hhmm, type StayTimes } from '@/lib/chalet-stay';
 
 const statusColors: Record<ChaletBookingStatus, string> = {
     pending: 'bg-orange-100 text-orange-800 border-orange-200',
@@ -116,7 +118,7 @@ const emptyForm = {
     // Price lock for an existing booking (LKR): prices it was made with.
     // A room keeps its locked rate while its room type and package are unchanged.
     locked_usd_to_lkr_rate: 0,
-    locked_room_rates: {} as Record<string, { rateLkr: number; package_id: string; room_category_id: string }>,
+    locked_room_rates: {} as Record<string, { rateLkr: number; package_id: string; room_category_id: string; adults?: number; children?: number }>,
     locked_coupon: null as null | { coupon_id: string; amountLkr: number; subtotalLkr: number },
     existing_payment_option: 'none' as 'none' | 'half' | 'full' | 'custom',
     special_requests: '',
@@ -131,6 +133,26 @@ const defaultBillSettings = {
     sscl_pct: 2.5,
     sscl_currency: 'both' as 'LKR' | 'USD' | 'both',
 };
+
+// One room's price per night in LKR: room rate + the rate's adult/child rates
+// for the guests, then the rate's discount (its share of the room rate taken
+// off the whole total). Non Sri Lankan guests use the USD rates converted at
+// usdToLkrRate when the room has a USD rate. Same rule as the website.
+function roomNightlyPriceLkr(rate: ChaletRate, nationality: string, adults: number, children: number, usdToLkrRate: number) {
+    const adultCount = Math.max(0, Number(adults || 0));
+    const childCount = Math.max(0, Number(children || 0));
+    const discountedTotal = (roomRate: number, guestCharges: number, percent?: number | null, fixedValue?: number | null) => {
+        const discountShare = roomRate > 0 ? (roomRate - applyRateDiscount(roomRate, percent, fixedValue)) / roomRate : 0;
+        return Math.max(0, (roomRate + Math.max(0, guestCharges)) * (1 - discountShare));
+    };
+    const usdRate = Number(rate.usd_rate_per_night || 0);
+    if (nationality === 'Non Sri Lankan' && usdRate > 0 && usdToLkrRate > 0) {
+        const guestUsd = Number(rate.usd_adult_rate || 0) * adultCount + Number(rate.usd_child_rate || 0) * childCount;
+        return discountedTotal(usdRate, guestUsd, rate.usd_discount_value ?? rate.discount_percent ?? 0, rate.usd_discount_fixed_value) * usdToLkrRate;
+    }
+    const guestLkr = Number(rate.adult_rate || 0) * adultCount + Number(rate.child_rate || 0) * childCount;
+    return discountedTotal(Number(rate.rate_per_night || 0), guestLkr, rate.lkr_discount_value ?? rate.discount_percent ?? 0, rate.lkr_discount_fixed_value);
+}
 
 function formatCurrency(n: number) {
     return n.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -230,6 +252,14 @@ export default function ChaletBookingsPage() {
     const [roomCategories, setRoomCategories] = useState<ChaletRoomCategory[]>([]);
     const [rates, setRates] = useState<ChaletRate[]>([]);
     const [coupons, setCoupons] = useState<ChaletCoupon[]>([]);
+    // Maintenance blocks: chalets closed for those days (both included).
+    const [roomBlocks, setRoomBlocks] = useState<ChaletRoomBlock[]>([]);
+    const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+    const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'upcoming' | 'ongoing' | 'completed'>('all');
+    const [maintenanceSearch, setMaintenanceSearch] = useState('');
+    const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
+    // Standard check-in / check-out times (set on the Booking Calendar).
+    const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
     const [loading, setLoading] = useState(true);
 
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -298,6 +328,14 @@ export default function ChaletBookingsPage() {
             setRates(rateData.rates || []);
             setRoomCategories(catData.categories || []);
             setCoupons(couponData.coupons || []);
+            fetch('/api/chalet/room-blocks', { cache: 'no-store' })
+                .then(response => response.json())
+                .then(data => setRoomBlocks(data.blocks || []))
+                .catch(() => setRoomBlocks([]));
+            fetch('/api/admin/app-settings?key=chalet_stay_times')
+                .then(response => response.json())
+                .then(data => { if (data?.value && typeof data.value === 'object') setStayTimes({ ...DEFAULT_STAY_TIMES, ...data.value }); })
+                .catch(() => {});
             if (settingsData.value) setBillDefaults({ ...defaultBillSettings, ...settingsData.value });
         } catch (error: any) {
             toast({ title: 'Error', description: error.message || 'Failed to load data', variant: 'destructive' });
@@ -353,21 +391,23 @@ export default function ChaletBookingsPage() {
     const lockedUsdRate = Number(form.locked_usd_to_lkr_rate || 0);
     // A room's current price in LKR; for USD bookings with a locked rate the
     // USD price is converted at that locked rate.
-    const currentRoomRateLkr = (packageId: string, categoryId?: string) => {
+    // Room rate plus guest charges (adults/children in that room).
+    const currentRoomRateLkr = (packageId: string, categoryId?: string, adults = 0, children = 0) => {
         const rateRecord = findRateForPackageAndCategory(rates, packageId, categoryId);
         if (!rateRecord) return 0;
-        const lkr = getLkrRateForNationality(rateRecord, form.nationality);
         const recordRate = Number(rateRecord.usd_to_lkr_rate || 0);
-        return form.nationality === 'Non Sri Lankan' && lockedUsdRate > 0 && recordRate > 0 && Number(rateRecord.usd_rate_per_night || 0) > 0
-            ? lkr / recordRate * lockedUsdRate
-            : lkr;
+        // USD prices convert at the booking's locked rate when it has one.
+        const usdToLkr = lockedUsdRate > 0 ? lockedUsdRate : recordRate;
+        return roomNightlyPriceLkr(rateRecord, form.nationality, adults, children, recordRate > 0 ? usdToLkr : 0);
     };
     const roomRateFor = (selection: typeof roomSelections[number]) => {
         const room = rooms.find(item => item.id === selection.room_id);
         const categoryId = room?.category_id || selection.room_category_id;
         const lock = form.locked_room_rates[selection.id];
-        if (lock && lock.package_id === selection.package_id && lock.room_category_id === categoryId) return { rate: lock.rateLkr, locked: true };
-        return { rate: currentRoomRateLkr(selection.package_id, categoryId), locked: false };
+        // The booked price stays while the room, package and guests are unchanged.
+        const sameGuests = !lock || lock.adults === undefined || (lock.adults === selection.adults && (lock.children ?? 0) === selection.children);
+        if (lock && lock.package_id === selection.package_id && lock.room_category_id === categoryId && sameGuests) return { rate: lock.rateLkr, locked: true };
+        return { rate: currentRoomRateLkr(selection.package_id, categoryId, selection.adults, selection.children), locked: false };
     };
     const pricesLocked = Object.keys(form.locked_room_rates).length > 0;
     const anyRoomRepriced = pricesLocked && pricedRoomSelections.some(selection => !roomRateFor(selection).locked);
@@ -402,6 +442,7 @@ export default function ChaletBookingsPage() {
             packageName: packages.find(pkg => pkg.id === selection.package_id)?.name || '—',
             rate: roomRateFor(selection).rate,
             locked: roomRateFor(selection).locked,
+            guests: `${selection.adults} adult${selection.adults === 1 ? '' : 's'}${selection.children ? `, ${selection.children} child${selection.children === 1 ? '' : 'ren'}` : ''}`,
             usdToLkrRate: lockedUsdRate || Number(rateRecord?.usd_to_lkr_rate || 0),
         };
     });
@@ -501,19 +542,46 @@ export default function ChaletBookingsPage() {
     // A chalet is selectable whenever no other booking holds it for the stay
     // dates. Room status is ignored, and guest limits are validated per room
     // separately (guestLimitErrors) using each room's own guest numbers.
-    const getRoomDateAvailability = (room: ChaletRoom, checkIn: string, checkOut: string, excludeId?: string | null) => (
-        isRoomBooked(room.id, checkIn, checkOut, excludeId)
-            ? { available: false, label: 'Booked for selected dates' }
-            : { available: true, label: 'Available for selected dates' }
+    // Maintenance whose hours overlap the stay hours (check-in time on the
+    // arrival day to check-out time on the departure day).
+    const roomBlockFor = (roomId: string, checkIn: string, checkOut: string) => (
+        checkIn && checkOut
+            ? roomBlocks.find(block => block.room_id === roomId && blockOverlapsStay(block, checkIn, checkOut, stayTimes))
+            : undefined
     );
+
+    const getRoomDateAvailability = (room: ChaletRoom, checkIn: string, checkOut: string, excludeId?: string | null) => {
+        const block = roomBlockFor(room.id, checkIn, checkOut);
+        if (block) return { available: false, label: `Maintenance ${describeBlock(block)}` };
+        return isRoomBooked(room.id, checkIn, checkOut, excludeId)
+            ? { available: false, label: 'Booked for selected dates' }
+            : { available: true, label: 'Available for selected dates' };
+    };
 
     const getRoomGuestLimits = (room: ChaletRoom) => {
         const roomCategory = roomCategories.find(category => category.id === room.category_id);
         return {
+            // Min adults is set per chalet only (blank = no minimum).
+            minAdults: Math.max(1, room.min_adults ?? 1),
             maxAdults: room.max_adults ?? roomCategory?.max_adults ?? 99,
             maxChildren: room.max_children ?? roomCategory?.max_children ?? 99,
             maxGuests: room.max_guests ?? roomCategory?.max_guests ?? 99,
         };
+    };
+    // "2–5 adults · up to 2 children · 5 guests" for a chalet (Rooms page limits).
+    const roomLimitsLabel = (room: ChaletRoom) => {
+        const limits = getRoomGuestLimits(room);
+        const adults = limits.minAdults > 1 ? `${limits.minAdults}–${limits.maxAdults} adults` : `up to ${limits.maxAdults} adults`;
+        return `${adults} · up to ${limits.maxChildren} children · ${limits.maxGuests} guests`;
+    };
+    // Why a chalet cannot take these guests (null when it can).
+    const roomGuestMismatch = (room: ChaletRoom, adults: number, children: number) => {
+        const limits = getRoomGuestLimits(room);
+        if (adults < limits.minAdults) return `Needs at least ${limits.minAdults} adults`;
+        if (adults > limits.maxAdults) return `Max ${limits.maxAdults} adults`;
+        if (children > limits.maxChildren) return `Max ${limits.maxChildren} children`;
+        if (adults + children > limits.maxGuests) return `Max ${limits.maxGuests} guests`;
+        return null;
     };
     const getRoomGuests = (roomId: string) => {
         const selection = roomSelections.find(item => item.room_id === roomId);
@@ -526,6 +594,7 @@ export default function ChaletBookingsPage() {
         const guests = getRoomGuests(room.id);
         const limits = getRoomGuestLimits(room);
         return [
+            guests.adults < limits.minAdults ? `Chalet ${room.room_number}: needs at least ${limits.minAdults} adults.` : '',
             guests.adults > limits.maxAdults ? `Chalet ${room.room_number}: adults cannot exceed ${limits.maxAdults}.` : '',
             guests.children > limits.maxChildren ? `Chalet ${room.room_number}: children cannot exceed ${limits.maxChildren}.` : '',
             guests.adults + guests.children > limits.maxGuests ? `Chalet ${room.room_number}: total guests cannot exceed ${limits.maxGuests}.` : '',
@@ -601,12 +670,19 @@ export default function ChaletBookingsPage() {
         const selectedInOtherRows = new Set(roomSelections.filter(item => item.id !== selection.id).map(item => item.room_id).filter(Boolean));
         return rooms
             .filter(room => !selection.room_category_id || room.category_id === selection.room_category_id)
-            .map(room => ({
-                room,
-                availability: selectedInOtherRows.has(room.id)
-                    ? { available: false, label: 'Already selected in this booking' }
-                    : getRoomDateAvailability(room, form.check_in_date, form.check_out_date, editingId),
-            }));
+            .map(room => {
+                const mismatch = roomGuestMismatch(room, selection.adults, selection.children);
+                return {
+                    room,
+                    availability: selectedInOtherRows.has(room.id)
+                        ? { available: false, label: 'Already selected in this booking' }
+                        : mismatch
+                            // A chalet that does not take this row's guests cannot be picked
+                            // (the one already chosen stays, with its limit error shown).
+                            ? { available: room.id === selection.room_id, label: mismatch }
+                            : getRoomDateAvailability(room, form.check_in_date, form.check_out_date, editingId),
+                };
+            });
     };
 
     useEffect(() => {
@@ -622,11 +698,13 @@ export default function ChaletBookingsPage() {
             });
             toast({
                 title: 'Room unavailable',
-                description: `Chalet ${unavailableRoom.room_number} is already booked by another guest for these dates. Please choose another room.`,
+                description: roomBlockFor(unavailableRoom.id, form.check_in_date, form.check_out_date)
+                    ? `Chalet ${unavailableRoom.room_number} is closed for maintenance on these dates. Please choose another room.`
+                    : `Chalet ${unavailableRoom.room_number} is already booked by another guest for these dates. Please choose another room.`,
                 variant: 'destructive',
             });
         }
-    }, [form.check_in_date, form.check_out_date, form.room_selections, rooms, roomCategories, bookings, editingId, toast]);
+    }, [form.check_in_date, form.check_out_date, form.room_selections, rooms, roomCategories, bookings, roomBlocks, stayTimes, editingId, toast]);
 
     const openPaymentHistory = async () => {
         if (!editingId) return;
@@ -723,7 +801,7 @@ export default function ChaletBookingsPage() {
             ? Object.fromEntries(editRoomSelections
                 .map((selection, index) => [selection, lockedRoomRatesLkr[index]] as const)
                 .filter(([selection]) => selection.package_id)
-                .map(([selection, rateLkr]) => [selection.id, { rateLkr, package_id: selection.package_id, room_category_id: selection.room_category_id }]))
+                .map(([selection, rateLkr]) => [selection.id, { rateLkr, package_id: selection.package_id, room_category_id: selection.room_category_id, adults: selection.adults, children: selection.children }]))
             : {};
         const editNights = Math.max(0, Math.round((new Date(b.check_out_date).getTime() - new Date(b.check_in_date).getTime()) / 86400000));
         const lockedSubtotalLkr = editRoomSelections.reduce((sum, selection, index) => sum + (selection.package_id ? lockedRoomRatesLkr[index] : 0), 0) * editNights;
@@ -937,6 +1015,11 @@ export default function ChaletBookingsPage() {
                 toast({ title: 'Room type mismatch', description: 'Please choose a chalet from the requested room category.', variant: 'destructive' });
                 return;
             }
+            const mismatch = selectedRoom ? roomGuestMismatch(selectedRoom, slot.adults, slot.children) : null;
+            if (selectedRoom && mismatch) {
+                toast({ title: 'Guests do not fit', description: `Chalet ${selectedRoom.room_number}: ${mismatch.toLowerCase()} (requested ${slot.adults} adult(s), ${slot.children} child(ren)).`, variant: 'destructive' });
+                return;
+            }
         }
         setAssigning(true);
         try {
@@ -1039,6 +1122,61 @@ export default function ChaletBookingsPage() {
             return true;
         });
     const allBookingsPagination = usePagination(bookings, 20);
+
+    // ── Maintenance tab ─────────────────────────────────────────────────────
+    const reloadRoomBlocks = () => {
+        fetch('/api/chalet/room-blocks', { cache: 'no-store' })
+            .then(response => response.json())
+            .then(data => setRoomBlocks(data.blocks || []))
+            .catch(() => {});
+    };
+    // Local "YYYY-MM-DDTHH:mm", compared with each block's start/end.
+    const nowStamp = format(new Date(), "yyyy-MM-dd'T'HH:mm");
+    const maintenanceStatus = (block: ChaletRoomBlock) => {
+        const window = blockWindow(block);
+        if (window.end <= nowStamp) return 'completed' as const;
+        if (window.start <= nowStamp) return 'ongoing' as const;
+        return 'upcoming' as const;
+    };
+    const maintenanceRows = [...roomBlocks]
+        .filter(block => maintenanceFilter === 'all' || maintenanceStatus(block) === maintenanceFilter)
+        .filter(block => {
+            const query = maintenanceSearch.trim().toLowerCase();
+            if (!query) return true;
+            return [chaletLabel(block.room?.room_number), block.room?.name, block.reason, block.user?.name]
+                .some(value => String(value || '').toLowerCase().includes(query));
+        })
+        // Ongoing first, then upcoming (soonest first), then completed (latest first).
+        .sort((a, b) => {
+            const order = { ongoing: 0, upcoming: 1, completed: 2 };
+            const statusDiff = order[maintenanceStatus(a)] - order[maintenanceStatus(b)];
+            if (statusDiff !== 0) return statusDiff;
+            return maintenanceStatus(a) === 'completed'
+                ? blockWindow(b).start.localeCompare(blockWindow(a).start)
+                : blockWindow(a).start.localeCompare(blockWindow(b).start);
+        });
+    const maintenancePagination = usePagination(maintenanceRows, 20);
+    const maintenanceCounts = {
+        all: roomBlocks.length,
+        upcoming: roomBlocks.filter(block => maintenanceStatus(block) === 'upcoming').length,
+        ongoing: roomBlocks.filter(block => maintenanceStatus(block) === 'ongoing').length,
+        completed: roomBlocks.filter(block => maintenanceStatus(block) === 'completed').length,
+    };
+    const removeRoomBlock = async (block: ChaletRoomBlock) => {
+        if (!window.confirm(`Remove maintenance for ${chaletLabel(block.room?.room_number)} (${describeBlock(block)})?`)) return;
+        setDeletingBlockId(block.id);
+        try {
+            const res = await fetch(`/api/chalet/room-blocks?id=${encodeURIComponent(block.id)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            toast({ title: 'Maintenance removed', description: 'The chalet can be booked for those hours again.' });
+            reloadRoomBlocks();
+        } catch (error: any) {
+            toast({ title: 'Could not remove', description: error.message, variant: 'destructive' });
+        } finally {
+            setDeletingBlockId(null);
+        }
+    };
     const checkedInPagination = usePagination(checkedInGuests, 20);
 
     // Bill in the booking currency, from the prices and charges locked on the booking.
@@ -1213,11 +1351,26 @@ export default function ChaletBookingsPage() {
                     <h1 className="text-2xl font-bold">Chalet Bookings</h1>
                     <p className="text-muted-foreground">Manage all chalet reservations</p>
                 </div>
-                <Button onClick={openNew}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    New Booking
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => setMaintenanceOpen(true)}>
+                        <Wrench className="mr-2 h-4 w-4" />
+                        Maintenance
+                        {roomBlocks.filter(block => block.end_date >= new Date().toISOString().slice(0, 10)).length > 0 && (
+                            <Badge variant="secondary" className="ml-2">{roomBlocks.filter(block => block.end_date >= new Date().toISOString().slice(0, 10)).length}</Badge>
+                        )}
+                    </Button>
+                    <Button onClick={openNew}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        New Booking
+                    </Button>
+                </div>
             </div>
+            <MaintenanceDialog
+                open={maintenanceOpen}
+                onOpenChange={setMaintenanceOpen}
+                rooms={rooms}
+                onChanged={reloadRoomBlocks}
+            />
 
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1260,6 +1413,12 @@ export default function ChaletBookingsPage() {
                 <TabsList>
                     <TabsTrigger value="all">All Bookings</TabsTrigger>
                     <TabsTrigger value="checked-in">Checked-In Guests</TabsTrigger>
+                    <TabsTrigger value="maintenance">
+                        Maintenance
+                        {maintenanceCounts.ongoing + maintenanceCounts.upcoming > 0 && (
+                            <Badge variant="secondary" className="ml-2">{maintenanceCounts.ongoing + maintenanceCounts.upcoming}</Badge>
+                        )}
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="all" className="mt-4">
@@ -1460,6 +1619,112 @@ export default function ChaletBookingsPage() {
                     </Card>
                 </TabsContent>
 
+                <TabsContent value="maintenance" className="mt-4 space-y-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap gap-2">
+                            {([['all', 'All'], ['ongoing', 'Ongoing'], ['upcoming', 'Upcoming'], ['completed', 'Completed']] as const).map(([value, label]) => (
+                                <Button key={value} size="sm" variant={maintenanceFilter === value ? 'default' : 'outline'} onClick={() => { setMaintenanceFilter(value); maintenancePagination.setCurrentPage(1); }}>
+                                    {label} ({maintenanceCounts[value]})
+                                </Button>
+                            ))}
+                        </div>
+                        <div className="flex gap-2">
+                            <div className="relative">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input className="w-56 pl-8" placeholder="Search chalet, reason…" value={maintenanceSearch} onChange={e => { setMaintenanceSearch(e.target.value); maintenancePagination.setCurrentPage(1); }} />
+                            </div>
+                            <Button onClick={() => setMaintenanceOpen(true)}>
+                                <Wrench className="mr-2 h-4 w-4" />
+                                Schedule Maintenance
+                            </Button>
+                        </div>
+                    </div>
+                    <Card>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Chalet</TableHead>
+                                            <TableHead>From</TableHead>
+                                            <TableHead>To</TableHead>
+                                            <TableHead>Duration</TableHead>
+                                            <TableHead>Reason</TableHead>
+                                            <TableHead>Scheduled By</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {maintenanceRows.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                                                    {roomBlocks.length === 0 ? 'No maintenance scheduled yet.' : 'No maintenance matches this filter.'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : maintenancePagination.paginatedItems.map(block => {
+                                            const status = maintenanceStatus(block);
+                                            const window = blockWindow(block);
+                                            const hours = Math.max(0, (new Date(window.end).getTime() - new Date(window.start).getTime()) / 3600000);
+                                            const wholeDays = hhmm(block.start_time, '00:00') === '00:00' && hhmm(block.end_time, '23:59') === '23:59';
+                                            const days = Math.round((new Date(`${block.end_date}T00:00:00`).getTime() - new Date(`${block.start_date}T00:00:00`).getTime()) / 86400000) + 1;
+                                            return (
+                                                <TableRow key={block.id}>
+                                                    <TableCell className="font-medium">
+                                                        {chaletLabel(block.room?.room_number)}
+                                                        {block.room?.name && block.room.name !== chaletLabel(block.room.room_number) && <div className="text-xs text-muted-foreground">{block.room.name}</div>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {format(new Date(`${block.start_date}T00:00:00`), 'dd MMM yyyy')}
+                                                        <div className="text-xs text-muted-foreground">{wholeDays ? 'Whole day' : formatClock(block.start_time)}</div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {format(new Date(`${block.end_date}T00:00:00`), 'dd MMM yyyy')}
+                                                        <div className="text-xs text-muted-foreground">{wholeDays ? 'Whole day' : formatClock(block.end_time)}</div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">
+                                                        {wholeDays ? `${days} day${days === 1 ? '' : 's'}` : hours >= 24 ? `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h` : `${Math.round(hours * 10) / 10} h`}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-xs text-sm">{block.reason || <span className="text-muted-foreground">—</span>}</TableCell>
+                                                    <TableCell className="text-sm">
+                                                        {block.user?.name || '—'}
+                                                        {block.created_at && <div className="text-xs text-muted-foreground">{format(new Date(block.created_at), 'dd MMM yyyy')}</div>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className={
+                                                            status === 'ongoing' ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                                                : status === 'upcoming' ? 'border-blue-300 bg-blue-50 text-blue-800'
+                                                                    : 'border-gray-300 bg-gray-50 text-gray-600'
+                                                        }>
+                                                            {status === 'ongoing' ? 'Ongoing' : status === 'upcoming' ? 'Upcoming' : 'Completed'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {status !== 'completed' && (
+                                                            <Button size="sm" variant="ghost" disabled={deletingBlockId === block.id} onClick={() => void removeRoomBlock(block)} title="Remove maintenance">
+                                                                {deletingBlockId === block.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                                            </Button>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            {maintenancePagination.totalPages > 1 && (
+                                <DataTablePagination
+                                    currentPage={maintenancePagination.currentPage}
+                                    totalPages={maintenancePagination.totalPages}
+                                    totalItems={maintenancePagination.totalItems}
+                                    itemsPerPage={maintenancePagination.itemsPerPage}
+                                    onPageChange={maintenancePagination.setCurrentPage}
+                                />
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
             </Tabs>
 
             {/* Booking Form Dialog */}
@@ -1640,6 +1905,7 @@ export default function ChaletBookingsPage() {
                                                         const selectedRoomForRow = rooms.find(room => room.id === selection.room_id);
                                                         const selectedRoomCategoryForRow = selectedRoomForRow ? roomCategories.find(category => category.id === selectedRoomForRow.category_id) : roomCategories.find(category => category.id === selection.room_category_id);
                                                         const limits = selectedRoomForRow ? getRoomGuestLimits(selectedRoomForRow) : {
+                                                            minAdults: 1,
                                                             maxAdults: selectedRoomCategoryForRow?.max_adults ?? 99,
                                                             maxChildren: selectedRoomCategoryForRow?.max_children ?? 99,
                                                             maxGuests: selectedRoomCategoryForRow?.max_guests ?? 99,
@@ -1690,12 +1956,39 @@ export default function ChaletBookingsPage() {
                                                                             <SelectContent>
                                                                                 {availableRooms.map(({ room, availability }) => (
                                                                                     <SelectItem key={room.id} value={room.id} disabled={!availability.available}>
-                                                                                        Chalet {room.room_number} - {room.name} ({availability.label})
+                                                                                        Chalet {room.room_number} - {room.name}
+                                                                                        <span className="ml-2 text-xs text-muted-foreground">{roomLimitsLabel(room)}</span>
+                                                                                        <span className={`ml-2 text-xs ${availability.available ? 'text-green-600' : 'text-red-600'}`}>({availability.label})</span>
                                                                                     </SelectItem>
                                                                                 ))}
                                                                             </SelectContent>
                                                                         </Select>
                                                                     </div>
+                                                                    {availableRooms.length > 0 && (
+                                                                        // Every chalet of this room type with its guest limits; click one to assign it.
+                                                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 md:col-span-2">
+                                                                            {availableRooms.map(({ room, availability }) => {
+                                                                                const selected = room.id === selection.room_id;
+                                                                                return (
+                                                                                    <button
+                                                                                        key={room.id}
+                                                                                        type="button"
+                                                                                        disabled={!availability.available}
+                                                                                        onClick={() => updateRoomSelection(selection.id, { room_id: room.id, room_category_id: room.category_id || selection.room_category_id })}
+                                                                                        className={`rounded-md border px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-55 ${selected ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:border-primary/60'}`}
+                                                                                    >
+                                                                                        <span className="flex items-center justify-between gap-2">
+                                                                                            <span className="text-sm font-semibold">Chalet {room.room_number}</span>
+                                                                                            {selected ? <Badge className="h-5 px-1.5 text-[10px]">Assigned</Badge> : null}
+                                                                                        </span>
+                                                                                        <span className="block truncate text-muted-foreground">{room.name}{room.bed_type ? ` · ${room.bed_type}` : ''}</span>
+                                                                                        <span className="mt-1 block">{roomLimitsLabel(room)}</span>
+                                                                                        <span className={`mt-0.5 block ${availability.available ? 'text-green-700' : 'text-red-600'}`}>{availability.label}</span>
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
                                                                     <div className="space-y-1">
                                                                         <Label>Adults</Label>
                                                                         <Input
@@ -1738,7 +2031,9 @@ export default function ChaletBookingsPage() {
                                                                         );
                                                                     })()}
                                                                     <p className="text-xs text-muted-foreground md:col-span-2">
-                                                                        {selection.room_id ? `Max ${limits.maxAdults} adult(s), ${limits.maxChildren} child(ren), ${limits.maxGuests} total guest(s).` : 'Select a room to apply its guest limits.'}
+                                                                        {selection.room_id
+                                                                            ? `${limits.minAdults > 1 ? `Min ${limits.minAdults} adults · ` : ''}Max ${limits.maxAdults} adult(s), ${limits.maxChildren} child(ren), ${limits.maxGuests} total guest(s).`
+                                                                            : 'Set the guests, then pick a chalet that takes them.'}
                                                                     </p>
                                                                 </div>
                                                             </div>
@@ -1938,7 +2233,7 @@ export default function ChaletBookingsPage() {
                                             breakdownRateRows.map(row => (
                                                 <div key={row.key} className="flex justify-between gap-3">
                                                     <span className="text-muted-foreground">
-                                                        {row.roomLabel} · {row.categoryName} · {row.packageName}
+                                                        {row.roomLabel} · {row.categoryName} · {row.packageName} · {row.guests}
                                                         {pricesLocked && !row.locked && <Badge variant="outline" className="ml-2 text-[10px]">current rate</Badge>}
                                                     </span>
                                                     <span className="font-medium">{formatBillAmount(row.rate, billCurrency, row.usdToLkrRate || billUsdToLkrRate)}</span>
@@ -2073,7 +2368,7 @@ export default function ChaletBookingsPage() {
             </Dialog>
 
             <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>Assign Chalet Room</DialogTitle>
                     </DialogHeader>
@@ -2092,12 +2387,17 @@ export default function ChaletBookingsPage() {
                                     const pkg = packages.find(item => item.id === slot.packageId);
                                     const availableRooms = rooms
                                         .filter(room => !slot.roomCategoryId || room.category_id === slot.roomCategoryId)
-                                        .map(room => ({
-                                            room,
-                                            availability: selectedInOtherRows.has(room.id)
-                                                ? { available: false, label: 'Already selected in this booking' }
-                                                : getRoomDateAvailability(room, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id),
-                                        }));
+                                        .map(room => {
+                                            const mismatch = roomGuestMismatch(room, slot.adults, slot.children);
+                                            return {
+                                                room,
+                                                availability: selectedInOtherRows.has(room.id)
+                                                    ? { available: false, label: 'Already selected in this booking' }
+                                                    : mismatch
+                                                        ? { available: false, label: mismatch }
+                                                        : getRoomDateAvailability(room, assigningBooking.check_in_date, assigningBooking.check_out_date, assigningBooking.id),
+                                            };
+                                        });
                                     return (
                                         <div key={slot.key} className="rounded-lg border p-3">
                                             <div className="mb-2 flex items-start justify-between gap-3">
@@ -2122,6 +2422,7 @@ export default function ChaletBookingsPage() {
                                                     {availableRooms.map(({ room, availability }) => (
                                                         <SelectItem key={room.id} value={room.id} disabled={!availability.available}>
                                                             Chalet {room.room_number} — {room.name}
+                                                            <span className="ml-2 text-xs text-muted-foreground">{roomLimitsLabel(room)}</span>
                                                             <span className={`ml-2 text-xs ${availability.available ? 'text-green-600' : 'text-red-600'}`}>
                                                                 ({availability.label})
                                                             </span>

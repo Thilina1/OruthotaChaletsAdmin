@@ -766,6 +766,7 @@ export type ChaletRoom = {
     floor?: string;
     description?: string;
     category_id?: string | null;
+    min_adults?: number | null;
     max_adults?: number | null;
     max_children?: number | null;
     max_guests?: number | null;
@@ -865,6 +866,11 @@ export type ChaletRate = {
     lkr_discount_fixed_value?: number | null;
     usd_discount_value?: number | null;
     usd_discount_fixed_value?: number | null;
+    // Per guest per night, added to the room rate (LKR and USD).
+    adult_rate?: number | null;
+    child_rate?: number | null;
+    usd_adult_rate?: number | null;
+    usd_child_rate?: number | null;
     updated_at?: string;
 };
 
