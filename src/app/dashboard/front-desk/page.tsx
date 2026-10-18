@@ -1115,7 +1115,7 @@ export default function FrontDeskPage() {
 
   const isRoomAssignable = (roomId: string, booking: ChaletBooking, slot?: ReturnType<typeof getBookingRoomSlots>[number]) => {
     const room = assignableRooms.find(item => item.id === roomId);
-    if (!room || room.status === 'maintenance') return false;
+    if (!room || room.status === 'maintenance' || room.status === 'inactive') return false;
     if (slot?.categoryId && room.category_id !== slot.categoryId) return false;
     const adults = Number(slot?.adults ?? 1);
     const children = Number(slot?.children ?? 0);

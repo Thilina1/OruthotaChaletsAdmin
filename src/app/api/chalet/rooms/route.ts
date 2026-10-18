@@ -10,6 +10,24 @@ const supabase = serviceRoleKey
     ? createClient(supabaseUrl, serviceRoleKey)
     : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
+// Number of bookings (any status, past or current) that use each chalet,
+// through room_id, room_ids or room_allocations.
+async function bookingCountsByRoom() {
+    const { data, error } = await supabase
+        .from('chalet_bookings')
+        .select('room_id, room_ids, room_allocations');
+    if (error) throw error;
+    const counts = new Map<string, number>();
+    (data || []).forEach((booking: any) => {
+        const allocationIds = Array.isArray(booking.room_allocations)
+            ? booking.room_allocations.map((allocation: any) => allocation?.roomId || allocation?.room_id).filter(Boolean)
+            : [];
+        const roomIds = new Set<string>([booking.room_id, ...(Array.isArray(booking.room_ids) ? booking.room_ids : []), ...allocationIds].filter(Boolean));
+        roomIds.forEach(roomId => counts.set(roomId, (counts.get(roomId) || 0) + 1));
+    });
+    return counts;
+}
+
 export async function GET() {
     try {
         const cookieStore = await cookies();
@@ -23,7 +41,9 @@ export async function GET() {
             .order('sort_order', { ascending: true });
 
         if (error) throw error;
-        return NextResponse.json({ rooms: data }, { status: 200 });
+        // booking_count: a chalet with any booking (past or current) can't be deleted.
+        const counts = await bookingCountsByRoom();
+        return NextResponse.json({ rooms: (data || []).map((room: any) => ({ ...room, booking_count: counts.get(room.id) || 0 })) }, { status: 200 });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -121,6 +141,12 @@ export async function DELETE(request: Request) {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
         if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        // Only chalets never used by a booking (past, current or cancelled).
+        const used = (await bookingCountsByRoom()).get(id) || 0;
+        if (used > 0) {
+            return NextResponse.json({ error: `This chalet is used in ${used} booking${used === 1 ? '' : 's'} and can't be deleted. Set its status to Inactive instead.` }, { status: 409 });
+        }
 
         const { error } = await supabase.from('chalet_rooms').delete().eq('id', id);
         if (error) throw error;

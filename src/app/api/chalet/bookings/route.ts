@@ -109,6 +109,10 @@ function keepLockedRoomRates(incoming: ReturnType<typeof normalizeRoomAllocation
 // this one. Back-to-back stays (one checks out the day the next checks in)
 // are allowed, so the comparison is strict on both ends.
 async function findRoomConflict(roomId: string, checkIn: string, checkOut: string, excludeId?: string) {
+    // Inactive chalets are not offered for new bookings or assignments.
+    const { data: roomRow } = await supabase.from('chalet_rooms').select('status, name').eq('id', roomId).maybeSingle();
+    if (roomRow?.status === 'inactive') return { inactive: true, name: roomRow.name };
+
     let query = supabase
         .from('chalet_bookings')
         .select('id, booking_ref, customer_name, check_in_date, check_out_date, room_id, room_ids, room_allocations')
@@ -145,6 +149,7 @@ async function findRoomConflict(roomId: string, checkIn: string, checkOut: strin
 }
 
 function roomConflictMessage(conflict: any) {
+    if (conflict?.inactive) return `${conflict.name || 'This chalet'} is inactive and can't be booked. Choose another chalet.`;
     if (conflict?.maintenance) {
         return `This chalet is closed for maintenance ${describeBlock(conflict)}${conflict.reason ? ` (${conflict.reason})` : ''}, during this stay.`;
     }

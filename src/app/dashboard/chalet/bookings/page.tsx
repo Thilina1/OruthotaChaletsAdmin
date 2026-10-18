@@ -551,6 +551,8 @@ export default function ChaletBookingsPage() {
     );
 
     const getRoomDateAvailability = (room: ChaletRoom, checkIn: string, checkOut: string, excludeId?: string | null) => {
+        // Inactive chalets are kept for history but not offered for bookings.
+        if (room.status === 'inactive') return { available: false, label: 'Inactive' };
         const block = roomBlockFor(room.id, checkIn, checkOut);
         if (block) return { available: false, label: `Maintenance ${describeBlock(block)}` };
         return isRoomBooked(room.id, checkIn, checkOut, excludeId)

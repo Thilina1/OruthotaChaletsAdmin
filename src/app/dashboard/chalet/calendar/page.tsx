@@ -234,7 +234,8 @@ export default function ChaletBookingCalendarPage() {
     const roomMap = useMemo(() => new Map(rooms.map(room => [room.id, room])), [rooms]);
     const packageMap = useMemo(() => new Map(packages.map(pkg => [pkg.id, pkg])), [packages]);
     const categoryMap = useMemo(() => new Map(roomCategories.map(category => [category.id, category])), [roomCategories]);
-    const totalRooms = rooms.length;
+    // Inactive chalets are not offered for bookings, so they don't count towards occupancy.
+    const totalRooms = rooms.filter(room => room.status !== 'inactive').length;
 
     const roomLabel = (booking: ChaletBooking) => {
         const labels = bookingRoomIds(booking).map(id => {
@@ -338,14 +339,17 @@ export default function ChaletBookingCalendarPage() {
     };
 
     const timelineGroups = useMemo(() => {
+        // Inactive chalets are hidden unless they still have bookings in the visible dates.
+        const bookedRowKeys = new Set(timelineSegments.map(segment => segment.rowKey));
+        const shownRooms = rooms.filter(room => room.status !== 'inactive' || bookedRowKeys.has(room.id));
         const sortRooms = (list: ChaletRoom[]) => [...list].sort((a, b) => String(a.room_number).localeCompare(String(b.room_number), undefined, { numeric: true }));
         const groups = roomCategories
-            .map(category => ({ key: category.id, name: category.name, rooms: sortRooms(rooms.filter(room => room.category_id === category.id)) }))
+            .map(category => ({ key: category.id, name: category.name, rooms: sortRooms(shownRooms.filter(room => room.category_id === category.id)) }))
             .filter(group => group.rooms.length > 0);
-        const uncategorised = sortRooms(rooms.filter(room => !room.category_id || !categoryMap.has(room.category_id)));
+        const uncategorised = sortRooms(shownRooms.filter(room => !room.category_id || !categoryMap.has(room.category_id)));
         if (uncategorised.length > 0) groups.push({ key: 'other', name: 'Other', rooms: uncategorised });
         return groups;
-    }, [rooms, roomCategories, categoryMap]);
+    }, [rooms, roomCategories, categoryMap, timelineSegments]);
 
     const timelineOccupancy = timelineDates.map((_, index) => {
         const occupied = new Set(timelineSegments.filter(segment => segment.rowKey !== 'unassigned' && segment.nightStart <= index && segment.nightEnd > index).map(segment => segment.rowKey));
@@ -564,7 +568,11 @@ export default function ChaletBookingCalendarPage() {
                                     {timelineGroups.map(group => (
                                         <div key={group.key}>
                                             <div className="sticky left-0 border-b bg-muted/30 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.name}</div>
-                                            {group.rooms.map(room => renderTimelineRow(room.id, chaletLabel(room.room_number), room.name !== chaletLabel(room.room_number) ? room.name : undefined))}
+                                            {group.rooms.map(room => {
+                                                const name = room.name !== chaletLabel(room.room_number) ? room.name : undefined;
+                                                const sublabel = room.status === 'inactive' ? [name, 'Inactive'].filter(Boolean).join(' · ') : name;
+                                                return renderTimelineRow(room.id, chaletLabel(room.room_number), sublabel);
+                                            })}
                                         </div>
                                     ))}
 

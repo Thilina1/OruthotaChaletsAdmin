@@ -757,7 +757,8 @@ export type TableBooking = {
 
 // ─── Chalet Booking System ──────────────────────────────────────────────────
 
-export type ChaletRoomStatus = 'available' | 'occupied' | 'maintenance' | 'cleaning';
+// 'inactive': kept for history but not offered for new bookings.
+export type ChaletRoomStatus = 'available' | 'occupied' | 'maintenance' | 'cleaning' | 'inactive';
 
 export type ChaletRoom = {
     id: string;

@@ -42,6 +42,8 @@ const statusConfig: Record<ChaletRoomStatus, { label: string; className: string 
     occupied: { label: 'Occupied', className: 'bg-red-100 text-red-800 border-red-200' },
     maintenance: { label: 'Maintenance', className: 'bg-gray-100 text-gray-800 border-gray-200' },
     cleaning: { label: 'Cleaning', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+    // Kept with its booking history but not offered for new bookings.
+    inactive: { label: 'Inactive', className: 'bg-slate-200 text-slate-600 border-slate-300 line-through' },
 };
 
 const emptyForm = {
@@ -142,6 +144,9 @@ export default function ChaletRoomsPage() {
     const [savingCategory, setSavingCategory] = useState(false);
     const [categoryStatusUpdating, setCategoryStatusUpdating] = useState<string | null>(null);
     const [deleteCategoryId, setDeleteCategoryId] = useState<string | null>(null);
+    // A chalet can only be deleted if no booking (past, current or cancelled) has used it.
+    const [deleteRoom, setDeleteRoom] = useState<ChaletRoom | null>(null);
+    const [deletingRoom, setDeletingRoom] = useState(false);
     const [deletingCategory, setDeletingCategory] = useState(false);
     const [infoCategory, setInfoCategory] = useState<ChaletRoomCategory | null>(null);
     const [infoImageIndex, setInfoImageIndex] = useState(0);
@@ -305,6 +310,25 @@ export default function ChaletRoomsPage() {
             toast({ title: 'Error', description: e.message, variant: 'destructive' });
         } finally {
             setCategoryStatusUpdating(null);
+        }
+    };
+
+    const roomBookingCount = (room: ChaletRoom) => Number((room as ChaletRoom & { booking_count?: number }).booking_count || 0);
+
+    const handleDeleteRoom = async () => {
+        if (!deleteRoom) return;
+        setDeletingRoom(true);
+        try {
+            const res = await fetch(`/api/chalet/rooms?id=${encodeURIComponent(deleteRoom.id)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            toast({ title: 'Deleted', description: `${deleteRoom.name} was deleted.` });
+            setDeleteRoom(null);
+            fetchRooms();
+        } catch (e: any) {
+            toast({ title: 'Could not delete', description: e.message, variant: 'destructive' });
+        } finally {
+            setDeletingRoom(false);
         }
     };
 
@@ -524,7 +548,7 @@ export default function ChaletRoomsPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4 p-4">
-                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                         {statusCounts.map(({ status, count }) => (
                             <button
                                 key={status}
@@ -595,7 +619,7 @@ export default function ChaletRoomsPage() {
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {filteredRooms.map(room => (
-                        <Card key={room.id} className="relative overflow-hidden transition-colors hover:border-primary/40">
+                        <Card key={room.id} className={`relative overflow-hidden transition-colors hover:border-primary/40 ${room.status === 'inactive' ? 'opacity-60' : ''}`}>
                             <div className={`h-1 ${room.status === 'available' ? 'bg-green-500' : room.status === 'occupied' ? 'bg-red-500' : room.status === 'cleaning' ? 'bg-blue-500' : 'bg-gray-500'}`} />
                             <CardHeader className="pb-2">
                                 <div className="flex items-start justify-between gap-3">
@@ -604,10 +628,22 @@ export default function ChaletRoomsPage() {
                                         <p className="text-sm text-muted-foreground">Room #{room.room_number}{room.floor ? ` · Floor ${room.floor}` : ''}</p>
                                         {room.chalet_room_categories && <p className="text-xs text-muted-foreground">{room.chalet_room_categories.name}</p>}
                                     </div>
-                                    <Button size="icon" variant="ghost" onClick={() => openEdit(room)} aria-label={`Edit ${room.name}`}>
-                                        <Pencil className="h-4 w-4" />
-                                    </Button>
+                                    <div className="flex shrink-0 items-center">
+                                        <Button size="icon" variant="ghost" onClick={() => openEdit(room)} aria-label={`Edit ${room.name}`}>
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        {roomBookingCount(room) === 0 && (
+                                            <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleteRoom(room)} aria-label={`Delete ${room.name}`} title="Delete chalet (never booked)">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
+                                {roomBookingCount(room) > 0 && (
+                                    <p className="text-[11px] text-muted-foreground" title="Chalets with bookings can't be deleted; set the status to Inactive instead.">
+                                        Used in {roomBookingCount(room)} booking{roomBookingCount(room) === 1 ? '' : 's'} · can&apos;t be deleted
+                                    </p>
+                                )}
                             </CardHeader>
                             <CardContent className="space-y-3">
                                 {room.description && (
@@ -869,6 +905,27 @@ export default function ChaletRoomsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <AlertDialog open={!!deleteRoom} onOpenChange={open => !open && setDeleteRoom(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {deleteRoom?.name}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This chalet has never been booked, so it can be removed permanently. Any maintenance scheduled for it is removed too. This can&apos;t be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingRoom}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={event => { event.preventDefault(); void handleDeleteRoom(); }}
+                            disabled={deletingRoom}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {deletingRoom ? 'Deleting...' : 'Delete Chalet'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <AlertDialog open={!!deleteCategoryId} onOpenChange={open => !open && setDeleteCategoryId(null)}>
                 <AlertDialogContent>
