@@ -569,10 +569,19 @@ export default function ChaletBookingsPage() {
         };
     };
     // "2–5 adults · up to 2 children · 5 guests" for a chalet (Rooms page limits).
+    // A limit left blank on the chalet and its room type comes back as 99:
+    // that part is left out ("No guest limits" when none are set).
+    const NO_LIMIT = 99;
     const roomLimitsLabel = (room: ChaletRoom) => {
         const limits = getRoomGuestLimits(room);
-        const adults = limits.minAdults > 1 ? `${limits.minAdults}–${limits.maxAdults} adults` : `up to ${limits.maxAdults} adults`;
-        return `${adults} · up to ${limits.maxChildren} children · ${limits.maxGuests} guests`;
+        const parts = [
+            limits.maxAdults < NO_LIMIT
+                ? (limits.minAdults > 1 ? `${limits.minAdults}–${limits.maxAdults} adults` : `up to ${limits.maxAdults} adults`)
+                : (limits.minAdults > 1 ? `${limits.minAdults}+ adults` : ''),
+            limits.maxChildren < NO_LIMIT ? `up to ${limits.maxChildren} children` : '',
+            limits.maxGuests < NO_LIMIT ? `${limits.maxGuests} guests` : '',
+        ].filter(Boolean);
+        return parts.length > 0 ? parts.join(' · ') : 'No guest limits';
     };
     // Why a chalet cannot take these guests (null when it can).
     const roomGuestMismatch = (room: ChaletRoom, adults: number, children: number) => {
@@ -1964,31 +1973,6 @@ export default function ChaletBookingsPage() {
                                                                             </SelectContent>
                                                                         </Select>
                                                                     </div>
-                                                                    {availableRooms.length > 0 && (
-                                                                        // Every chalet of this room type with its guest limits; click one to assign it.
-                                                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 md:col-span-2">
-                                                                            {availableRooms.map(({ room, availability }) => {
-                                                                                const selected = room.id === selection.room_id;
-                                                                                return (
-                                                                                    <button
-                                                                                        key={room.id}
-                                                                                        type="button"
-                                                                                        disabled={!availability.available}
-                                                                                        onClick={() => updateRoomSelection(selection.id, { room_id: room.id, room_category_id: room.category_id || selection.room_category_id })}
-                                                                                        className={`rounded-md border px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-55 ${selected ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:border-primary/60'}`}
-                                                                                    >
-                                                                                        <span className="flex items-center justify-between gap-2">
-                                                                                            <span className="text-sm font-semibold">Chalet {room.room_number}</span>
-                                                                                            {selected ? <Badge className="h-5 px-1.5 text-[10px]">Assigned</Badge> : null}
-                                                                                        </span>
-                                                                                        <span className="block truncate text-muted-foreground">{room.name}{room.bed_type ? ` · ${room.bed_type}` : ''}</span>
-                                                                                        <span className="mt-1 block">{roomLimitsLabel(room)}</span>
-                                                                                        <span className={`mt-0.5 block ${availability.available ? 'text-green-700' : 'text-red-600'}`}>{availability.label}</span>
-                                                                                    </button>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    )}
                                                                     <div className="space-y-1">
                                                                         <Label>Adults</Label>
                                                                         <Input
@@ -2032,7 +2016,7 @@ export default function ChaletBookingsPage() {
                                                                     })()}
                                                                     <p className="text-xs text-muted-foreground md:col-span-2">
                                                                         {selection.room_id
-                                                                            ? `${limits.minAdults > 1 ? `Min ${limits.minAdults} adults · ` : ''}Max ${limits.maxAdults} adult(s), ${limits.maxChildren} child(ren), ${limits.maxGuests} total guest(s).`
+                                                                            ? (selectedRoomForRow ? `Guest limits: ${roomLimitsLabel(selectedRoomForRow)}.` : '')
                                                                             : 'Set the guests, then pick a chalet that takes them.'}
                                                                     </p>
                                                                 </div>
