@@ -10,6 +10,92 @@ const supabase = serviceRoleKey
   ? createClient(supabaseUrl, serviceRoleKey)
   : createClient(supabaseUrl, (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!);
 
+type InHouseGuest = {
+  key: string;
+  room: string;
+  guest_name: string;
+  phone: string | null;
+  customer: { id: string; name: string; phone?: string | null; current_room: string } | null;
+};
+
+// Checked-in guests, one entry per room (hotel reservations and chalet
+// bookings), so a guest can be attached to an order by room number.
+async function inHouseGuests(): Promise<InHouseGuest[]> {
+  const [reservationsRes, chaletRes] = await Promise.all([
+    supabase.from('reservations').select('id, customer_id, guest_name, room:rooms(room_number,title)').eq('status', 'checked-in'),
+    supabase.from('chalet_bookings').select('id, customer_name, customer_phone, customer_nic, room_id, room_ids, room_allocations').eq('status', 'checked_in'),
+  ]);
+  if (reservationsRes.error) throw reservationsRes.error;
+  if (chaletRes.error) throw chaletRes.error;
+  const reservations = reservationsRes.data || [];
+  const chaletBookings = chaletRes.data || [];
+
+  const customerIds = reservations.map((r: any) => r.customer_id).filter(Boolean);
+  const { data: customersById } = customerIds.length
+    ? await supabase.from('customers').select('id, name, phone').in('id', customerIds)
+    : { data: [] as any[] };
+  const byId = new Map((customersById || []).map((c: any) => [c.id, c]));
+
+  // Chalet bookings don't store a customer id: match by ID number, then name.
+  const nics = chaletBookings.map((b: any) => b.customer_nic?.trim()).filter(Boolean);
+  const { data: customersByNic } = nics.length
+    ? await supabase.from('customers').select('id, name, phone, id_number').in('id_number', nics)
+    : { data: [] as any[] };
+  const findChaletCustomer = async (booking: any) => {
+    const nic = booking.customer_nic?.trim();
+    const viaNic = nic ? (customersByNic || []).find((c: any) => c.id_number === nic) : null;
+    if (viaNic) return viaNic;
+    const name = String(booking.customer_name || '').trim();
+    if (!name) return null;
+    const { data } = await supabase.from('customers').select('id, name, phone').ilike('name', name).limit(1).maybeSingle();
+    return data;
+  };
+
+  const chaletRoomIds = (booking: any): string[] => {
+    const fromAllocations = Array.isArray(booking.room_allocations)
+      ? booking.room_allocations.map((a: any) => a?.roomId ?? a?.room_id).filter(Boolean)
+      : [];
+    const ids = [...fromAllocations, ...(Array.isArray(booking.room_ids) ? booking.room_ids : []), booking.room_id].filter(Boolean);
+    return Array.from(new Set(ids));
+  };
+  const allChaletRoomIds = Array.from(new Set(chaletBookings.flatMap(chaletRoomIds)));
+  const { data: chaletRooms } = allChaletRoomIds.length
+    ? await supabase.from('chalet_rooms').select('id, room_number').in('id', allChaletRoomIds)
+    : { data: [] as any[] };
+  const chaletRoomNumber = new Map((chaletRooms || []).map((r: any) => [r.id, r.room_number]));
+
+  const guests: InHouseGuest[] = [];
+  for (const reservation of reservations as any[]) {
+    const room = Array.isArray(reservation.room) ? reservation.room[0] : reservation.room;
+    const roomLabel = room?.room_number || room?.title || 'Room';
+    const customer = reservation.customer_id ? byId.get(reservation.customer_id) : null;
+    guests.push({
+      key: `res-${reservation.id}`,
+      room: String(roomLabel),
+      guest_name: customer?.name || reservation.guest_name || 'Guest',
+      phone: customer?.phone || null,
+      customer: customer ? { ...customer, current_room: String(roomLabel) } : null,
+    });
+  }
+  for (const booking of chaletBookings as any[]) {
+    const customer = await findChaletCustomer(booking);
+    const roomIds = chaletRoomIds(booking);
+    const labels = roomIds.length
+      ? roomIds.map(id => chaletRoomNumber.get(id)).filter(Boolean).map(n => `Chalet ${n}`)
+      : [];
+    (labels.length ? labels : ['Chalet (unassigned)']).forEach((label, index) => {
+      guests.push({
+        key: `chalet-${booking.id}-${index}`,
+        room: label,
+        guest_name: customer?.name || booking.customer_name || 'Guest',
+        phone: customer?.phone || booking.customer_phone || null,
+        customer: customer ? { ...customer, phone: customer.phone || booking.customer_phone || null, current_room: label } : null,
+      });
+    });
+  }
+  return guests.sort((a, b) => a.room.localeCompare(b.room, undefined, { numeric: true }));
+}
+
 export async function GET(request: Request) {
   try {
     const token = (await cookies()).get('auth_token')?.value;
@@ -18,6 +104,7 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
+    if (searchParams.get('in_house') === '1') return NextResponse.json({ guests: await inHouseGuests() });
     const rawCode = searchParams.get('code')?.trim();
     const customerId = searchParams.get('customer_id')?.trim();
     if (!rawCode && !customerId) return NextResponse.json({ error: 'QR code is required' }, { status: 400 });

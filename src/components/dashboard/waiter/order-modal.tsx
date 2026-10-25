@@ -45,6 +45,7 @@ import {
   Plus,
   X,
   ScanLine,
+  Check,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -93,6 +94,10 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [customerMobile, setCustomerMobile] = useState('');
   const [guestCustomer, setGuestCustomer] = useState<{ id: string; name: string; current_room?: string } | null>(null);
+  const [inHouseGuests, setInHouseGuests] = useState<Array<{ key: string; room: string; guest_name: string; phone: string | null; customer: { id: string; name: string; phone?: string | null; current_room: string } | null }>>([]);
+  const [loadingInHouseGuests, setLoadingInHouseGuests] = useState(false);
+  const [guestPickerOpen, setGuestPickerOpen] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
   const [billingConfig, setBillingConfig] = useState<BillingCfg | null>(null);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [updatingPresentedItemId, setUpdatingPresentedItemId] = useState<string | null>(null);
@@ -688,26 +693,81 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
     }
   };
 
+  // Attaches an in-house guest (from the QR pass or the room list) to the order.
+  const attachGuestCustomer = async (customer: { id: string; name: string; phone?: string | null; current_room?: string | null }) => {
+    setGuestCustomer({ id: customer.id, name: customer.name, current_room: customer.current_room || undefined });
+    if (customer.phone) setCustomerMobile(customer.phone);
+    if (openOrder?.id) {
+      const { error } = await supabase.from('orders').update({
+        customer_id: customer.id,
+        ...(customer.phone ? { customer_mobile: customer.phone } : {}),
+      }).eq('id', openOrder.id);
+      if (error) throw error;
+      setOpenOrder(current => current ? { ...current, customer_id: customer.id } : current);
+    }
+    toast({ title: 'Guest Added', description: `${customer.name}${customer.current_room ? ` — ${customer.current_room}` : ''}` });
+  };
+
   const handleGuestQrScan = async (code: string) => {
     if (isTableLocked) return showTableLockedMessage();
     try {
       const res = await fetch(`/api/admin/front-desk/guest-pass?code=${encodeURIComponent(code)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Guest QR pass was not recognized');
-      const customer = data.customer;
-      setGuestCustomer(customer);
-      if (customer.phone) setCustomerMobile(customer.phone);
-      if (openOrder?.id) {
-        const { error } = await supabase.from('orders').update({
-          customer_id: customer.id,
-          ...(customer.phone ? { customer_mobile: customer.phone } : {}),
-        }).eq('id', openOrder.id);
-        if (error) throw error;
-        setOpenOrder(current => current ? { ...current, customer_id: customer.id } : current);
-      }
-      toast({ title: 'Guest Added', description: `${customer.name}${customer.current_room ? ` — ${customer.current_room}` : ''}` });
+      await attachGuestCustomer(data.customer);
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Guest Not Found', description: error.message });
+    }
+  };
+
+  const loadInHouseGuests = useCallback(async () => {
+    setLoadingInHouseGuests(true);
+    try {
+      const res = await fetch('/api/admin/front-desk/guest-pass?in_house=1');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load checked-in guests');
+      setInHouseGuests(data.guests || []);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Checked-in Guests', description: error.message });
+    } finally {
+      setLoadingInHouseGuests(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (isOpen) loadInHouseGuests();
+  }, [isOpen, loadInHouseGuests]);
+
+  // Matches room number ("01", "Chalet 01"), guest name or mobile number.
+  const filteredInHouseGuests = useMemo(() => {
+    const terms = guestSearch.toLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return inHouseGuests;
+    return inHouseGuests.filter(item => {
+      const haystack = `${item.room} ${item.guest_name} ${item.phone || ''}`.toLowerCase();
+      return terms.every(term => haystack.includes(term));
+    });
+  }, [inHouseGuests, guestSearch]);
+
+  const pickGuest = (key: string) => {
+    setGuestPickerOpen(false);
+    setGuestSearch('');
+    handleSelectGuestByRoom(key);
+  };
+
+  const handleSelectGuestByRoom = async (key: string) => {
+    if (isTableLocked) return showTableLockedMessage();
+    const guest = inHouseGuests.find(item => item.key === key);
+    if (!guest) return;
+    if (!guest.customer) {
+      // No customer record to link: still fill in the mobile number.
+      if (guest.phone) setCustomerMobile(guest.phone);
+      toast({ variant: 'destructive', title: 'Guest Not Linked', description: `${guest.guest_name} (${guest.room}) has no customer record. Check them in again from Front Desk to link them.` });
+      return;
+    }
+    try {
+      await attachGuestCustomer(guest.customer);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Guest Not Added', description: error.message });
     }
   };
 
@@ -1261,6 +1321,45 @@ export function OrderModal({ table, isOpen, onClose }: OrderModalProps) {
                         successTitle="Guest QR Captured"
                         trigger={<Button type="button" size="sm" variant="outline" disabled={isTableLocked}><ScanLine className="mr-2 h-4 w-4" />Scan QR</Button>}
                       />
+                    </div>
+                    {/* Inline search (not a pop-up), so typing works inside the order dialog. */}
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={guestSearch}
+                        onChange={e => { setGuestSearch(e.target.value); setGuestPickerOpen(true); }}
+                        onFocus={() => { setGuestPickerOpen(true); loadInHouseGuests(); }}
+                        onBlur={() => setTimeout(() => setGuestPickerOpen(false), 150)}
+                        onKeyDown={e => {
+                          if (e.key === 'Escape') { e.stopPropagation(); setGuestPickerOpen(false); }
+                          if (e.key === 'Enter' && filteredInHouseGuests.length > 0) { e.preventDefault(); pickGuest(filteredInHouseGuests[0].key); }
+                        }}
+                        placeholder="Type room number or guest name…"
+                        disabled={isTableLocked}
+                        className="h-8 pl-8 text-sm"
+                      />
+                      {guestPickerOpen && (
+                        <div className="mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover p-1 shadow-sm">
+                          {filteredInHouseGuests.length === 0 ? (
+                            <p className="px-2 py-1.5 text-sm text-muted-foreground">{loadingInHouseGuests ? 'Loading checked-in guests…' : 'No checked-in guest found.'}</p>
+                          ) : filteredInHouseGuests.map(item => {
+                            const phone = item.phone?.trim();
+                            const selected = item.customer?.id === guestCustomer?.id && item.room === guestCustomer?.current_room;
+                            return (
+                              <button
+                                key={item.key}
+                                type="button"
+                                // mousedown keeps the click from being lost when the input blurs.
+                                onMouseDown={e => { e.preventDefault(); pickGuest(item.key); }}
+                                className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <Check className={`mr-2 h-4 w-4 shrink-0 ${selected ? 'opacity-100' : 'opacity-0'}`} />
+                                <span className="truncate">{item.room} — {item.guest_name}{phone ? ` · ${phone}` : ''}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
 
