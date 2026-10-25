@@ -18,7 +18,7 @@ import {
     startOfWeek,
     subMonths,
 } from 'date-fns';
-import { ArrowLeft, ArrowRight, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, GanttChartSquare, Loader2, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BedDouble, CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Eye, GanttChartSquare, GripVertical, Loader2, Pencil, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,8 @@ import { useToast } from '@/hooks/use-toast';
 import type { ChaletBooking, ChaletBookingStatus, ChaletPackage, ChaletRate, ChaletRoom, ChaletRoomCategory } from '@/lib/types';
 import { parseRoomTextDetails } from '@/lib/chalet-room-details';
 import { chaletTotalLkr } from '@/lib/chalet-billing';
-import { describeBlock, hhmm } from '@/lib/chalet-stay';
+import { blockOverlapsStay, describeBlock, hhmm } from '@/lib/chalet-stay';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { chaletLabel } from '@/components/dashboard/chalet/maintenance-dialog';
 
 const statusColors: Record<ChaletBookingStatus, string> = {
@@ -127,6 +128,13 @@ export default function ChaletBookingCalendarPage() {
         if (detailsScrollRequest > 0) detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, [detailsScrollRequest]);
     const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
+    // Drag & drop room changes (7-day timeline, Edit mode).
+    // Booking whose Edit (pencil) was clicked: its bars can be dragged.
+    const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+    const [dragging, setDragging] = useState<{ booking: ChaletBooking; detail: any } | null>(null);
+    const [dragOverRow, setDragOverRow] = useState<string | null>(null);
+    const [pendingMove, setPendingMove] = useState<{ booking: ChaletBooking; detail: any; toRoom: ChaletRoom } | null>(null);
+    const [savingMove, setSavingMove] = useState(false);
     const [editingTimes, setEditingTimes] = useState<StayTimes | null>(null);
     const [savingTimes, setSavingTimes] = useState(false);
 
@@ -256,6 +264,10 @@ export default function ChaletBookingCalendarPage() {
                 return {
                     key: `${booking.id}-${index}-${roomId || 'unassigned'}`,
                     room,
+                    slotIndex: index,
+                    roomId,
+                    categoryId,
+                    packageId,
                     categoryName: category?.name || booking.chalet_room_categories?.name || 'Room type not set',
                     packageName: packageId ? packageMap.get(packageId)?.name || booking.chalet_packages?.name || 'Package not set' : 'Package not set',
                     bedding: room?.bed_type || category?.bed_configurations?.[0] || booking.chalet_room_categories?.bed_configurations?.[0] || 'Bedding not set',
@@ -276,6 +288,10 @@ export default function ChaletBookingCalendarPage() {
             return {
                 key: `${booking.id}-${index}-${roomId || 'unassigned'}`,
                 room,
+                slotIndex: index,
+                roomId,
+                categoryId: room?.category_id || booking.room_category_id || '',
+                packageId,
                 categoryName: category?.name || booking.chalet_room_categories?.name || 'Room type not set',
                 packageName: packageId ? packageMap.get(packageId)?.name || booking.chalet_packages?.name || 'Package not set' : 'Package not set',
                 bedding: room?.bed_type || category?.bed_configurations?.[0] || booking.chalet_room_categories?.bed_configurations?.[0] || 'Bedding not set',
@@ -363,13 +379,153 @@ export default function ChaletBookingCalendarPage() {
     const today = new Date(new Date().setHours(0, 0, 0, 0));
 
     const LANE_HEIGHT = 34;
+
+    // ── Moving a booking to another chalet (same dates) ─────────────────────
+    useEffect(() => {
+        if (timelineDays !== 7 || view !== 'timeline') setEditingBookingId(null);
+    }, [timelineDays, view]);
+    useEffect(() => {
+        if (!editingBookingId) return;
+        const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setEditingBookingId(null); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [editingBookingId]);
+
+    // Only bookings not yet checked in can change chalet here.
+    const isMovable = (booking: ChaletBooking) => booking.status === 'pending' || booking.status === 'confirmed';
+
+    const roomGuestLimits = (room: ChaletRoom) => {
+        const category = room.category_id ? categoryMap.get(room.category_id) : undefined;
+        return {
+            minAdults: Math.max(1, room.min_adults ?? 1),
+            maxAdults: room.max_adults ?? category?.max_adults ?? 99,
+            maxChildren: room.max_children ?? category?.max_children ?? 99,
+            maxGuests: room.max_guests ?? category?.max_guests ?? 99,
+        };
+    };
+
+    const bookingUsesRoom = (booking: ChaletBooking, roomId: string) => (
+        booking.room_id === roomId
+        || (Array.isArray(booking.room_ids) && booking.room_ids.includes(roomId))
+        || (Array.isArray(booking.room_allocations) && booking.room_allocations.some(allocation => (allocation.roomId || (allocation as any).room_id) === roomId))
+    );
+
+    // Why this chalet can't take the dragged room (null = it can). Same
+    // checks as Assign Room: room type, guest limits, free for the dates.
+    const moveBlockReason = (booking: ChaletBooking, detail: any, room: ChaletRoom): string | null => {
+        if (room.id === detail.roomId) return 'Current chalet';
+        if (room.status === 'inactive') return 'Inactive';
+        if (bookingUsesRoom(booking, room.id)) return 'Already in this booking';
+        if (detail.categoryId && room.category_id !== detail.categoryId) return 'Different room type';
+        const limits = roomGuestLimits(room);
+        const adults = Number(detail.adults || 0);
+        const children = Number(detail.children || 0);
+        if (adults < limits.minAdults) return `Needs ${limits.minAdults}+ adults`;
+        if (adults > limits.maxAdults) return `Max ${limits.maxAdults} adults`;
+        if (children > limits.maxChildren) return `Max ${limits.maxChildren} children`;
+        if (adults + children > limits.maxGuests) return `Max ${limits.maxGuests} guests`;
+        const block = roomBlocks.find(item => item.room_id === room.id && blockOverlapsStay(item, booking.check_in_date, booking.check_out_date, stayTimes));
+        if (block) return 'Maintenance';
+        const clash = bookings.some(other =>
+            other.id !== booking.id
+            && other.status !== 'cancelled'
+            && other.check_in_date < booking.check_out_date
+            && other.check_out_date > booking.check_in_date
+            && bookingUsesRoom(other, room.id));
+        if (clash) return 'Booked';
+        return null;
+    };
+
+    const moveReasons = useMemo(() => {
+        if (!dragging) return new Map<string, string | null>();
+        return new Map(rooms.map(room => [room.id, moveBlockReason(dragging.booking, dragging.detail, room)]));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dragging, rooms, bookings, roomBlocks, stayTimes]);
+
+    const confirmMove = async () => {
+        if (!pendingMove) return;
+        const { booking, detail, toRoom } = pendingMove;
+        const details = bookingRoomDetails(booking);
+        const newIds = details.map(item => item.slotIndex === detail.slotIndex ? toRoom.id : item.roomId).filter(Boolean) as string[];
+        const roomGuests = Object.fromEntries(details.map(item => [
+            item.slotIndex === detail.slotIndex ? toRoom.id : item.roomId,
+            { adults: item.adults, children: item.children },
+        ]).filter(([roomId]) => roomId));
+        const roomPackages = Object.fromEntries(details.map(item => [
+            item.slotIndex === detail.slotIndex ? toRoom.id : item.roomId,
+            item.packageId,
+        ]).filter(([roomId, packageId]) => roomId && packageId));
+        const body: Record<string, unknown> = {
+            id: booking.id,
+            room_id: newIds[0] || null,
+            room_ids: newIds,
+            room_guests: roomGuests,
+            room_packages: roomPackages,
+        };
+        // Keep each allocation as it is (locked price, package, guests); only the chalet changes.
+        if (Array.isArray(booking.room_allocations) && booking.room_allocations.length > 0) {
+            body.room_allocations = booking.room_allocations.map((allocation, index) => {
+                if (index !== detail.slotIndex) return allocation;
+                const { room_id: _oldRoomId, ...rest } = allocation as any;
+                return { ...rest, roomId: toRoom.id };
+            });
+        }
+        setSavingMove(true);
+        try {
+            const res = await fetch('/api/chalet/bookings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not move the booking');
+            toast({ title: 'Chalet changed', description: `${booking.customer_name} (${booking.booking_ref}) moved to ${chaletLabel(toRoom.room_number)}.` });
+            setPendingMove(null);
+            setEditingBookingId(null);
+            await fetchData();
+        } catch (error: any) {
+            toast({ title: 'Not moved', description: error.message, variant: 'destructive' });
+        } finally {
+            setSavingMove(false);
+        }
+    };
     const renderTimelineRow = (rowKey: string, label: React.ReactNode, sublabel?: string) => {
         const { placed, lanes } = laneSegments(rowKey);
+        // While dragging: green = can take the booking, otherwise dimmed with the reason.
+        const dropRoom = dragging && rowKey !== 'unassigned' ? roomMap.get(rowKey) : undefined;
+        const dropReason = dropRoom ? moveReasons.get(rowKey) ?? null : dragging ? 'Unassigned' : null;
+        const canDrop = !!dropRoom && dropReason === null;
+        const isSource = !!dragging && dragging.detail.roomId === rowKey;
+        const rowState = !dragging ? '' : canDrop ? (dragOverRow === rowKey ? 'bg-green-200/70' : 'bg-green-50') : isSource ? '' : 'opacity-50';
         return (
-            <div key={rowKey} className="grid border-b" style={{ gridTemplateColumns: `180px minmax(${timelineDays * timelineColumnWidth}px, 1fr)` }}>
-                <div className="sticky left-0 z-10 flex flex-col justify-center border-r bg-background px-3" style={{ height: lanes * LANE_HEIGHT }}>
+            <div
+                key={rowKey}
+                className={`grid border-b transition-colors ${rowState}`}
+                style={{ gridTemplateColumns: `180px minmax(${timelineDays * timelineColumnWidth}px, 1fr)` }}
+                onDragOver={event => {
+                    if (!canDrop) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    if (dragOverRow !== rowKey) setDragOverRow(rowKey);
+                }}
+                onDragLeave={() => { if (dragOverRow === rowKey) setDragOverRow(null); }}
+                onDrop={event => {
+                    event.preventDefault();
+                    if (!dragging || !dropRoom || !canDrop) return;
+                    setPendingMove({ booking: dragging.booking, detail: dragging.detail, toRoom: dropRoom });
+                    setDragging(null);
+                    setDragOverRow(null);
+                }}
+            >
+                <div className={`sticky left-0 z-10 flex flex-col justify-center border-r px-3 ${canDrop ? 'bg-green-50' : 'bg-background'}`} style={{ height: lanes * LANE_HEIGHT }}>
                     <span className="truncate text-sm font-medium">{label}</span>
-                    {sublabel && <span className="truncate text-[11px] text-muted-foreground">{sublabel}</span>}
+                    {dragging && !isSource && dropReason ? (
+                        <span className="truncate text-[11px] text-red-600">{dropReason}</span>
+                    ) : dragging && canDrop ? (
+                        <span className="truncate text-[11px] font-medium text-green-700">Drop here</span>
+                    ) : sublabel ? (
+                        <span className="truncate text-[11px] text-muted-foreground">{sublabel}</span>
+                    ) : null}
                 </div>
                 <div className="relative" style={{ height: lanes * LANE_HEIGHT }}>
                     {/* Day cells, with faint check-out / check-in time markers */}
@@ -407,13 +563,31 @@ export default function ChaletBookingCalendarPage() {
                             </div>
                         );
                     })}
-                    {placed.map(segment => (
-                        <button
+                    {placed.map(segment => {
+                        // Unassigned rooms can always be dragged onto a chalet; assigned
+                        // ones after their Edit (pencil) is clicked (7-day view).
+                        const unassigned = !segment.detail.roomId;
+                        const editing = editingBookingId === segment.booking.id;
+                        const draggable = isMovable(segment.booking) && (unassigned || editing);
+                        const showEdit = timelineDays === 7 && isMovable(segment.booking) && !unassigned;
+                        return (
+                        // A div (not a button) so dragging works in every browser.
+                        <div
                             key={segment.key}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
+                            draggable={draggable}
+                            onDragStart={event => {
+                                if (!draggable) return;
+                                event.dataTransfer.effectAllowed = 'move';
+                                event.dataTransfer.setData('text/plain', segment.booking.id);
+                                setDragging({ booking: segment.booking, detail: segment.detail });
+                            }}
+                            onDragEnd={() => { setDragging(null); setDragOverRow(null); }}
                             onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); showDetails(); }}
-                            title={`${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
-                            className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
+                            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); showDetails(); } }}
+                            title={`${draggable ? (unassigned ? 'Drag onto a chalet to assign it (same dates)\n' : 'Drag to another chalet (same dates)\n') : ''}${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
+                            className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition cursor-pointer select-none ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${editing ? 'outline-dashed outline-2 outline-offset-1 outline-gray-900' : ''} ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
                             style={{
                                 left: `${(segment.start / timelineDays) * 100}%`,
                                 width: `calc(${((segment.end - segment.start) / timelineDays) * 100}% - 2px)`,
@@ -422,11 +596,24 @@ export default function ChaletBookingCalendarPage() {
                             }}
                         >
                             {segment.clippedStart && <ChevronLeft className="h-3 w-3 shrink-0" />}
+                            {draggable && <GripVertical className="h-3 w-3 shrink-0 opacity-70" />}
                             <span className="truncate">{segment.booking.customer_name}</span>
                             {segment.end - segment.start >= 2.5 && <span className="truncate opacity-80">· {segment.booking.booking_ref}</span>}
-                            {segment.clippedEnd && <ChevronRight className="ml-auto h-3 w-3 shrink-0" />}
-                        </button>
-                    ))}
+                            {showEdit && (
+                                <button
+                                    type="button"
+                                    draggable={false}
+                                    title={editing ? 'Done' : 'Edit: drag this booking to another chalet'}
+                                    onClick={event => { event.stopPropagation(); setEditingBookingId(current => current === segment.booking.id ? null : segment.booking.id); }}
+                                    className={`ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded ${editing ? 'bg-gray-900 text-white' : 'bg-white/70 text-gray-800 hover:bg-white'}`}
+                                >
+                                    {editing ? <Check className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
+                                </button>
+                            )}
+                            {segment.clippedEnd && <ChevronRight className={`${showEdit ? '' : 'ml-auto '}h-3 w-3 shrink-0`} />}
+                        </div>
+                        );
+                    })}
                 </div>
             </div>
         );
@@ -543,6 +730,19 @@ export default function ChaletBookingCalendarPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
+                        {(() => {
+                            const editingBooking = editingBookingId ? bookings.find(booking => booking.id === editingBookingId) : null;
+                            return editingBooking ? (
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-primary/50 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                                    <span>
+                                        <span className="font-medium text-foreground">Editing {editingBooking.customer_name} ({editingBooking.booking_ref}):</span> drag it onto another chalet. The dates stay the same; only chalets of the same room type that fit the guests and are free for those dates turn green.
+                                    </span>
+                                    <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingBookingId(null)}>Done</Button>
+                                </div>
+                            ) : timelineDays === 7 ? (
+                                <p className="mb-3 text-xs text-muted-foreground">Tip: click the pencil on a booking to move it to another chalet. Unassigned bookings can be dragged onto a chalet straight away.</p>
+                            ) : null;
+                        })()}
                         {loading ? (
                             <Skeleton className="h-72 w-full" />
                         ) : (
@@ -777,6 +977,34 @@ export default function ChaletBookingCalendarPage() {
                 </Card>
                 </div>
             </div>
+            <AlertDialog open={!!pendingMove} onOpenChange={open => { if (!open && !savingMove) setPendingMove(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Change chalet?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            {pendingMove ? (
+                                <div className="space-y-1 text-sm">
+                                    <p><span className="font-medium text-foreground">{pendingMove.booking.customer_name}</span> · {pendingMove.booking.booking_ref}</p>
+                                    <p>
+                                        {pendingMove.detail.room ? chaletLabel(pendingMove.detail.room.room_number) : 'Unassigned'} → <span className="font-medium text-foreground">{chaletLabel(pendingMove.toRoom.room_number)}</span>
+                                    </p>
+                                    <p>
+                                        {format(parseDate(pendingMove.booking.check_in_date), 'dd MMM yyyy')} {formatTime(stayTimes.check_in)} → {format(parseDate(pendingMove.booking.check_out_date), 'dd MMM yyyy')} {formatTime(stayTimes.check_out)} (dates unchanged)
+                                    </p>
+                                    <p>{pendingMove.detail.categoryName} · {pendingMove.detail.packageName} · {pendingMove.detail.adults} adult(s), {pendingMove.detail.children} child(ren). The price stays the same.</p>
+                                </div>
+                            ) : <span />}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={savingMove}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={event => { event.preventDefault(); void confirmMove(); }} disabled={savingMove}>
+                            {savingMove ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Move booking
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
