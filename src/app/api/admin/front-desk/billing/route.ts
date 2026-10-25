@@ -26,7 +26,7 @@ export async function GET(request: Request) {
             const search = (searchParams.get('search') || '').trim().toLowerCase();
             const [customersResult, reservationsResult, chaletResult, ratesResult, ordersResult, servicesResult] = await Promise.all([
                 supabase.from('customers').select('*'),
-                supabase.from('reservations').select('customer_id,total_cost,payment_status,check_out_date').in('status', ['checked-in', 'confirmed']),
+                supabase.from('reservations').select('customer_id,total_cost,payment_status,check_out_date,room:rooms(room_number,title)').in('status', ['checked-in', 'confirmed']),
                 supabase.from('chalet_bookings').select('*').in('status', ['checked_in', 'confirmed']),
                 supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
                 supabase.from('orders').select('customer_id,total_price,confirmed_total').in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
@@ -40,6 +40,11 @@ export async function GET(request: Request) {
                 if (id && date) checkoutDates.set(id, [...(checkoutDates.get(id) || []), date.slice(0, 10)]);
             };
             const totals = new Map<string, number>();
+            // Rooms/chalets each customer is staying in, for the list and the search.
+            const roomLabels = new Map<string, string[]>();
+            const addRoom = (id: string | null, label: string | null | undefined) => {
+                if (id && label && !(roomLabels.get(id) || []).includes(label)) roomLabels.set(id, [...(roomLabels.get(id) || []), label]);
+            };
             // Keep checked-in guests available in Find Customer Bill even
             // after payment reduces their balance to zero. They still need
             // to remain selectable for printing and the separate checkout
@@ -51,24 +56,41 @@ export async function GET(request: Request) {
             reservationsResult.data?.forEach((item: any) => {
                 addCheckoutDate(item.customer_id, item.check_out_date);
                 if (item.customer_id) activeStayCustomerIds.add(item.customer_id);
+                const room = Array.isArray(item.room) ? item.room[0] : item.room;
+                addRoom(item.customer_id, room?.room_number ? `Room ${room.room_number}` : room?.title);
                 if (item.payment_status !== 'paid') add(item.customer_id, item.total_cost);
             });
             ordersResult.data?.forEach((item: any) => add(item.customer_id, item.confirmed_total ?? item.total_price));
             servicesResult.data?.forEach((item: any) => add(item.customer_id, item.amount));
 
             const customersByName = new Map((customersResult.data || []).map((customer: any) => [customer.name?.trim().toLowerCase(), customer.id]));
+            const chaletRoomIds = (item: any): string[] => Array.from(new Set([
+                ...(Array.isArray(item.room_allocations) ? item.room_allocations.map((a: any) => a?.roomId ?? a?.room_id) : []),
+                ...(Array.isArray(item.room_ids) ? item.room_ids : []),
+                item.room_id,
+            ].filter(Boolean)));
+            const allChaletRoomIds = Array.from(new Set((chaletResult.data || []).flatMap(chaletRoomIds)));
+            const { data: chaletRooms } = allChaletRoomIds.length
+                ? await supabase.from('chalet_rooms').select('id,room_number').in('id', allChaletRoomIds)
+                : { data: [] as any[] };
+            const chaletRoomNumber = new Map((chaletRooms || []).map((room: any) => [room.id, room.room_number]));
             chaletResult.data?.forEach((item: any) => {
                 const customerId = customersByName.get(item.customer_name?.trim().toLowerCase()) || null;
                 addCheckoutDate(customerId, item.check_out_date);
                 if (customerId) activeStayCustomerIds.add(customerId);
+                chaletRoomIds(item).forEach(roomId => {
+                    const number = chaletRoomNumber.get(roomId);
+                    if (number) addRoom(customerId, `Chalet ${number}`);
+                });
                 add(customerId, chaletOutstandingLkr(item, ratesResult.data || []));
             });
 
             const customers = (customersResult.data || [])
                 .filter((customer: any) => (totals.get(customer.id) || 0) > 0 || activeStayCustomerIds.has(customer.id))
-                .filter((customer: any) => !search || [customer.name, customer.id_number, customer.phone, customer.email]
+                // Search matches name, ID, phone, email or room ("01", "Chalet 01", "Room 12").
+                .filter((customer: any) => !search || [customer.name, customer.id_number, customer.phone, customer.email, ...(roomLabels.get(customer.id) || [])]
                     .some((value) => String(value || '').toLowerCase().includes(search)))
-                .map((customer: any) => ({ ...customer, checkout_dates: checkoutDates.get(customer.id) || [], outstanding_total: totals.get(customer.id) || 0 }))
+                .map((customer: any) => ({ ...customer, rooms: roomLabels.get(customer.id) || [], checkout_dates: checkoutDates.get(customer.id) || [], outstanding_total: totals.get(customer.id) || 0 }))
                 .sort((a: any, b: any) => b.outstanding_total - a.outstanding_total);
 
             return NextResponse.json({ customers });
@@ -115,12 +137,22 @@ export async function GET(request: Request) {
         ]);
 
         // 3. Get unpaid Orders (status = billed or open)
-        const { data: orders } = await supabase
+        const { data: orderRows } = await supabase
             .from('orders')
             .select('*')
             .eq('customer_id', customer_id)
             .in('status', ['open', 'billed', 'room_charge'])
             .not('waiter_name', 'like', 'Package Meal|%');
+
+        // Items on each order, shown on the bill and the printed order bill.
+        const orderIds = (orderRows || []).map(ord => ord.id);
+        const { data: orderItemRows } = orderIds.length > 0
+            ? await supabase.from('order_items').select('id,order_id,name,price,quantity').in('order_id', orderIds)
+            : { data: [] as any[] };
+        const orders = (orderRows || []).map(ord => ({
+            ...ord,
+            items: (orderItemRows || []).filter((item: any) => item.order_id === ord.id),
+        }));
 
         // 4. Get unpaid Service Incomes
         const { data: serviceIncomes } = await supabase

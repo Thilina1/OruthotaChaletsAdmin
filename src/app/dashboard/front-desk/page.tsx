@@ -181,6 +181,8 @@ export default function FrontDeskPage() {
   const [isSavingMeal, setIsSavingMeal] = useState(false);
   const [historyBill, setHistoryBill] = useState<any | null>(null);
   const [isHistoryBillOpen, setIsHistoryBillOpen] = useState(false);
+  // Restaurant order being printed on its own (Print on an order row).
+  const [printOrder, setPrintOrder] = useState<any | null>(null);
   const [isLoadingHistoryBill, setIsLoadingHistoryBill] = useState(false);
 
   useEffect(() => {
@@ -954,15 +956,26 @@ export default function FrontDeskPage() {
     if (row.type === 'reservation') {
       return (
         row.item.guest_name?.toLowerCase().includes(q) ||
-        row.item.room?.title?.toLowerCase().includes(q)
+        row.item.room?.title?.toLowerCase().includes(q) ||
+        String((row.item.room as any)?.room_number || '').toLowerCase().includes(q)
       );
     }
+    // Every chalet on the booking, not just the first ("Chalet 02 + 1 more").
+    const bookingRoomIds = Array.from(new Set([
+      ...getChaletBookingRoomIds(row.item),
+      ...getBookingRoomSlots(row.item).map(slot => slot.roomId),
+    ].filter(Boolean)));
+    const roomTexts = bookingRoomIds.flatMap(roomId => {
+      const room = chaletRooms.find(item => item.id === roomId);
+      return room ? [`Chalet ${room.room_number}`, room.name] : [getChaletRoomLabel(roomId)];
+    });
     return (
       row.item.customer_name?.toLowerCase().includes(q) ||
       row.item.booking_ref?.toLowerCase().includes(q) ||
       row.item.chalet_rooms?.name?.toLowerCase().includes(q) ||
       row.item.chalet_rooms?.room_number?.toLowerCase().includes(q) ||
-      getChaletBookingRoomText(row.item)?.toLowerCase().includes(q)
+      getChaletBookingRoomText(row.item)?.toLowerCase().includes(q) ||
+      roomTexts.some(text => String(text || '').toLowerCase().includes(q))
     );
   };
 
@@ -1369,6 +1382,66 @@ export default function FrontDeskPage() {
   const invoiceDate = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
   // Guest folio for the open bill, or the receipt once it has been settled.
+  // Lines of a restaurant order: its items, then the bill's charges/discounts.
+  const orderSubLines = (ord: any) => {
+    const breakdown = ord.bill_breakdown as Record<string, number> | null | undefined;
+    const items = (ord.items || []) as { name: string; price: number; quantity: number }[];
+    return [
+      ...(items.length > 0
+        ? items.map(item => ({ label: `${item.quantity} × ${item.name} @ ${Number(item.price || 0).toFixed(2)}`, amount: Number(item.price || 0) * Number(item.quantity || 0) }))
+        : breakdown ? [{ label: 'Food & beverage', amount: Number(breakdown.subtotal || 0) }] : []),
+      ...(breakdown && Number(breakdown.discount_total || 0) > 0 ? [{ label: 'Discount', amount: -Number(breakdown.discount_total) }] : []),
+      ...(breakdown && Number(breakdown.service_charge_total || 0) > 0 ? [{ label: 'Service charge', amount: Number(breakdown.service_charge_total) }] : []),
+      ...(breakdown && Number(breakdown.other_charge_total || 0) > 0 ? [{ label: 'Other charges', amount: Number(breakdown.other_charge_total) }] : []),
+      ...(breakdown && Number(breakdown.vat_amount || 0) > 0 ? [{ label: `VAT${breakdown.vat_rate ? ` (${breakdown.vat_rate}%)` : ''}`, amount: Number(breakdown.vat_amount) }] : []),
+    ];
+  };
+  const orderLabel = (ord: any) => `Restaurant bill ${ord.bill_number || `#${String(ord.id).substring(0, 8).toUpperCase()}`}`;
+  const orderDetail = (ord: any) => [
+    invoiceDate(ord.created_at),
+    ord.table_number ? `Table ${ord.table_number}` : '',
+    ord.waiter_name && !String(ord.waiter_name).includes('|') ? `Served by ${ord.waiter_name}` : '',
+  ].filter(Boolean).join(' · ');
+
+  // A single restaurant order, printed on its own.
+  const buildOrderInvoice = (ord: any): GuestInvoiceProps | null => {
+    if (!billData) return null;
+    const amount = Number(ord.confirmed_total ?? ord.total_price ?? 0);
+    const rooms = [
+      ...billData.reservations.map(res => res.room?.title).filter(Boolean),
+      ...billData.chaletBookings.map(cb => getChaletBookingRoomShortText(cb)).filter(Boolean),
+    ].join(', ');
+    return {
+      title: 'Restaurant Bill',
+      status: 'BALANCE DUE',
+      documentNumber: ord.bill_number || `ORDER-${String(ord.id).substring(0, 8).toUpperCase()}`,
+      issuedAt: ord.created_at || new Date().toISOString(),
+      guest: {
+        name: billData.customer.name,
+        phone: billData.customer.phone,
+        email: billData.customer.email,
+        idNumber: (billData.customer as any).id_number,
+        address: billData.customer.address,
+      },
+      stay: { rooms },
+      lines: [{ category: 'Restaurant', description: orderLabel(ord), detail: orderDetail(ord), subLines: orderSubLines(ord), amount }],
+      payments: [],
+      totalCharges: amount,
+      settlement: null,
+      balanceDue: amount,
+      notes: ['Added to the guest bill; payable at check-out.'],
+    };
+  };
+
+  const handlePrintOrder = (ord: any) => {
+    setPrintOrder(ord);
+    // Let the print area render the order before printing.
+    setTimeout(() => {
+      window.print();
+      setPrintOrder(null);
+    }, 100);
+  };
+
   const buildFolioInvoice = (): GuestInvoiceProps | null => {
     if (!billData) return null;
     const lines: InvoiceLine[] = [];
@@ -1416,19 +1489,12 @@ export default function FrontDeskPage() {
     });
 
     billData.orders.forEach(ord => {
-      const breakdown = (ord as any).bill_breakdown as Record<string, number> | null | undefined;
-      const subLines = breakdown ? [
-        { label: 'Food & beverage', amount: Number(breakdown.subtotal || 0) },
-        ...(Number(breakdown.discount_total || 0) > 0 ? [{ label: 'Discount', amount: -Number(breakdown.discount_total) }] : []),
-        ...(Number(breakdown.service_charge_total || 0) > 0 ? [{ label: 'Service charge', amount: Number(breakdown.service_charge_total) }] : []),
-        ...(Number(breakdown.other_charge_total || 0) > 0 ? [{ label: 'Other charges', amount: Number(breakdown.other_charge_total) }] : []),
-        ...(Number(breakdown.vat_amount || 0) > 0 ? [{ label: `VAT${breakdown.vat_rate ? ` (${breakdown.vat_rate}%)` : ''}`, amount: Number(breakdown.vat_amount) }] : []),
-      ] : undefined;
+      const subLines = orderSubLines(ord);
       lines.push({
         category: 'Restaurant',
-        description: `Restaurant bill ${(ord as any).bill_number || `#${ord.id.substring(0, 8).toUpperCase()}`}`,
-        detail: invoiceDate(ord.created_at),
-        subLines,
+        description: orderLabel(ord),
+        detail: orderDetail(ord),
+        subLines: subLines.length > 0 ? subLines : undefined,
         amount: Number(ord.confirmed_total ?? ord.total_price ?? 0),
       });
     });
@@ -1901,7 +1967,7 @@ export default function FrontDeskPage() {
                 <h2 className="text-lg font-semibold mb-4">Find Customer Bill</h2>
                 <div className="mb-4 space-y-2">
                   <Input
-                    placeholder="Search by name, ID, or phone..."
+                    placeholder="Search by name, room number, ID, or phone..."
                     value={customerSearch}
                     onChange={(e) => setCustomerSearch(e.target.value)}
                   />
@@ -1924,7 +1990,14 @@ export default function FrontDeskPage() {
                       className={`p-3 border rounded-md cursor-pointer hover:bg-muted ${selectedCustomerForBill?.id === c.id ? 'bg-muted border-primary' : ''}`}
                       onClick={() => handleSelectCustomerForBill(c)}
                     >
-                      <div className="font-medium">{c.name}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-medium">{c.name}</div>
+                        {c.rooms?.length > 0 && (
+                          <div className="flex flex-wrap justify-end gap-1">
+                            {c.rooms.map((room: string) => <Badge key={room} variant="secondary" className="text-[10px]">{room}</Badge>)}
+                          </div>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {c.id_number ? `ID: ${c.id_number}` : c.phone || c.email || 'No contact info'}
                       </div>
@@ -1952,7 +2025,7 @@ export default function FrontDeskPage() {
                         <p className="text-muted-foreground">Customer: {billData.customer.name}</p>
                       </div>
                       <div className="text-right">
-                        <div className="text-3xl font-bold text-primary">LKR {billData.totalOutstanding.toFixed(2)}</div>
+                        <div className="text-3xl font-bold text-primary">{formatMoney(billData.totalOutstanding)}</div>
                         <p className="text-sm text-muted-foreground">Total Outstanding</p>
                         <Button variant="outline" className="mt-3" onClick={() => window.print()}>
                           <Printer className="mr-2 h-4 w-4" />
@@ -2013,12 +2086,36 @@ export default function FrontDeskPage() {
                           <h3 className="font-semibold text-lg border-b pb-2 mb-3">Restaurant Orders</h3>
                           <Table>
                             <PaginatedTableBody showSinglePage>
-                              {billData.orders.map(ord => (
-                                <TableRow key={ord.id}>
-                                  <TableCell>Order #{ord.id.substring(0,8).toUpperCase()} ({new Date(ord.created_at || '').toLocaleDateString()})</TableCell>
-                                  <TableCell className="text-right">LKR {Number(ord.confirmed_total ?? ord.total_price ?? 0).toFixed(2)}</TableCell>
-                                </TableRow>
-                              ))}
+                              {billData.orders.map(ord => {
+                                const subLines = orderSubLines(ord);
+                                return (
+                                  <TableRow key={ord.id} className="align-top">
+                                    <TableCell>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium">{orderLabel(ord)}</p>
+                                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs print:hidden" onClick={() => handlePrintOrder(ord)}>
+                                          <Printer className="mr-1 h-3.5 w-3.5" />
+                                          Print
+                                        </Button>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">{orderDetail(ord)}</p>
+                                      {subLines.length > 0 ? (
+                                        <div className="mt-2 space-y-1 border-l-2 pl-3 text-xs">
+                                          {subLines.map((line, index) => (
+                                            <div key={index} className="flex justify-between gap-4">
+                                              <span className="text-muted-foreground">{line.label}</span>
+                                              <span className="tabular-nums whitespace-nowrap">{line.amount < 0 ? '− ' : ''}{formatMoney(Math.abs(line.amount))}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="mt-1 text-xs text-muted-foreground">No items recorded on this order.</p>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium whitespace-nowrap">{formatMoney(Number(ord.confirmed_total ?? ord.total_price ?? 0))}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
                             </PaginatedTableBody>
                           </Table>
                         </div>
@@ -2115,6 +2212,50 @@ export default function FrontDeskPage() {
                           </Button>
                         </div>
                       </div>
+
+                      {/* Bill summary: the same figures that make up Total Outstanding. */}
+                      {(() => {
+                        const roomTotal = billData.reservations.reduce((sum: number, res: any) => sum + (res.total_cost && res.payment_status !== 'paid' ? Number(res.total_cost) : 0), 0);
+                        const chalets = billData.chaletBookings as any[];
+                        const chaletBalance = chalets.reduce((sum, cb) => sum + Number(cb.outstanding_lkr || 0), 0);
+                        const chaletBill = chalets.reduce((sum, cb) => sum + Number(cb.bill_total_lkr_resolved || 0), 0);
+                        const chaletPaid = chalets.reduce((sum, cb) => sum + Number(cb.paid_lkr || 0), 0);
+                        const ordersTotal = billData.orders.reduce((sum: number, ord: any) => sum + Number(ord.confirmed_total ?? ord.total_price ?? 0), 0);
+                        const incomes = billData.serviceIncomes as any[];
+                        const servicesTotal = incomes.filter(inc => inc.service_type !== 'Other' && inc.service_type !== 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                        const otherTotal = incomes.filter(inc => inc.service_type === 'Other').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                        const discountTotal = incomes.filter(inc => inc.service_type === 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                        const lines: { label: string; note?: string; amount: number; discount?: boolean }[] = [
+                          ...(billData.reservations.length > 0 ? [{ label: 'Room charges', amount: roomTotal }] : []),
+                          ...(chalets.length > 0 ? [{ label: 'Chalet balance', note: chaletPaid > 0 ? `${formatMoney(chaletBill)} bill − ${formatMoney(chaletPaid)} paid` : undefined, amount: chaletBalance }] : []),
+                          ...(billData.orders.length > 0 ? [{ label: `Restaurant orders (${billData.orders.length})`, amount: ordersTotal }] : []),
+                          ...(servicesTotal !== 0 ? [{ label: 'Extra services', amount: servicesTotal }] : []),
+                          ...(otherTotal !== 0 ? [{ label: 'Other charges', amount: otherTotal }] : []),
+                          ...(discountTotal !== 0 ? [{ label: 'Discounts', amount: discountTotal, discount: true }] : []),
+                        ];
+                        return (
+                          <div className="pt-6 border-t">
+                            <h3 className="font-semibold text-lg mb-3">Bill Summary</h3>
+                            <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
+                              {lines.map(line => (
+                                <div key={line.label} className="flex items-start justify-between gap-4">
+                                  <div>
+                                    <p>{line.label}</p>
+                                    {line.note && <p className="text-xs text-muted-foreground">{line.note}</p>}
+                                  </div>
+                                  <p className={`font-medium tabular-nums ${line.discount ? 'text-green-700' : ''}`}>
+                                    {line.discount ? `− ${formatMoney(Math.abs(line.amount))}` : formatMoney(line.amount)}
+                                  </p>
+                                </div>
+                              ))}
+                              <div className="flex items-center justify-between gap-4 border-t pt-3 text-base font-bold">
+                                <p>Total to Pay</p>
+                                <p className="tabular-nums text-primary">{formatMoney(billData.totalOutstanding)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {billData.totalOutstanding === 0 ? (
                         <div className="pt-6 border-t space-y-4">
@@ -2979,7 +3120,7 @@ export default function FrontDeskPage() {
       {/* Printed guest document: the past bill while its window is open,
           otherwise the open bill (folio, or receipt once settled). */}
       {(() => {
-        const invoice = isHistoryBillOpen && historyBill ? buildHistoryInvoice() : buildFolioInvoice();
+        const invoice = printOrder ? buildOrderInvoice(printOrder) : isHistoryBillOpen && historyBill ? buildHistoryInvoice() : buildFolioInvoice();
         return invoice ? (
           <div id="print-area" className="hidden print:block bg-white text-black">
             <GuestInvoice {...invoice} />
