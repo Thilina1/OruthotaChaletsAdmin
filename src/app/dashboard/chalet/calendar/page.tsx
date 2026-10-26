@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
     addDays,
     addMonths,
@@ -18,7 +19,7 @@ import {
     startOfWeek,
     subMonths,
 } from 'date-fns';
-import { ArrowLeft, ArrowRight, BedDouble, CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Eye, GanttChartSquare, GripVertical, Loader2, Pencil, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, GanttChartSquare, GripVertical, Loader2, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -129,12 +130,13 @@ export default function ChaletBookingCalendarPage() {
     }, [detailsScrollRequest]);
     const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
     // Drag & drop room changes (7-day timeline, Edit mode).
-    // Booking whose Edit (pencil) was clicked: its bars can be dragged.
-    const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
     const [dragging, setDragging] = useState<{ booking: ChaletBooking; detail: any } | null>(null);
     const [dragOverRow, setDragOverRow] = useState<string | null>(null);
     const [pendingMove, setPendingMove] = useState<{ booking: ChaletBooking; detail: any; toRoom: ChaletRoom } | null>(null);
     const [savingMove, setSavingMove] = useState(false);
+    const router = useRouter();
+    // A booking's own page (Guest / Reservation / Account).
+    const openBookingPage = (bookingId: string) => router.push(`/dashboard/chalet/calendar/${bookingId}`);
     const [editingTimes, setEditingTimes] = useState<StayTimes | null>(null);
     const [savingTimes, setSavingTimes] = useState(false);
 
@@ -381,15 +383,6 @@ export default function ChaletBookingCalendarPage() {
     const LANE_HEIGHT = 34;
 
     // ── Moving a booking to another chalet (same dates) ─────────────────────
-    useEffect(() => {
-        if (timelineDays !== 7 || view !== 'timeline') setEditingBookingId(null);
-    }, [timelineDays, view]);
-    useEffect(() => {
-        if (!editingBookingId) return;
-        const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setEditingBookingId(null); };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [editingBookingId]);
 
     // Only bookings not yet checked in can change chalet here.
     const isMovable = (booking: ChaletBooking) => booking.status === 'pending' || booking.status === 'confirmed';
@@ -481,7 +474,6 @@ export default function ChaletBookingCalendarPage() {
             if (!res.ok) throw new Error(data.error || 'Could not move the booking');
             toast({ title: 'Chalet changed', description: `${booking.customer_name} (${booking.booking_ref}) moved to ${chaletLabel(toRoom.room_number)}.` });
             setPendingMove(null);
-            setEditingBookingId(null);
             await fetchData();
         } catch (error: any) {
             toast({ title: 'Not moved', description: error.message, variant: 'destructive' });
@@ -564,12 +556,9 @@ export default function ChaletBookingCalendarPage() {
                         );
                     })}
                     {placed.map(segment => {
-                        // Unassigned rooms can always be dragged onto a chalet; assigned
-                        // ones after their Edit (pencil) is clicked (7-day view).
+                        // Pending/confirmed bookings (assigned or not) can be dragged to a chalet.
                         const unassigned = !segment.detail.roomId;
-                        const editing = editingBookingId === segment.booking.id;
-                        const draggable = isMovable(segment.booking) && (unassigned || editing);
-                        const showEdit = timelineDays === 7 && isMovable(segment.booking) && !unassigned;
+                        const draggable = isMovable(segment.booking);
                         return (
                         // A div (not a button) so dragging works in every browser.
                         <div
@@ -584,10 +573,10 @@ export default function ChaletBookingCalendarPage() {
                                 setDragging({ booking: segment.booking, detail: segment.detail });
                             }}
                             onDragEnd={() => { setDragging(null); setDragOverRow(null); }}
-                            onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); showDetails(); }}
-                            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); showDetails(); } }}
+                            onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); openBookingPage(segment.booking.id); }}
+                            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); openBookingPage(segment.booking.id); } }}
                             title={`${draggable ? (unassigned ? 'Drag onto a chalet to assign it (same dates)\n' : 'Drag to another chalet (same dates)\n') : ''}${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
-                            className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition cursor-pointer select-none ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${editing ? 'outline-dashed outline-2 outline-offset-1 outline-gray-900' : ''} ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
+                            className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition cursor-pointer select-none ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
                             style={{
                                 left: `${(segment.start / timelineDays) * 100}%`,
                                 width: `calc(${((segment.end - segment.start) / timelineDays) * 100}% - 2px)`,
@@ -599,18 +588,7 @@ export default function ChaletBookingCalendarPage() {
                             {draggable && <GripVertical className="h-3 w-3 shrink-0 opacity-70" />}
                             <span className="truncate">{segment.booking.customer_name}</span>
                             {segment.end - segment.start >= 2.5 && <span className="truncate opacity-80">· {segment.booking.booking_ref}</span>}
-                            {showEdit && (
-                                <button
-                                    type="button"
-                                    draggable={false}
-                                    title={editing ? 'Done' : 'Edit: drag this booking to another chalet'}
-                                    onClick={event => { event.stopPropagation(); setEditingBookingId(current => current === segment.booking.id ? null : segment.booking.id); }}
-                                    className={`ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded ${editing ? 'bg-gray-900 text-white' : 'bg-white/70 text-gray-800 hover:bg-white'}`}
-                                >
-                                    {editing ? <Check className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
-                                </button>
-                            )}
-                            {segment.clippedEnd && <ChevronRight className={`${showEdit ? '' : 'ml-auto '}h-3 w-3 shrink-0`} />}
+                            {segment.clippedEnd && <ChevronRight className="ml-auto h-3 w-3 shrink-0" />}
                         </div>
                         );
                     })}
@@ -730,19 +708,7 @@ export default function ChaletBookingCalendarPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        {(() => {
-                            const editingBooking = editingBookingId ? bookings.find(booking => booking.id === editingBookingId) : null;
-                            return editingBooking ? (
-                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-primary/50 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                                    <span>
-                                        <span className="font-medium text-foreground">Editing {editingBooking.customer_name} ({editingBooking.booking_ref}):</span> drag it onto another chalet. The dates stay the same; only chalets of the same room type that fit the guests and are free for those dates turn green.
-                                    </span>
-                                    <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingBookingId(null)}>Done</Button>
-                                </div>
-                            ) : timelineDays === 7 ? (
-                                <p className="mb-3 text-xs text-muted-foreground">Tip: click the pencil on a booking to move it to another chalet. Unassigned bookings can be dragged onto a chalet straight away.</p>
-                            ) : null;
-                        })()}
+                        <p className="mb-3 text-xs text-muted-foreground">Tip: drag a pending or confirmed booking onto another chalet to move it (same dates). Chalets that can take it turn green.</p>
                         {loading ? (
                             <Skeleton className="h-72 w-full" />
                         ) : (
@@ -904,7 +870,12 @@ export default function ChaletBookingCalendarPage() {
                                             <p className="font-semibold">{booking.customer_name}</p>
                                             <p className="text-xs text-muted-foreground">{booking.booking_ref}</p>
                                         </div>
-                                        <Badge variant="outline" className={statusColors[booking.status]}>{statusLabels[booking.status]}</Badge>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className={statusColors[booking.status]}>{statusLabels[booking.status]}</Badge>
+                                            <Button size="sm" variant="outline" className="h-7" onClick={() => openBookingPage(booking.id)}>
+                                                <Eye className="mr-1 h-3.5 w-3.5" /> View
+                                            </Button>
+                                        </div>
                                     </div>
                                     <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                                         <div>
