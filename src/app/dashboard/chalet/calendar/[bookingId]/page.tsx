@@ -71,6 +71,8 @@ export default function ChaletBookingDetailsPage() {
     const [rates, setRates] = useState<ChaletRate[]>([]);
     const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
     const [loading, setLoading] = useState(true);
+    // Bumped to reload the booking after it is edited on this page.
+    const [reloadKey, setReloadKey] = useState(0);
     const [notFound, setNotFound] = useState(false);
     const account = useReservationAccount(params?.bookingId);
     // Reservation Account window and the tab it opens at.
@@ -81,7 +83,8 @@ export default function ChaletBookingDetailsPage() {
         if (!bookingId) return;
         let cancelled = false;
         (async () => {
-            setLoading(true);
+            // A reload after an edit refreshes quietly (no loading placeholders).
+            if (!reloadKey) setLoading(true);
             try {
                 const [bookingRes, roomsRes, categoriesRes, packagesRes] = await Promise.all([
                     fetch(`/api/chalet/bookings?id=${encodeURIComponent(bookingId)}`),
@@ -113,7 +116,7 @@ export default function ChaletBookingDetailsPage() {
             }
         })();
         return () => { cancelled = true; };
-    }, [params?.bookingId, toast]);
+    }, [params?.bookingId, toast, reloadKey]);
 
     const goBack = () => {
         if (window.history.length > 1) router.back();
@@ -159,6 +162,7 @@ export default function ChaletBookingDetailsPage() {
                             accountBalances={account.tabs.map(tab => ({ key: tab.key, label: tab.label, balance: tabBalance(tab.rows) }))}
                             accountLoading={account.loading}
                             onOpenAccount={tab => setAccountTab(tab)}
+                            onGuestSaved={() => setReloadKey(key => key + 1)}
                         />
                         <ReservationAccount
                             booking={booking}

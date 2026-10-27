@@ -130,9 +130,13 @@ export default function ChaletBookingCalendarPage() {
     }, [detailsScrollRequest]);
     const [stayTimes, setStayTimes] = useState<StayTimes>(DEFAULT_STAY_TIMES);
     // Drag & drop room changes (7-day timeline, Edit mode).
-    const [dragging, setDragging] = useState<{ booking: ChaletBooking; detail: any } | null>(null);
+    // grabOffset: days between the check-in point and where the bar was grabbed.
+    const [dragging, setDragging] = useState<{ booking: ChaletBooking; detail: any; grabOffset: number } | null>(null);
     const [dragOverRow, setDragOverRow] = useState<string | null>(null);
-    const [pendingMove, setPendingMove] = useState<{ booking: ChaletBooking; detail: any; toRoom: ChaletRoom } | null>(null);
+    // Days the booking would move by (left/right while dragging).
+    const [dragShift, setDragShift] = useState(0);
+    // toRoom null = keep the chalet (dates change only).
+    const [pendingMove, setPendingMove] = useState<{ booking: ChaletBooking; detail: any; toRoom: ChaletRoom | null; shift: number } | null>(null);
     const [savingMove, setSavingMove] = useState(false);
     const router = useRouter();
     // A booking's own page (Guest / Reservation / Account).
@@ -403,41 +407,95 @@ export default function ChaletBookingCalendarPage() {
         || (Array.isArray(booking.room_allocations) && booking.room_allocations.some(allocation => (allocation.roomId || (allocation as any).room_id) === roomId))
     );
 
-    // Why this chalet can't take the dragged room (null = it can). Same
-    // checks as Assign Room: room type, guest limits, free for the dates.
-    const moveBlockReason = (booking: ChaletBooking, detail: any, room: ChaletRoom): string | null => {
-        if (room.id === detail.roomId) return 'Current chalet';
-        if (room.status === 'inactive') return 'Inactive';
-        if (bookingUsesRoom(booking, room.id)) return 'Already in this booking';
-        if (detail.categoryId && room.category_id !== detail.categoryId) return 'Different room type';
-        const limits = roomGuestLimits(room);
-        const adults = Number(detail.adults || 0);
-        const children = Number(detail.children || 0);
-        if (adults < limits.minAdults) return `Needs ${limits.minAdults}+ adults`;
-        if (adults > limits.maxAdults) return `Max ${limits.maxAdults} adults`;
-        if (children > limits.maxChildren) return `Max ${limits.maxChildren} children`;
-        if (adults + children > limits.maxGuests) return `Max ${limits.maxGuests} guests`;
-        const block = roomBlocks.find(item => item.room_id === room.id && blockOverlapsStay(item, booking.check_in_date, booking.check_out_date, stayTimes));
-        if (block) return 'Maintenance';
+    const shiftDate = (value: string, days: number) => format(addDays(parseDate(value), days), 'yyyy-MM-dd');
+
+    // Is a chalet free (no other booking, no maintenance) for these dates?
+    const roomBusyReason = (booking: ChaletBooking, roomId: string, checkIn: string, checkOut: string): string | null => {
+        if (roomBlocks.some(item => item.room_id === roomId && blockOverlapsStay(item, checkIn, checkOut, stayTimes))) return 'Maintenance';
         const clash = bookings.some(other =>
             other.id !== booking.id
             && other.status !== 'cancelled'
-            && other.check_in_date < booking.check_out_date
-            && other.check_out_date > booking.check_in_date
-            && bookingUsesRoom(other, room.id));
-        if (clash) return 'Booked';
+            && other.check_in_date < checkOut
+            && other.check_out_date > checkIn
+            && bookingUsesRoom(other, roomId));
+        return clash ? 'Booked' : null;
+    };
+
+    // Why this chalet can't take the dragged room at these dates (null = it
+    // can). Same checks as Assign Room: room type, guest limits, free.
+    const moveBlockReason = (booking: ChaletBooking, detail: any, room: ChaletRoom, checkIn: string, checkOut: string, shift: number): string | null => {
+        const sameRoom = room.id === detail.roomId;
+        if (sameRoom && shift === 0) return 'Current chalet';
+        if (room.status === 'inactive') return 'Inactive';
+        if (!sameRoom) {
+            if (bookingUsesRoom(booking, room.id)) return 'Already in this booking';
+            if (detail.categoryId && room.category_id !== detail.categoryId) return 'Different room type';
+            const limits = roomGuestLimits(room);
+            const adults = Number(detail.adults || 0);
+            const children = Number(detail.children || 0);
+            if (adults < limits.minAdults) return `Needs ${limits.minAdults}+ adults`;
+            if (adults > limits.maxAdults) return `Max ${limits.maxAdults} adults`;
+            if (children > limits.maxChildren) return `Max ${limits.maxChildren} children`;
+            if (adults + children > limits.maxGuests) return `Max ${limits.maxGuests} guests`;
+        }
+        return roomBusyReason(booking, room.id, checkIn, checkOut);
+    };
+
+    // New dates apply to the whole booking (past dates allowed), so its other
+    // chalets must be free then too.
+    const dateMoveReason = (booking: ChaletBooking, detail: any, checkIn: string, checkOut: string, shift: number): string | null => {
+        if (shift === 0) return null;
+        for (const other of bookingRoomDetails(booking)) {
+            if (other.slotIndex === detail.slotIndex || !other.roomId) continue;
+            const busy = roomBusyReason(booking, other.roomId, checkIn, checkOut);
+            if (busy) return `${other.room ? chaletLabel(other.room.room_number) : 'Other chalet'} ${busy.toLowerCase()} then`;
+        }
         return null;
     };
 
+    // Reason per row ('unassigned' included) for the current drag position.
     const moveReasons = useMemo(() => {
         if (!dragging) return new Map<string, string | null>();
-        return new Map(rooms.map(room => [room.id, moveBlockReason(dragging.booking, dragging.detail, room)]));
+        const { booking, detail } = dragging;
+        const checkIn = shiftDate(booking.check_in_date, dragShift);
+        const checkOut = shiftDate(booking.check_out_date, dragShift);
+        const bookingWide = dateMoveReason(booking, detail, checkIn, checkOut, dragShift);
+        const reasons = new Map<string, string | null>(rooms.map(room => [room.id, bookingWide || moveBlockReason(booking, detail, room, checkIn, checkOut, dragShift)]));
+        // The Unassigned row only takes an unassigned room moving to other dates.
+        reasons.set('unassigned', detail.roomId ? 'Unassigned' : dragShift === 0 ? 'Current dates' : bookingWide);
+        return reasons;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dragging, rooms, bookings, roomBlocks, stayTimes]);
+    }, [dragging, dragShift, rooms, bookings, roomBlocks, stayTimes]);
 
     const confirmMove = async () => {
         if (!pendingMove) return;
-        const { booking, detail, toRoom } = pendingMove;
+        const { booking, detail, shift } = pendingMove;
+        const toRoom = pendingMove.toRoom && pendingMove.toRoom.id !== detail.roomId ? pendingMove.toRoom : null;
+        const datesBody = shift !== 0 ? {
+            check_in_date: shiftDate(booking.check_in_date, shift),
+            check_out_date: shiftDate(booking.check_out_date, shift),
+        } : {};
+        if (!toRoom) {
+            // Dates only: the chalets, guests and locked price stay as they are.
+            setSavingMove(true);
+            try {
+                const res = await fetch('/api/chalet/bookings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: booking.id, ...datesBody }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Could not move the booking');
+                toast({ title: 'Dates changed', description: `${booking.customer_name} (${booking.booking_ref}) now ${format(parseDate(datesBody.check_in_date!), 'dd MMM')} → ${format(parseDate(datesBody.check_out_date!), 'dd MMM yyyy')}.` });
+                setPendingMove(null);
+                await fetchData();
+            } catch (error: any) {
+                toast({ title: 'Not moved', description: error.message, variant: 'destructive' });
+            } finally {
+                setSavingMove(false);
+            }
+            return;
+        }
         const details = bookingRoomDetails(booking);
         const newIds = details.map(item => item.slotIndex === detail.slotIndex ? toRoom.id : item.roomId).filter(Boolean) as string[];
         const roomGuests = Object.fromEntries(details.map(item => [
@@ -450,6 +508,7 @@ export default function ChaletBookingCalendarPage() {
         ]).filter(([roomId, packageId]) => roomId && packageId));
         const body: Record<string, unknown> = {
             id: booking.id,
+            ...datesBody,
             room_id: newIds[0] || null,
             room_ids: newIds,
             room_guests: roomGuests,
@@ -472,7 +531,7 @@ export default function ChaletBookingCalendarPage() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Could not move the booking');
-            toast({ title: 'Chalet changed', description: `${booking.customer_name} (${booking.booking_ref}) moved to ${chaletLabel(toRoom.room_number)}.` });
+            toast({ title: shift !== 0 ? 'Chalet and dates changed' : 'Chalet changed', description: `${booking.customer_name} (${booking.booking_ref}) moved to ${chaletLabel(toRoom.room_number)}${shift !== 0 ? `, ${format(parseDate(datesBody.check_in_date!), 'dd MMM')} → ${format(parseDate(datesBody.check_out_date!), 'dd MMM yyyy')}` : ''}.` });
             setPendingMove(null);
             await fetchData();
         } catch (error: any) {
@@ -485,9 +544,20 @@ export default function ChaletBookingCalendarPage() {
         const { placed, lanes } = laneSegments(rowKey);
         // While dragging: green = can take the booking, otherwise dimmed with the reason.
         const dropRoom = dragging && rowKey !== 'unassigned' ? roomMap.get(rowKey) : undefined;
-        const dropReason = dropRoom ? moveReasons.get(rowKey) ?? null : dragging ? 'Unassigned' : null;
-        const canDrop = !!dropRoom && dropReason === null;
-        const isSource = !!dragging && dragging.detail.roomId === rowKey;
+        const dropReason = dragging ? moveReasons.get(rowKey) ?? null : null;
+        const canDrop = !!dragging && (!!dropRoom || rowKey === 'unassigned') && dropReason === null;
+        const isSource = !!dragging && (dragging.detail.roomId || 'unassigned') === rowKey;
+        // Days moved for the pointer's position over this row's timeline.
+        const shiftAt = (event: React.DragEvent<HTMLDivElement>) => {
+            if (!dragging) return 0;
+            const area = event.currentTarget.querySelector('[data-timeline-area]') as HTMLElement | null;
+            if (!area) return dragShift;
+            const rect = area.getBoundingClientRect();
+            const pointerDay = ((event.clientX - rect.left) / rect.width) * timelineDays;
+            const checkInFraction = timeToHours(stayTimes.check_in) / 24;
+            const originalDay = differenceInCalendarDays(parseDate(dragging.booking.check_in_date), timelineStart);
+            return Math.round(pointerDay - dragging.grabOffset - checkInFraction) - originalDay;
+        };
         const rowState = !dragging ? '' : canDrop ? (dragOverRow === rowKey ? 'bg-green-200/70' : 'bg-green-50') : isSource ? '' : 'opacity-50';
         return (
             <div
@@ -495,23 +565,27 @@ export default function ChaletBookingCalendarPage() {
                 className={`grid border-b transition-colors ${rowState}`}
                 style={{ gridTemplateColumns: `180px minmax(${timelineDays * timelineColumnWidth}px, 1fr)` }}
                 onDragOver={event => {
+                    if (!dragging) return;
+                    const shift = shiftAt(event);
+                    if (shift !== dragShift) setDragShift(shift);
+                    if (dragOverRow !== rowKey) setDragOverRow(rowKey);
                     if (!canDrop) return;
                     event.preventDefault();
                     event.dataTransfer.dropEffect = 'move';
-                    if (dragOverRow !== rowKey) setDragOverRow(rowKey);
                 }}
                 onDragLeave={() => { if (dragOverRow === rowKey) setDragOverRow(null); }}
                 onDrop={event => {
                     event.preventDefault();
-                    if (!dragging || !dropRoom || !canDrop) return;
-                    setPendingMove({ booking: dragging.booking, detail: dragging.detail, toRoom: dropRoom });
+                    if (!dragging || !canDrop) return;
+                    setPendingMove({ booking: dragging.booking, detail: dragging.detail, toRoom: dropRoom || null, shift: dragShift });
                     setDragging(null);
                     setDragOverRow(null);
+                    setDragShift(0);
                 }}
             >
                 <div className={`sticky left-0 z-10 flex flex-col justify-center border-r px-3 ${canDrop ? 'bg-green-50' : 'bg-background'}`} style={{ height: lanes * LANE_HEIGHT }}>
                     <span className="truncate text-sm font-medium">{label}</span>
-                    {dragging && !isSource && dropReason ? (
+                    {dragging && dropReason && !(isSource && dragShift === 0) ? (
                         <span className="truncate text-[11px] text-red-600">{dropReason}</span>
                     ) : dragging && canDrop ? (
                         <span className="truncate text-[11px] font-medium text-green-700">Drop here</span>
@@ -519,7 +593,28 @@ export default function ChaletBookingCalendarPage() {
                         <span className="truncate text-[11px] text-muted-foreground">{sublabel}</span>
                     ) : null}
                 </div>
-                <div className="relative" style={{ height: lanes * LANE_HEIGHT }}>
+                <div className="relative" data-timeline-area style={{ height: lanes * LANE_HEIGHT }}>
+                    {/* Where the dragged booking would land (green = allowed). */}
+                    {dragging && dragOverRow === rowKey && (() => {
+                        const checkInFraction = timeToHours(stayTimes.check_in) / 24;
+                        const checkOutFraction = timeToHours(stayTimes.check_out) / 24;
+                        const start = differenceInCalendarDays(parseDate(dragging.booking.check_in_date), timelineStart) + dragShift + checkInFraction;
+                        const end = differenceInCalendarDays(parseDate(dragging.booking.check_out_date), timelineStart) + dragShift + checkOutFraction;
+                        const left = Math.max(0, start);
+                        const right = Math.min(timelineDays, end);
+                        if (right <= 0 || left >= timelineDays) return null;
+                        return (
+                            <div
+                                className={`pointer-events-none absolute z-[6] flex items-center justify-center rounded-md border-2 border-dashed text-[11px] font-semibold ${canDrop ? 'border-green-600 bg-green-400/20 text-green-800' : 'border-red-500 bg-red-400/15 text-red-700'}`}
+                                style={{ left: `${(left / timelineDays) * 100}%`, width: `${((right - left) / timelineDays) * 100}%`, top: 3, height: LANE_HEIGHT - 6 }}
+                            >
+                                <span className="truncate px-1">
+                                    {format(addDays(parseDate(dragging.booking.check_in_date), dragShift), 'dd MMM')} → {format(addDays(parseDate(dragging.booking.check_out_date), dragShift), 'dd MMM')}
+                                    {!canDrop && dropReason ? ` · ${dropReason}` : ''}
+                                </span>
+                            </div>
+                        );
+                    })()}
                     {/* Day cells, with faint check-out / check-in time markers */}
                     <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${timelineDays}, minmax(0, 1fr))` }}>
                         {timelineDates.map((day, index) => {
@@ -570,12 +665,16 @@ export default function ChaletBookingCalendarPage() {
                                 if (!draggable) return;
                                 event.dataTransfer.effectAllowed = 'move';
                                 event.dataTransfer.setData('text/plain', segment.booking.id);
-                                setDragging({ booking: segment.booking, detail: segment.detail });
+                                const area = (event.currentTarget.parentElement as HTMLElement | null)?.getBoundingClientRect();
+                                const pointerDay = area ? ((event.clientX - area.left) / area.width) * timelineDays : 0;
+                                const checkInPoint = differenceInCalendarDays(parseDate(segment.booking.check_in_date), timelineStart) + timeToHours(stayTimes.check_in) / 24;
+                                setDragShift(0);
+                                setDragging({ booking: segment.booking, detail: segment.detail, grabOffset: area ? pointerDay - checkInPoint : 0 });
                             }}
-                            onDragEnd={() => { setDragging(null); setDragOverRow(null); }}
+                            onDragEnd={() => { setDragging(null); setDragOverRow(null); setDragShift(0); }}
                             onClick={() => { setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); openBookingPage(segment.booking.id); }}
                             onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedBookingId(segment.booking.id); setSelectedDate(parseDate(segment.booking.check_in_date)); openBookingPage(segment.booking.id); } }}
-                            title={`${draggable ? (unassigned ? 'Drag onto a chalet to assign it (same dates)\n' : 'Drag to another chalet (same dates)\n') : ''}${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
+                            title={`${draggable ? (unassigned ? 'Drag onto a chalet to assign it, or left/right to change dates\n' : 'Drag to another chalet, or left/right to change dates\n') : ''}${segment.booking.customer_name} · ${segment.booking.booking_ref}\nIn: ${format(parseDate(segment.booking.check_in_date), 'dd MMM')} ${formatTime(stayTimes.check_in)} → Out: ${format(parseDate(segment.booking.check_out_date), 'dd MMM')} ${formatTime(stayTimes.check_out)} · ${statusLabels[segment.booking.status]}\n${segment.detail.categoryName} · ${segment.detail.packageName} · ${segment.detail.adults} adult(s), ${segment.detail.children} child(ren)`}
                             className={`absolute z-[5] flex items-center gap-1 overflow-hidden px-2 text-left text-[11px] font-medium shadow-sm transition cursor-pointer select-none ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${statusBarColors[segment.booking.status]} ${segment.clippedStart ? 'rounded-l-none' : 'rounded-l-md'} ${segment.clippedEnd ? 'rounded-r-none' : 'rounded-r-md'} ${selectedBookingId === segment.booking.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''}`}
                             style={{
                                 left: `${(segment.start / timelineDays) * 100}%`,
@@ -708,7 +807,7 @@ export default function ChaletBookingCalendarPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <p className="mb-3 text-xs text-muted-foreground">Tip: drag a pending or confirmed booking onto another chalet to move it (same dates). Chalets that can take it turn green.</p>
+                        <p className="mb-3 text-xs text-muted-foreground">Tip: drag a pending or confirmed booking up/down to another chalet, or left/right to other days (same number of nights). The outline turns green where it can go.</p>
                         {loading ? (
                             <Skeleton className="h-72 w-full" />
                         ) : (
@@ -951,20 +1050,32 @@ export default function ChaletBookingCalendarPage() {
             <AlertDialog open={!!pendingMove} onOpenChange={open => { if (!open && !savingMove) setPendingMove(null); }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Change chalet?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                            {!pendingMove ? 'Move booking?' : pendingMove.shift !== 0 && pendingMove.toRoom && pendingMove.toRoom.id !== pendingMove.detail.roomId ? 'Change chalet and dates?' : pendingMove.shift !== 0 ? 'Change dates?' : 'Change chalet?'}
+                        </AlertDialogTitle>
                         <AlertDialogDescription asChild>
-                            {pendingMove ? (
-                                <div className="space-y-1 text-sm">
-                                    <p><span className="font-medium text-foreground">{pendingMove.booking.customer_name}</span> · {pendingMove.booking.booking_ref}</p>
-                                    <p>
-                                        {pendingMove.detail.room ? chaletLabel(pendingMove.detail.room.room_number) : 'Unassigned'} → <span className="font-medium text-foreground">{chaletLabel(pendingMove.toRoom.room_number)}</span>
-                                    </p>
-                                    <p>
-                                        {format(parseDate(pendingMove.booking.check_in_date), 'dd MMM yyyy')} {formatTime(stayTimes.check_in)} → {format(parseDate(pendingMove.booking.check_out_date), 'dd MMM yyyy')} {formatTime(stayTimes.check_out)} (dates unchanged)
-                                    </p>
-                                    <p>{pendingMove.detail.categoryName} · {pendingMove.detail.packageName} · {pendingMove.detail.adults} adult(s), {pendingMove.detail.children} child(ren). The price stays the same.</p>
-                                </div>
-                            ) : <span />}
+                            {pendingMove ? (() => {
+                                const roomChanges = !!pendingMove.toRoom && pendingMove.toRoom.id !== pendingMove.detail.roomId;
+                                const fromRoom = pendingMove.detail.room ? chaletLabel(pendingMove.detail.room.room_number) : 'Unassigned';
+                                const stay = (shift: number) => `${format(addDays(parseDate(pendingMove.booking.check_in_date), shift), 'dd MMM yyyy')} ${formatTime(stayTimes.check_in)} → ${format(addDays(parseDate(pendingMove.booking.check_out_date), shift), 'dd MMM yyyy')} ${formatTime(stayTimes.check_out)}`;
+                                return (
+                                    <div className="space-y-1 text-sm">
+                                        <p><span className="font-medium text-foreground">{pendingMove.booking.customer_name}</span> · {pendingMove.booking.booking_ref}</p>
+                                        <p>
+                                            Chalet: {roomChanges ? <>{fromRoom} → <span className="font-medium text-foreground">{chaletLabel(pendingMove.toRoom!.room_number)}</span></> : <>{fromRoom} (unchanged)</>}
+                                        </p>
+                                        {pendingMove.shift !== 0 ? (
+                                            <>
+                                                <p>From: {stay(0)}</p>
+                                                <p>To: <span className="font-medium text-foreground">{stay(pendingMove.shift)}</span></p>
+                                            </>
+                                        ) : (
+                                            <p>{stay(0)} (dates unchanged)</p>
+                                        )}
+                                        <p>{pendingMove.detail.categoryName} · {pendingMove.detail.packageName} · {pendingMove.detail.adults} adult(s), {pendingMove.detail.children} child(ren). The same nights and price are kept{pendingMove.shift !== 0 && bookingRoomDetails(pendingMove.booking).length > 1 ? '; the new dates apply to every chalet on this booking' : ''}.</p>
+                                    </div>
+                                );
+                            })() : <span />}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
