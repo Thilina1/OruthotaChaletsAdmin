@@ -23,7 +23,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Mail, User, Calendar, MessageSquare, Phone } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 
@@ -50,7 +49,6 @@ const statusStyles: Record<InquiryStatus, string> = {
 
 export default function InquiriesPage() {
   const { toast } = useToast();
-  const supabase = createClient();
 
   const [inquiries, setInquiries] = useState<ContactMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,14 +60,11 @@ export default function InquiriesPage() {
   const fetchInquiries = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('contact_messages')
-        .select('*')
-        .eq('inquiry_type', 'general')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setInquiries(data || []);
+      // Via the admin API: the browser's public key has no access to contact_messages.
+      const res = await fetch('/api/admin/inquiries');
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Request failed');
+      setInquiries(data.inquiries || []);
     } catch (error) {
       console.error('Error fetching inquiries:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to load inquiries.' });
@@ -86,12 +81,13 @@ export default function InquiriesPage() {
     if (inquiry.status === status) return;
     setUpdatingId(inquiry.id);
     try {
-      const { error } = await supabase
-        .from('contact_messages')
-        .update({ status })
-        .eq('id', inquiry.id)
-        .eq('inquiry_type', 'general');
-      if (error) throw error;
+      const res = await fetch('/api/admin/inquiries', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: inquiry.id, status }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Request failed');
 
       setInquiries(current => current.map(item => item.id === inquiry.id ? { ...item, status } : item));
       setSelectedInquiry(current => current?.id === inquiry.id ? { ...current, status } : current);

@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { escapeHtml, getMailTransport } from '@/lib/mailer';
 
 type CheckInEmail = {
     to: string;
@@ -9,33 +9,18 @@ type CheckInEmail = {
 };
 
 export async function sendCheckInEmail(details: CheckInEmail) {
-    const user = process.env.GMAIL_USER || process.env.SMTP_USER;
-    const pass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASSWORD;
-    const from = process.env.MAIL_FROM || process.env.SMTP_FROM || user;
-    const host = process.env.SMTP_HOST || (process.env.GMAIL_USER ? 'smtp.gmail.com' : undefined);
-    const port = Number(process.env.SMTP_PORT || (process.env.GMAIL_USER ? 465 : 587));
-    const secure = process.env.SMTP_SECURE
-        ? process.env.SMTP_SECURE === 'true'
-        : Boolean(process.env.GMAIL_USER);
-
-    if (!host || !user || !pass || !from) {
+    const mail = getMailTransport();
+    if (!mail) {
         return { sent: false, reason: 'SMTP is not configured' };
     }
-
-    const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass }
-    });
 
     const guestName = escapeHtml(details.guestName);
     const bookingRef = escapeHtml(details.bookingRef);
     const roomNumber = escapeHtml(details.roomNumber);
 
-    await transporter.sendMail({
-        from,
-        replyTo: process.env.BOOKING_ADMIN_EMAIL || from,
+    await mail.transporter.sendMail({
+        from: mail.from,
+        replyTo: mail.replyTo,
         to: details.to,
         subject: `Welcome to Oruthota Chalets - ${details.bookingRef}`,
         text: [
@@ -123,10 +108,4 @@ export async function sendCheckInEmail(details: CheckInEmail) {
     });
 
     return { sent: true };
-}
-
-function escapeHtml(value: string) {
-    return value.replace(/[&<>'"]/g, character => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-    })[character] || character);
 }

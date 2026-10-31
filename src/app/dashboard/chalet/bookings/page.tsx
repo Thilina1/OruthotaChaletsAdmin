@@ -48,11 +48,12 @@ import { usePagination } from '@/hooks/use-pagination';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar } from '@/components/ui/calendar';
 import type { ChaletBooking, ChaletPackage, ChaletRoom, ChaletRate, ChaletBookingStatus, ChaletRoomCategory, ChaletCoupon } from '@/lib/types';
-import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight, History, Wrench, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, BedDouble, CheckCircle, Clock, LogIn, AlertCircle, Search, ClipboardList, CalendarDays, UserRound, CreditCard, ArrowLeft, ArrowRight, History, Wrench, Loader2, Sparkles } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { chaletBillLines, chaletPaidLkr, type ChaletPaymentHistoryItem } from '@/lib/chalet-billing';
 import { parseBookingPaymentOption, parseRoomTextDetails, roomTextDetailsAt } from '@/lib/chalet-room-details';
+import { BookingExtras, emptyExtras, hasPendingExtras, saveBookingExtras, type PendingExtras } from '@/components/dashboard/chalet/booking-extras';
 import { MaintenanceDialog, chaletLabel, type ChaletRoomBlock } from '@/components/dashboard/chalet/maintenance-dialog';
 import { blockOverlapsStay, blockWindow, DEFAULT_STAY_TIMES, describeBlock, formatClock, hhmm, type StayTimes } from '@/lib/chalet-stay';
 
@@ -615,6 +616,7 @@ export default function ChaletBookingsPage() {
     const wizardSteps = [
         { label: 'Guest', icon: UserRound },
         { label: 'Stay & Rooms', icon: BedDouble },
+        { label: 'Extras', icon: Sparkles },
         { label: 'Confirm', icon: CreditCard },
     ];
     const canContinueGuest = !!form.customer_name.trim();
@@ -622,6 +624,9 @@ export default function ChaletBookingsPage() {
     const canContinueRoom = roomSelections.length > 0 && roomSelections.every(selection => selection.room_category_id && selection.package_id && selection.room_id);
     const canContinueStep = wizardStep === 0 ? canContinueGuest : wizardStep === 1 ? canContinueStay && canContinueRoom : true;
     const stepProgress = ((wizardStep + 1) / wizardSteps.length) * 100;
+
+    // Experiences, services and buffets to add to the room bill with this save.
+    const [pendingExtras, setPendingExtras] = useState<PendingExtras>(emptyExtras);
 
     const goNextStep = () => {
         if (!guestLimitsValid) {
@@ -739,6 +744,7 @@ export default function ChaletBookingsPage() {
         setEditingId(null);
         setForm({ ...emptyForm, ...billDefaults, room_selections: [createBlankRoomSelection()] });
         setWizardStep(0);
+        setPendingExtras(emptyExtras);
         setDialogOpen(true);
     };
 
@@ -865,6 +871,7 @@ export default function ChaletBookingsPage() {
             notes: b.notes || '',
         });
         setWizardStep(0);
+        setPendingExtras(emptyExtras);
         setDialogOpen(true);
     };
 
@@ -983,6 +990,16 @@ export default function ChaletBookingsPage() {
                 toast({ title: 'Payment not recorded', description: `The booking was saved, but the payment was not recorded: ${data.payment_error}`, variant: 'destructive' });
             } else {
                 toast({ title: 'Success', description: editingId ? 'Booking updated' : 'Booking created' });
+            }
+            const savedBookingId = data.booking?.id || editingId;
+            if (savedBookingId && hasPendingExtras(pendingExtras)) {
+                try {
+                    await saveBookingExtras(savedBookingId, pendingExtras);
+                    toast({ title: 'Extras added', description: 'Experiences, services and buffets were added to the room bill.' });
+                    setPendingExtras(emptyExtras);
+                } catch (extrasError: any) {
+                    toast({ title: 'Extras not added', description: `The booking was saved, but the extras were not: ${extrasError.message}`, variant: 'destructive' });
+                }
             }
             window.dispatchEvent(new Event('notifications-changed'));
             setDialogOpen(false);
@@ -2033,6 +2050,17 @@ export default function ChaletBookingsPage() {
                                 )}
 
                                 {wizardStep === 2 && (
+                                    <BookingExtras
+                                        bookingId={editingId}
+                                        pending={pendingExtras}
+                                        onPendingChange={setPendingExtras}
+                                        defaultPeople={roomGuestTotals.adults + roomGuestTotals.children}
+                                        stayFrom={form.check_in_date || undefined}
+                                        stayTo={form.check_out_date || undefined}
+                                    />
+                                )}
+
+                                {wizardStep === 3 && (
                                     <div className="space-y-4">
                                         <div className="rounded-lg border p-4">
                                             <h3 className="font-semibold">Booking Summary</h3>

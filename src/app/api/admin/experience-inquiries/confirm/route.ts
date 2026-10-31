@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { saveExperiencePricingDefaults } from '@/lib/experience-pricing';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +44,19 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const inquiryId = String(body.inquiry_id || '');
-    const people = Number(body.people);
+    // One or more experiences, each with its own headcount and rate per person.
+    // Older clients send a single people / price_per_person pair instead.
+    const experiences: { name: string; people: number; rate: number }[] = Array.isArray(body.experiences)
+      ? body.experiences.map((item: any) => ({
+          name: String(item.name || '').trim(),
+          people: Number(item.people),
+          rate: money(Number(item.rate) || 0),
+        }))
+      : [];
+    if (experiences.some((item) => !item.name || !Number.isInteger(item.people) || item.people < 1 || item.rate < 0)) {
+      return NextResponse.json({ error: 'Each experience needs a name, at least one person, and a valid rate.' }, { status: 400 });
+    }
+    const people = experiences.length > 0 ? Math.max(...experiences.map((item) => item.people)) : Number(body.people);
     const hasPricePerPerson = body.price_per_person !== null && body.price_per_person !== undefined && body.price_per_person !== '';
     const pricePerPerson = hasPricePerPerson ? Number(body.price_per_person) : 0;
     const serviceChargeRate = Number(body.service_charge_rate || 0);
@@ -95,15 +108,30 @@ export async function POST(request: Request) {
       await supabase.from('contact_messages').update({ customer_id: customerId }).eq('id', inquiryId);
     }
 
-    const experienceName = String(body.experience_name || inquiry.experience_type || inquiry.subject || 'Experience');
-    const baseAmount = money(people * pricePerPerson);
+    const experienceName = experiences.length > 0
+      ? experiences.map((item) => item.name).join(', ')
+      : String(body.experience_name || inquiry.experience_type || inquiry.subject || 'Experience');
+    const baseAmount = experiences.length > 0
+      ? money(experiences.reduce((sum, item) => sum + item.people * item.rate, 0))
+      : money(people * pricePerPerson);
     const serviceCharge = money(baseAmount * serviceChargeRate / 100);
     const taxBase = baseAmount + serviceCharge;
     const tax = money(taxBase * taxRate / 100);
     const total = money(taxBase + tax + otherCharges.reduce((sum: number, item: { amount: number }) => sum + item.amount, 0));
-    const pricingBreakdown = { people, price_per_person: hasPricePerPerson ? pricePerPerson : null, base_amount: baseAmount, service_charge_rate: serviceChargeRate, service_charge: serviceCharge, tax_rate: taxRate, tax, other_charges: otherCharges, total };
+    const pricingBreakdown = {
+      people,
+      price_per_person: experiences.length === 1 ? experiences[0].rate : experiences.length > 1 ? null : hasPricePerPerson ? pricePerPerson : null,
+      ...(experiences.length > 0 ? { experiences } : {}),
+      base_amount: baseAmount, service_charge_rate: serviceChargeRate, service_charge: serviceCharge, tax_rate: taxRate, tax, other_charges: otherCharges, total };
+    const experienceLines = experiences.length > 0
+      ? experiences.map((item) => ({
+          description: `${item.name} — ${item.people} ${item.people === 1 ? 'person' : 'people'} × LKR ${item.rate.toFixed(2)}`,
+          amount: money(item.people * item.rate),
+        }))
+      : null;
     const lineItems = [
-      ...(hasPricePerPerson ? [{ description: `${experienceName} — ${people} ${people === 1 ? 'person' : 'people'} × LKR ${pricePerPerson.toFixed(2)}`, amount: baseAmount }] : []),
+      ...(experienceLines ?? []),
+      ...(!experienceLines && hasPricePerPerson ? [{ description: `${experienceName} — ${people} ${people === 1 ? 'person' : 'people'} × LKR ${pricePerPerson.toFixed(2)}`, amount: baseAmount }] : []),
       ...(serviceChargeRate > 0 ? [{ description: `Service charge (${serviceChargeRate}%)`, amount: serviceCharge }] : []),
       ...(taxRate > 0 ? [{ description: `Tax (${taxRate}%)`, amount: tax }] : []),
       ...otherCharges.map((item: { name: string; amount: number }) => ({ description: item.name, amount: item.amount })),
@@ -118,6 +146,8 @@ export async function POST(request: Request) {
       date: new Date().toISOString().slice(0, 10),
       customer_name: customerName,
       customer_id: customerId,
+      // Checked-in guest's room, so the charge shows against the room on the guest bill.
+      ...(body.room_number !== undefined ? { room_number: String(body.room_number || '').trim() || null } : {}),
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       line_items: storedLineItems,
@@ -137,7 +167,21 @@ export async function POST(request: Request) {
     const { error: statusError } = await supabase.from('contact_messages').update({ status: 'confirmed' }).eq('id', inquiryId);
     if (statusError) throw statusError;
 
-    return NextResponse.json({ income });
+    // Keep the inquiry in step with the last saved bill, so Edit Inquiry shows
+    // the same experiences, headcounts, rates and charges.
+    const inquiryPricing = { service_charge_rate: serviceChargeRate, tax_rate: taxRate, other_charges: otherCharges };
+    const inquiryUpdate: Record<string, any> = { pricing: inquiryPricing };
+    if (experiences.length > 0) {
+      inquiryUpdate.experiences = experiences;
+      inquiryUpdate.experience_type = experiences.map((item) => item.name).join(', ');
+      inquiryUpdate.guest_count = people;
+    }
+    const { error: syncError } = await supabase.from('contact_messages').update(inquiryUpdate).eq('id', inquiryId);
+    // Before the inquiry pricing migrations run, the bill still saves without the sync.
+    if (syncError) console.error('Syncing experience inquiry from bill failed:', syncError);
+    await saveExperiencePricingDefaults(supabase, { service_charge_rate: serviceChargeRate, tax_rate: taxRate, other_charges: otherCharges });
+
+    return NextResponse.json({ income, inquiry: syncError ? null : inquiryUpdate });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to add experience to bill.' }, { status: 500 });
   }

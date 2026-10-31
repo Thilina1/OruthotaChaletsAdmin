@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from "@/components/ui/button";
 import {
@@ -19,9 +19,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
 import { PlusCircle, Pencil, Trash2, Printer, CheckCircle2, ScanLine } from 'lucide-react';
 import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
+import { serviceInvoiceNumber } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,9 +41,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { ServiceIncome, Customer } from '@/lib/types';
+import type { ServiceIncome, Customer, ServiceLineItemMaster } from '@/lib/types';
 import { usePagination } from '@/hooks/use-pagination';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
+
+type InHouseGuest = {
+  key: string;
+  room: string;
+  guest_name: string;
+  phone: string | null;
+  customer: { id: string; name: string; phone?: string | null; current_room: string } | null;
+};
+
+type LineItemRow = { master_id?: string; description: string; amount: string };
+
+// Select value for a saved line item that is not (or no longer) in the masters list.
+const SAVED_ITEM = '__saved__';
 
 interface ServiceIncomeClientProps {
   title: string;
@@ -61,7 +83,8 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   const [roomNumber, setRoomNumber] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'add_to_bill'>('paid');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
-  const [lineItems, setLineItems] = useState<{description: string, amount: string}[]>([{ description: '', amount: '' }]);
+  const [lineItems, setLineItems] = useState<LineItemRow[]>([{ description: '', amount: '' }]);
+  const [lineItemMasters, setLineItemMasters] = useState<ServiceLineItemMaster[]>([]);
 
   const totalAmount = lineItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
 
@@ -71,6 +94,9 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isLoadingRoom, setIsLoadingRoom] = useState(false);
   const [roomAutoFilled, setRoomAutoFilled] = useState(false);
+  const [inHouseGuests, setInHouseGuests] = useState<InHouseGuest[]>([]);
+  const [isLoadingInHouseGuests, setIsLoadingInHouseGuests] = useState(false);
+  const [showRoomDropdown, setShowRoomDropdown] = useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -93,6 +119,30 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
   useEffect(() => {
     fetchData();
   }, [serviceType, filterFrom, filterTo]);
+
+  const fetchLineItemMasters = async () => {
+    try {
+      const params = new URLSearchParams({ service_type: serviceType, active: 'true' });
+      const res = await fetch(`/api/admin/service-line-items?${params.toString()}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setLineItemMasters(data.items || []);
+    } catch (error) {
+      console.error("Error fetching line item masters:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchLineItemMasters();
+  }, [serviceType]);
+
+  const handleSelectLineItem = (index: number, value: string) => {
+    const master = lineItemMasters.find(m => m.id === value);
+    if (!master) return;
+    const newItems = [...lineItems];
+    newItems[index] = { master_id: master.id, description: master.name, amount: Number(master.default_amount).toString() };
+    setLineItems(newItems);
+  };
 
   useEffect(() => {
     if (!customerSearchQuery) {
@@ -155,6 +205,40 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
     }
   };
 
+  const loadInHouseGuests = async () => {
+    setIsLoadingInHouseGuests(true);
+    try {
+      const res = await fetch('/api/admin/front-desk/guest-pass?in_house=1');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load checked-in guests');
+      setInHouseGuests(data.guests || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingInHouseGuests(false);
+    }
+  };
+
+  // Matches room number ("01", "Chalet 01"), guest name or mobile number.
+  const filteredInHouseGuests = useMemo(() => {
+    const terms = roomNumber.toLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return inHouseGuests;
+    return inHouseGuests.filter(g => {
+      const haystack = `${g.room} ${g.guest_name} ${g.phone || ''}`.toLowerCase();
+      return terms.every(term => haystack.includes(term));
+    });
+  }, [inHouseGuests, roomNumber]);
+
+  // Picking a checked-in guest by room fills in both the customer and the room.
+  const handleSelectGuestByRoom = (guest: InHouseGuest) => {
+    setCustomerName(guest.customer?.name || guest.guest_name);
+    setCustomerSearchQuery('');
+    setShowCustomerDropdown(false);
+    setRoomNumber(guest.room);
+    setRoomAutoFilled(true);
+    setShowRoomDropdown(false);
+  };
+
   const handleGuestQrScan = async (code: string) => {
     setIsLoadingRoom(true);
     try {
@@ -205,13 +289,14 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
       setPaymentMethod(income.payment_method || 'cash');
       
       if (income.line_items && income.line_items.length > 0) {
-        setLineItems(income.line_items.map(i => ({ description: i.description, amount: i.amount.toString() })));
+        setLineItems(income.line_items.map(i => ({ master_id: i.master_id, description: i.description, amount: i.amount.toString() })));
       } else {
         setLineItems([{ description: income.description, amount: income.amount.toString() }]);
       }
     } else {
       resetForm();
     }
+    fetchLineItemMasters();
     setIsDialogOpen(true);
   };
 
@@ -220,6 +305,11 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
     const submitter = (e.nativeEvent as any).submitter as HTMLButtonElement;
     const action = (submitter?.value as 'paid' | 'add_to_bill') || paymentStatus;
     
+    if (lineItems.some(i => !i.description.trim())) {
+      toast({ variant: 'destructive', title: "Line item required", description: "Select a line item for every row." });
+      return;
+    }
+
     setPaymentStatus(action);
     
     try {
@@ -235,7 +325,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
         room_number: roomNumber || null,
         payment_status: action,
         payment_method: action === 'paid' ? paymentMethod : null,
-        line_items: lineItems.map(i => ({ description: i.description, amount: parseFloat(i.amount) || 0 }))
+        line_items: lineItems.map(i => ({ ...(i.master_id ? { master_id: i.master_id } : {}), description: i.description, amount: parseFloat(i.amount) || 0 }))
       };
 
       const res = await fetch(url, {
@@ -458,21 +548,42 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                 </div>
 
                 <div>
-                  <Label className="mb-2 block">Line Items</Label>
+                  <div className="flex justify-between items-center mb-2">
+                    <Label>Line Items</Label>
+                    <Link href="/dashboard/services/line-items" className="text-xs text-primary hover:underline">
+                      Manage line items
+                    </Link>
+                  </div>
+                  {lineItemMasters.length === 0 && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      No line items are set up for this service yet. Add them under Services → Service Line Items.
+                    </p>
+                  )}
                   <div className="space-y-3">
-                    {lineItems.map((item, index) => (
+                    {lineItems.map((item, index) => {
+                      const inMasters = !!item.master_id && lineItemMasters.some(m => m.id === item.master_id);
+                      const showSaved = !inMasters && !!item.description;
+                      return (
                       <div key={index} className="flex gap-2 items-start">
                         <div className="flex-1">
-                          <Input
-                            placeholder="Description (e.g. Laundry)"
-                            value={item.description}
-                            onChange={(e) => {
-                              const newItems = [...lineItems];
-                              newItems[index].description = e.target.value;
-                              setLineItems(newItems);
-                            }}
-                            required
-                          />
+                          <Select
+                            value={inMasters ? item.master_id : showSaved ? SAVED_ITEM : ''}
+                            onValueChange={(v) => handleSelectLineItem(index, v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a line item" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {showSaved && (
+                                <SelectItem value={SAVED_ITEM}>{item.description}</SelectItem>
+                              )}
+                              {lineItemMasters.map(m => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.name} — LKR {Number(m.default_amount).toFixed(2)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="w-32">
                           <Input
@@ -500,7 +611,8 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                           </Button>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="flex justify-between items-center mt-3">
                     <Button
@@ -570,19 +682,50 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
                       </div>
                     )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="roomNumber">Room Number</Label>
+                  <div className="space-y-2 relative">
+                    <Label htmlFor="roomNumber">Room Number (Select checked-in guest)</Label>
                     <Input
                       id="roomNumber"
-                      placeholder="e.g. 101"
+                      placeholder="Type room number or guest name..."
+                      autoComplete="off"
                       value={roomNumber}
-                      onChange={(e) => { setRoomNumber(e.target.value); setRoomAutoFilled(false); }}
+                      onChange={(e) => { setRoomNumber(e.target.value); setRoomAutoFilled(false); setShowRoomDropdown(true); }}
+                      onFocus={() => { setShowRoomDropdown(true); loadInHouseGuests(); }}
+                      onBlur={() => setTimeout(() => setShowRoomDropdown(false), 150)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') { e.stopPropagation(); setShowRoomDropdown(false); }
+                        if (e.key === 'Enter' && showRoomDropdown && filteredInHouseGuests.length > 0) {
+                          e.preventDefault();
+                          handleSelectGuestByRoom(filteredInHouseGuests[0]);
+                        }
+                      }}
                     />
+                    {showRoomDropdown && (
+                      <div className="absolute z-10 w-full bg-white border rounded-md shadow-lg top-[60px] max-h-48 overflow-y-auto">
+                        {filteredInHouseGuests.length === 0 ? (
+                          <div className="p-2 text-sm text-center text-muted-foreground">
+                            {isLoadingInHouseGuests ? 'Loading checked-in guests...' : 'No checked-in guest found.'}
+                          </div>
+                        ) : (
+                          filteredInHouseGuests.map(g => (
+                            <div
+                              key={g.key}
+                              className="p-2 hover:bg-muted cursor-pointer text-sm border-b last:border-0"
+                              // mousedown keeps the click from being lost when the input blurs.
+                              onMouseDown={(e) => { e.preventDefault(); handleSelectGuestByRoom(g); }}
+                            >
+                              <div className="font-medium">{g.room} — {g.customer?.name || g.guest_name}</div>
+                              {g.phone && <div className="text-xs text-muted-foreground">{g.phone}</div>}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                     {isLoadingRoom && (
                       <p className="text-xs text-muted-foreground">Looking up current room...</p>
                     )}
                     {!isLoadingRoom && roomAutoFilled && (
-                      <p className="text-xs text-green-600">Auto-filled from guest's current check-in</p>
+                      <p className="text-xs text-green-600">Matched to the guest's current check-in</p>
                     )}
                   </div>
                 </div>
@@ -664,7 +807,7 @@ export default function ServiceIncomeClient({ title, descriptionText, serviceTyp
           <div className="flex justify-between items-start border-b pb-6 mb-6">
             <div>
               <h1 className="text-3xl font-bold uppercase tracking-wider text-gray-900">INVOICE</h1>
-              <p className="text-sm text-gray-500 mt-1">Invoice #: INV-{selectedInvoice.id.substring(0, 8).toUpperCase()}</p>
+              <p className="text-sm text-gray-500 mt-1">Invoice #: {serviceInvoiceNumber(selectedInvoice)}</p>
               <p className="text-sm text-gray-500">Date: {new Date().toLocaleDateString()}</p>
             </div>
             <div className="text-right">

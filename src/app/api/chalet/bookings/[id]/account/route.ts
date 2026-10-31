@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
 import { chaletBillBreakdown, chaletPaymentHistory } from '@/lib/chalet-billing';
+import { serviceInvoiceNumber } from '@/lib/utils';
 
 // Reservation account (ledger) for one chalet booking: accommodation charges
 // and payments, the guest's restaurant orders and extra services during the
@@ -105,28 +106,40 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
             credit: payment.amount,
         }));
 
-        // ── Guest's customer record (orders and services are linked to it) ──
+        // ── Guest's customer records (orders and services are linked to them) ──
+        // Chalet bookings store the guest's details, not a customer id. The
+        // guest can have more than one customer record (same ID number or
+        // same name), and charges can sit on any of them, as on the Front
+        // Desk bill.
         const nic = String(booking.customer_nic || '').trim();
-        const { data: byNic } = nic
-            ? await supabase.from('customers').select('id,name').eq('id_number', nic).limit(1).maybeSingle()
-            : { data: null };
-        const { data: byName } = !byNic && booking.customer_name
-            ? await supabase.from('customers').select('id,name').ilike('name', String(booking.customer_name).trim()).limit(1).maybeSingle()
-            : { data: null };
-        const customer = byNic || byName || null;
+        const guestName = String(booking.customer_name || '').trim();
+        const [{ data: byNic }, { data: byName }] = await Promise.all([
+            nic ? supabase.from('customers').select('id,name,created_at').eq('id_number', nic) : Promise.resolve({ data: [] as any[] }),
+            guestName ? supabase.from('customers').select('id,name,created_at').ilike('name', guestName) : Promise.resolve({ data: [] as any[] }),
+        ]);
+        const guestRecords = [...(byNic || []), ...(byName || [])]
+            .filter((record: any, index, all) => all.findIndex((other: any) => other.id === record.id) === index)
+            .sort((a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+        const customer = guestRecords[0] ? { id: guestRecords[0].id, name: guestRecords[0].name } : null;
+        const customerIds = guestRecords.map((record: any) => record.id);
 
         const restaurant: LedgerRow[] = [];
         const services: LedgerRow[] = [];
         let receipts: { bill_number: string; date: string; payment_method: string | null; total: number }[] = [];
 
         if (customer) {
-            // During the stay: from the arrival day to the day after departure.
+            // During the stay: from the arrival day to the day after departure,
+            // or up to today while the guest is still in house (a stay can run
+            // past its booked departure, and its charges are still billed).
+            const active = ['checked_in', 'confirmed'].includes(booking.status);
+            const today = new Date().toISOString().slice(0, 10);
+            const lastDay = active && today > booking.check_out_date.slice(0, 10) ? today : booking.check_out_date.slice(0, 10);
             const from = `${booking.check_in_date}T00:00:00`;
-            const to = `${addDays(booking.check_out_date, 1)}T00:00:00`;
+            const to = `${addDays(lastDay, 1)}T00:00:00`;
             const [ordersRes, servicesRes, billsRes] = await Promise.all([
-                supabase.from('orders').select('*').eq('customer_id', customer.id).gte('created_at', from).lt('created_at', to).order('created_at', { ascending: true }),
-                supabase.from('service_incomes').select('*').eq('customer_id', customer.id).gte('date', booking.check_in_date).lte('date', addDays(booking.check_out_date, 1)).order('date', { ascending: true }),
-                supabase.from('guest_bill_history').select('bill_number,total,payment_method,paid_at').eq('customer_id', customer.id).gte('paid_at', from).order('paid_at', { ascending: true }),
+                supabase.from('orders').select('*').in('customer_id', customerIds).gte('created_at', from).lt('created_at', to).order('created_at', { ascending: true }),
+                supabase.from('service_incomes').select('*').in('customer_id', customerIds).gte('date', booking.check_in_date).lte('date', addDays(lastDay, 1)).order('date', { ascending: true }),
+                supabase.from('guest_bill_history').select('bill_number,total,payment_method,paid_at').in('customer_id', customerIds).gte('paid_at', from).order('paid_at', { ascending: true }),
             ]);
 
             const orders = (ordersRes.data || []).filter((order: any) => order.status !== 'cancelled' && !String(order.waiter_name || '').startsWith('Package Meal|'));
@@ -170,9 +183,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
             (servicesRes.data || []).forEach((service: any) => {
                 const amount = Number(service.amount || 0);
+                const invNo = serviceInvoiceNumber(service);
+                const group = `${service.service_type}${service.description ? `: ${service.description}` : ''}`;
                 services.push({
                     date: service.date || service.created_at,
-                    invNo: null,
+                    invNo,
+                    group,
                     description: `${service.service_type}${service.description ? `: ${service.description}` : ''}`,
                     details: Array.isArray(service.line_items) ? service.line_items.map((line: any) => `${line.description}: ${Number(line.amount || 0).toFixed(2)}`) : undefined,
                     tax: null,
@@ -182,7 +198,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
                 if (service.payment_status === 'paid' && amount > 0) {
                     services.push({
                         date: service.updated_at || service.date || service.created_at,
-                        invNo: null,
+                        invNo,
+                        group,
                         description: `Paid${service.payment_method ? ` — ${methodLabel(service.payment_method)}` : ''}`,
                         tax: null,
                         debit: 0,

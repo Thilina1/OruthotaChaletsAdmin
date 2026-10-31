@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { billCustomerIds } from '@/lib/bill-customers';
 import { chaletOutstandingLkr, chaletPaymentHistory } from '@/lib/chalet-billing';
 
 const supabase = createClient(
@@ -86,6 +87,11 @@ export async function GET(request: Request) {
       customerId = customer?.id || null;
     }
 
+    // Same customer records the Front Desk bill lists charges from.
+    const billIds = customerId
+      ? await billCustomerIds(supabase, { id: customerId, name: type === 'chalet' ? stay.customer_name : null })
+      : [];
+
     if (customerId) {
       // Stay dates are local (Asia/Colombo) days.
       const from = `${stay.check_in_date}T00:00:00+05:30`;
@@ -94,13 +100,13 @@ export async function GET(request: Request) {
         supabase
           .from('guest_bill_history')
           .select('id,bill_number,total,payment_method,paid_at,items')
-          .eq('customer_id', customerId)
+          .in('customer_id', billIds)
           .gte('paid_at', from)
           .lte('paid_at', to),
         supabase
           .from('orders')
           .select('id,bill_number,confirmed_total,total_price,payment_method,paid_at,table_number')
-          .eq('customer_id', customerId)
+          .in('customer_id', billIds)
           .eq('status', 'closed')
           .gte('paid_at', from)
           .lte('paid_at', to),
@@ -145,10 +151,10 @@ export async function GET(request: Request) {
         supabase
           .from('orders')
           .select('confirmed_total,total_price')
-          .eq('customer_id', customerId)
+          .in('customer_id', billIds)
           .in('status', ['open', 'billed', 'room_charge'])
           .not('waiter_name', 'like', 'Package Meal|%'),
-        supabase.from('service_incomes').select('amount').eq('customer_id', customerId).eq('payment_status', 'add_to_bill'),
+        supabase.from('service_incomes').select('amount').in('customer_id', billIds).eq('payment_status', 'add_to_bill'),
       ]);
       restaurantBalance = (openOrders.error ? [] : openOrders.data || []).reduce((sum: number, order: any) => sum + Number(order.confirmed_total ?? order.total_price ?? 0), 0);
       servicesBalance = (openServices.error ? [] : openServices.data || []).reduce((sum: number, service: any) => sum + Number(service.amount || 0), 0);

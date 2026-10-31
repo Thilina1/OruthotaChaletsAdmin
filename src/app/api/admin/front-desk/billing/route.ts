@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { billCustomerIds } from '@/lib/bill-customers';
 import { chaletBillBreakdown, chaletOutstandingLkr, chaletPaidLkr, chaletPaymentHistory, chaletTotalLkr } from '@/lib/chalet-billing';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -63,7 +64,19 @@ export async function GET(request: Request) {
             ordersResult.data?.forEach((item: any) => add(item.customer_id, item.confirmed_total ?? item.total_price));
             servicesResult.data?.forEach((item: any) => add(item.customer_id, item.amount));
 
-            const customersByName = new Map((customersResult.data || []).map((customer: any) => [customer.name?.trim().toLowerCase(), customer.id]));
+            // Same-name customer records, oldest first. A chalet stay (matched by
+            // name) is listed under the oldest record, and charges sitting on
+            // the other same-name records are folded into it: the detailed
+            // bill collects all of them (see billCustomerIds).
+            const idsByName = new Map<string, string[]>();
+            [...(customersResult.data || [])]
+                .sort((a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)))
+                .forEach((customer: any) => {
+                    const key = customer.name?.trim().toLowerCase();
+                    if (key) idsByName.set(key, [...(idsByName.get(key) || []), customer.id]);
+                });
+            const customersByName = new Map(Array.from(idsByName, ([key, ids]) => [key, ids[0]]));
+            const chaletGuestNames = new Set<string>();
             const chaletRoomIds = (item: any): string[] => Array.from(new Set([
                 ...(Array.isArray(item.room_allocations) ? item.room_allocations.map((a: any) => a?.roomId ?? a?.room_id) : []),
                 ...(Array.isArray(item.room_ids) ? item.room_ids : []),
@@ -75,7 +88,9 @@ export async function GET(request: Request) {
                 : { data: [] as any[] };
             const chaletRoomNumber = new Map((chaletRooms || []).map((room: any) => [room.id, room.room_number]));
             chaletResult.data?.forEach((item: any) => {
-                const customerId = customersByName.get(item.customer_name?.trim().toLowerCase()) || null;
+                const nameKey = item.customer_name?.trim().toLowerCase();
+                if (nameKey) chaletGuestNames.add(nameKey);
+                const customerId = customersByName.get(nameKey) || null;
                 addCheckoutDate(customerId, item.check_out_date);
                 if (customerId) activeStayCustomerIds.add(customerId);
                 chaletRoomIds(item).forEach(roomId => {
@@ -85,7 +100,19 @@ export async function GET(request: Request) {
                 add(customerId, chaletOutstandingLkr(item, ratesResult.data || []));
             });
 
+            const foldedIds = new Set<string>();
+            chaletGuestNames.forEach(nameKey => {
+                const [primary, ...others] = idsByName.get(nameKey) || [];
+                others.forEach(otherId => {
+                    if (totals.has(otherId)) add(primary, totals.get(otherId));
+                    totals.delete(otherId);
+                    foldedIds.add(otherId);
+                    (roomLabels.get(otherId) || []).forEach(label => addRoom(primary, label));
+                });
+            });
+
             const customers = (customersResult.data || [])
+                .filter((customer: any) => !foldedIds.has(customer.id))
                 .filter((customer: any) => (totals.get(customer.id) || 0) > 0 || activeStayCustomerIds.has(customer.id))
                 // Search matches name, ID, phone, email or room ("01", "Chalet 01", "Room 12").
                 .filter((customer: any) => !search || [customer.name, customer.id_number, customer.phone, customer.email, ...(roomLabels.get(customer.id) || [])]
@@ -136,11 +163,14 @@ export async function GET(request: Request) {
             supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
         ]);
 
+        // Every customer record whose charges belong on this guest's bill.
+        const billIds = await billCustomerIds(supabase, customer);
+
         // 3. Get unpaid Orders (status = billed or open)
         const { data: orderRows } = await supabase
             .from('orders')
             .select('*')
-            .eq('customer_id', customer_id)
+            .in('customer_id', billIds)
             .in('status', ['open', 'billed', 'room_charge'])
             .not('waiter_name', 'like', 'Package Meal|%');
 
@@ -158,7 +188,7 @@ export async function GET(request: Request) {
         const { data: serviceIncomes } = await supabase
             .from('service_incomes')
             .select('*')
-            .eq('customer_id', customer_id)
+            .in('customer_id', billIds)
             .eq('payment_status', 'add_to_bill');
 
         // Calculate totals. Room/chalet charges only count as outstanding

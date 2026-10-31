@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth-utils';
+import { billCustomerIds } from '@/lib/bill-customers';
 import { chaletBillCurrency, chaletOutstandingLkr, chaletPaidLkr, chaletTotalLkr } from '@/lib/chalet-billing';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Payment method is required' }, { status: 400 });
         }
 
+        // Same customer records the Front Desk bill lists charges from.
+        const billIds = await billCustomerIds(supabase, { id: customer_id, name: customer?.name });
+
         // Capture the complete bill before changing any live record statuses.
         const [reservationsDue, chaletsDue, chaletRates, ordersDue, servicesDue] = await Promise.all([
             supabase.from('reservations').select('*,room:rooms(title,room_number)').eq('customer_id', customer_id).in('status', ['checked-in', 'confirmed']),
@@ -77,8 +81,8 @@ export async function POST(request: Request) {
                 ? supabase.from('chalet_bookings').select('*,chalet_rooms(name,room_number),chalet_packages(name)').ilike('customer_name', customer.name.trim()).in('status', ['checked_in', 'confirmed'])
                 : Promise.resolve({ data: [], error: null } as any),
             supabase.from('chalet_rates').select('package_id,room_category_id,occupancy_type_id,usd_to_lkr_rate'),
-            supabase.from('orders').select('*').eq('customer_id', customer_id).in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
-            supabase.from('service_incomes').select('*').eq('customer_id', customer_id).eq('payment_status', 'add_to_bill'),
+            supabase.from('orders').select('*').in('customer_id', billIds).in('status', ['open', 'billed', 'room_charge']).not('waiter_name', 'like', 'Package Meal|%'),
+            supabase.from('service_incomes').select('*').in('customer_id', billIds).eq('payment_status', 'add_to_bill'),
         ]);
         const snapshotItems = [
             ...(reservationsDue.data || []).filter((item: any) => item.payment_status !== 'paid').map((item: any) => ({ category: 'Room', description: `Room: ${item.room?.title || item.room?.room_number || 'Room'}`, amount: Number(item.total_cost || 0), source_id: item.id })),
@@ -194,7 +198,7 @@ export async function POST(request: Request) {
         const { error: ordError } = await supabase
             .from('orders')
             .update({ status: 'paid' })
-            .eq('customer_id', customer_id)
+            .in('customer_id', billIds)
             .in('status', ['open', 'billed', 'room_charge'])
             .not('waiter_name', 'like', 'Package Meal|%');
         if (ordError) throw ordError;
@@ -205,7 +209,7 @@ export async function POST(request: Request) {
                 payment_status: 'paid',
                 payment_method: payment_method
             })
-            .eq('customer_id', customer_id)
+            .in('customer_id', billIds)
             .eq('payment_status', 'add_to_bill');
         if (svcError) throw svcError;
 

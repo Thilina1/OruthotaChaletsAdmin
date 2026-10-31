@@ -29,9 +29,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Printer, CheckCircle2, Search, ScanLine, ChefHat, Plus, Minus, Trash2, MoreHorizontal, Eye } from 'lucide-react';
+import { Printer, CheckCircle2, Search, ScanLine, ChefHat, Plus, Minus, Trash2, MoreHorizontal, Eye, BedDouble, Home, UtensilsCrossed, Sparkles, Banknote, CreditCard, Globe, Tag, Receipt } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { serviceInvoiceNumber } from '@/lib/utils';
+import { BookingExtras, emptyExtras, hasPendingExtras, saveBookingExtras, type PendingExtras } from '@/components/dashboard/chalet/booking-extras';
 import { BarcodeScanner } from '@/components/dashboard/inventory-management/barcode-scanner';
 import type { Reservation, ConsolidatedBill, ChaletBooking, ChaletPackage, ChaletRate, ChaletRoom, ChaletRoomCategory, Customer } from '@/lib/types';
 import { chaletBillLinesForDisplay, chaletPaidLkr, chaletTotalLkr } from '@/lib/chalet-billing';
@@ -134,6 +136,10 @@ export default function FrontDeskPage() {
   // Payment just taken for the open bill, printed on the receipt.
   const [lastSettlement, setLastSettlement] = useState<{ billNumber: string | null; method: string; amount: number; cashReceived: number | null; paidAt: string } | null>(null);
 
+  // Extras (experiences, services, buffets) added at chalet check-in.
+  const [checkInExtras, setCheckInExtras] = useState<PendingExtras>(emptyExtras);
+  // Bill adjustments card: add a charge or a discount.
+  const [billAdjustTab, setBillAdjustTab] = useState<'charge' | 'discount'>('charge');
   // Add Other Charge to bill
   const [otherChargeDesc, setOtherChargeDesc] = useState('');
   const [otherChargeAmount, setOtherChargeAmount] = useState('');
@@ -311,6 +317,7 @@ export default function FrontDeskPage() {
     setIdNumber(reservationDetails.customer?.id_number || reservationDetails.id_card_number || '');
     setAddress(reservationDetails.customer?.address || reservationDetails.guest_address || '');
     resetAdditionalGuests();
+    setCheckInExtras(emptyExtras);
     setShowCheckInBillPreview(false);
     setIsCheckInModalOpen(true);
     fetchCustomerDetails(res.customer_id);
@@ -330,6 +337,7 @@ export default function FrontDeskPage() {
     setIdNumber(bookingDetails.customer?.id_number || booking.customer_nic || '');
     setAddress(bookingDetails.customer?.address || bookingDetails.customer_address || bookingDetails.address || '');
     resetAdditionalGuests();
+    setCheckInExtras(emptyExtras);
     setShowCheckInBillPreview(false);
     setIsCheckInModalOpen(true);
     // The list may have been loaded before the latest payment; reload this
@@ -363,6 +371,14 @@ export default function FrontDeskPage() {
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Check-in failed');
+        if (hasPendingExtras(checkInExtras)) {
+          try {
+            await saveBookingExtras(selectedChaletBooking.id, checkInExtras, result.customer_id);
+            setCheckInExtras(emptyExtras);
+          } catch (extrasError: any) {
+            toast({ variant: 'destructive', title: 'Extras not added', description: `The guest was checked in, but the extras were not added: ${extrasError.message}` });
+          }
+        }
 
         setCheckInPass({ ...result.chalet_check_in, email_sent: result.email?.sent === true, email_reason: result.email?.reason });
         setIsCheckInPassOpen(true);
@@ -1962,8 +1978,8 @@ export default function FrontDeskPage() {
 
           <TabsContent value="check-out">
             <DateRangeFilter label="Scheduled checkout date" from={billingFrom} to={billingTo} onFromChange={setBillingFrom} onToChange={setBillingTo} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="col-span-1 bg-white rounded-lg shadow border p-4">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+              <div className="bg-white rounded-lg shadow border p-4 lg:sticky lg:top-4 lg:self-start">
                 <h2 className="text-lg font-semibold mb-4">Find Customer Bill</h2>
                 <div className="mb-4 space-y-2">
                   <Input
@@ -2012,316 +2028,323 @@ export default function FrontDeskPage() {
                 </div>
               </div>
 
-              <div className="col-span-1 md:col-span-2">
+              <div className="min-w-0">
                 {isLoadingBill ? (
                   <div className="bg-white rounded-lg shadow border p-8 text-center text-muted-foreground">
                     Calculating consolidated bill...
                   </div>
                 ) : billData ? (
-                  <div className="bg-white rounded-lg shadow border p-6">
-                    <div className="flex justify-between items-center mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold">Consolidated Bill</h2>
-                        <p className="text-muted-foreground">Customer: {billData.customer.name}</p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-3xl font-bold text-primary">{formatMoney(billData.totalOutstanding)}</div>
-                        <p className="text-sm text-muted-foreground">Total Outstanding</p>
-                        <Button variant="outline" className="mt-3" onClick={() => window.print()}>
-                          <Printer className="mr-2 h-4 w-4" />
-                          Print Bill
-                        </Button>
-                      </div>
+                  (() => {
+                  // Same figures that make up Total Outstanding.
+                  const roomTotal = billData.reservations.reduce((sum: number, res: any) => sum + (res.total_cost && res.payment_status !== 'paid' ? Number(res.total_cost) : 0), 0);
+                  const chalets = billData.chaletBookings as any[];
+                  const chaletBalance = chalets.reduce((sum, cb) => sum + Number(cb.outstanding_lkr || 0), 0);
+                  const chaletBill = chalets.reduce((sum, cb) => sum + Number(cb.bill_total_lkr_resolved || 0), 0);
+                  const chaletPaid = chalets.reduce((sum, cb) => sum + Number(cb.paid_lkr || 0), 0);
+                  const ordersTotal = billData.orders.reduce((sum: number, ord: any) => sum + Number(ord.confirmed_total ?? ord.total_price ?? 0), 0);
+                  const incomes = billData.serviceIncomes as any[];
+                  const servicesTotal = incomes.filter(inc => inc.service_type !== 'Other' && inc.service_type !== 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                  const otherTotal = incomes.filter(inc => inc.service_type === 'Other').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                  const discountTotal = incomes.filter(inc => inc.service_type === 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
+                  const summaryLines: { label: string; note?: string; amount: number; discount?: boolean }[] = [
+                    ...(billData.reservations.length > 0 ? [{ label: 'Room charges', amount: roomTotal }] : []),
+                    ...(chalets.length > 0 ? [{ label: 'Chalet balance', note: chaletPaid > 0 ? `${formatMoney(chaletBill)} bill − ${formatMoney(chaletPaid)} paid` : undefined, amount: chaletBalance }] : []),
+                    ...(billData.orders.length > 0 ? [{ label: `Restaurant orders (${billData.orders.length})`, amount: ordersTotal }] : []),
+                    ...(servicesTotal !== 0 ? [{ label: 'Extra services', amount: servicesTotal }] : []),
+                    ...(otherTotal !== 0 ? [{ label: 'Other charges', amount: otherTotal }] : []),
+                    ...(discountTotal !== 0 ? [{ label: 'Discounts', amount: discountTotal, discount: true }] : []),
+                  ];
+                  const isPaid = billData.totalOutstanding <= 0.009;
+                  const customer = billData.customer as any;
+                  const rooms: string[] = selectedCustomerForBill?.rooms || [];
+                  const signed = (amount: number) => `${amount < 0 ? '− ' : ''}${formatMoney(Math.abs(amount))}`;
+                  const shortDate = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+                  const Section = ({ icon: Icon, title, count, total, children }: { icon: any; title: string; count: number; total: number; children: React.ReactNode }) => (
+                    <section className="overflow-hidden rounded-xl border bg-card">
+                      <header className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Icon className="h-4 w-4" /></span>
+                          <h3 className="font-semibold">{title}</h3>
+                          <Badge variant="secondary" className="rounded-full px-2 text-[11px]">{count}</Badge>
+                        </div>
+                        <p className="font-semibold tabular-nums">{signed(total)}</p>
+                      </header>
+                      <div className="divide-y">{children}</div>
+                    </section>
+                  );
+
+                  const Breakdown = ({ lines }: { lines: { label: string; amount: number }[] }) => (
+                    <div className="mt-2 space-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs">
+                      {lines.map((line, index) => (
+                        <div key={index} className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">{line.label}</span>
+                          <span className="whitespace-nowrap tabular-nums">{signed(line.amount)}</span>
+                        </div>
+                      ))}
                     </div>
+                  );
 
-                    <div className="space-y-6">
-                      {billData.reservations.length > 0 && (
-                        <div>
-                          <h3 className="font-semibold text-lg border-b pb-2 mb-3">Room Charges</h3>
-                          <Table>
-                            <PaginatedTableBody showSinglePage>
-                              {billData.reservations.map(res => (
-                                <TableRow key={res.id}>
-                                  <TableCell>{res.room?.title || 'Room'} ({new Date(res.check_in_date).toLocaleDateString()} to {new Date(res.check_out_date).toLocaleDateString()})</TableCell>
-                                  <TableCell className="text-right">LKR {Number(res.total_cost || 0).toFixed(2)}</TableCell>
-                                </TableRow>
-                              ))}
-                            </PaginatedTableBody>
-                          </Table>
+                  return (
+                    <div className="space-y-4">
+                      {/* Guest header */}
+                      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consolidated Bill</p>
+                            <h2 className="mt-1 truncate text-2xl font-bold">{customer.name}</h2>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              {rooms.map(room => <Badge key={room} variant="outline" className="font-medium">{room}</Badge>)}
+                              {customer.phone && <span>{customer.phone}</span>}
+                              {customer.email && <span className="truncate">{customer.email}</span>}
+                            </div>
+                          </div>
+                          <div className="shrink-0 sm:text-right">
+                            <Badge className={isPaid ? 'bg-green-600 hover:bg-green-600' : 'bg-amber-500 hover:bg-amber-500'}>{isPaid ? 'Paid' : 'Balance due'}</Badge>
+                            <p className={`mt-1 text-3xl font-bold tabular-nums ${isPaid ? 'text-green-700' : 'text-primary'}`}>{formatMoney(billData.totalOutstanding)}</p>
+                            <p className="text-xs text-muted-foreground">Total outstanding</p>
+                          </div>
                         </div>
-                      )}
-
-                      {billData.chaletBookings.length > 0 && (
-                        <div>
-                          <h3 className="font-semibold text-lg border-b pb-2 mb-3">Chalet Charges</h3>
-                          <Table>
-                            <PaginatedTableBody showSinglePage>
-                              {billData.chaletBookings.map(cb => (
-                                <TableRow key={cb.id}>
-                                  <TableCell>
-	                                    <div>{renderChaletRoomAllocation(cb, true)}</div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {new Date(cb.check_in_date).toLocaleDateString()} to {new Date(cb.check_out_date).toLocaleDateString()}
-                                      </div>
-                                    {renderChaletBillDetails(cb)}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {chaletBillAmounts(cb).paid > 0 ? (
-                                      <div className="space-y-1">
-                                        <div className="text-xs text-muted-foreground">Total {renderChaletLkrMoney(cb, chaletBillAmounts(cb).total)}</div>
-                                        <div className="text-xs text-green-700">Paid -{renderChaletLkrMoney(cb, chaletBillAmounts(cb).paid)}</div>
-                                        <div className="font-semibold">Balance {renderChaletLkrMoney(cb, chaletBillAmounts(cb).outstanding)}</div>
-                                      </div>
-                                    ) : renderChaletLkrMoney(cb, chaletBillAmounts(cb).total)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </PaginatedTableBody>
-                          </Table>
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 px-5 py-2.5">
+                          <p className="text-xs text-muted-foreground">
+                            {[billData.reservations.length && `${billData.reservations.length} room stay${billData.reservations.length === 1 ? '' : 's'}`, chalets.length && `${chalets.length} chalet stay${chalets.length === 1 ? '' : 's'}`, billData.orders.length && `${billData.orders.length} restaurant order${billData.orders.length === 1 ? '' : 's'}`, incomes.length && `${incomes.length} service item${incomes.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No charges yet'}
+                          </p>
+                          <Button variant="outline" size="sm" onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />Print Bill
+                          </Button>
                         </div>
-                      )}
+                      </div>
 
-                      {billData.orders.length > 0 && (
-                        <div>
-                          <h3 className="font-semibold text-lg border-b pb-2 mb-3">Restaurant Orders</h3>
-                          <Table>
-                            <PaginatedTableBody showSinglePage>
-                              {billData.orders.map(ord => {
-                                const subLines = orderSubLines(ord);
+                      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+                        {/* Charges */}
+                        <div className="space-y-4">
+                          {billData.reservations.length > 0 && (
+                            <Section icon={BedDouble} title="Room Charges" count={billData.reservations.length} total={roomTotal}>
+                              {billData.reservations.map((res: any) => (
+                                <div key={res.id} className="flex items-start justify-between gap-4 px-4 py-3">
+                                  <div>
+                                    <p className="font-medium">{res.room?.title || 'Room'}</p>
+                                    <p className="text-xs text-muted-foreground">{shortDate(res.check_in_date)} – {shortDate(res.check_out_date)}{res.payment_status === 'paid' ? ' · Paid' : ''}</p>
+                                  </div>
+                                  <p className="whitespace-nowrap font-medium tabular-nums">{formatMoney(Number(res.total_cost || 0))}</p>
+                                </div>
+                              ))}
+                            </Section>
+                          )}
+
+                          {chalets.length > 0 && (
+                            <Section icon={Home} title="Chalet Charges" count={chalets.length} total={chaletBalance}>
+                              {chalets.map((cb: any) => {
+                                const amounts = chaletBillAmounts(cb);
                                 return (
-                                  <TableRow key={ord.id} className="align-top">
-                                    <TableCell>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="font-medium">{orderLabel(ord)}</p>
-                                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs print:hidden" onClick={() => handlePrintOrder(ord)}>
-                                          <Printer className="mr-1 h-3.5 w-3.5" />
-                                          Print
-                                        </Button>
+                                  <div key={cb.id} className="px-4 py-3">
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="min-w-0">
+                                        <div className="font-medium">{renderChaletRoomAllocation(cb, true)}</div>
+                                        <p className="text-xs text-muted-foreground">{shortDate(cb.check_in_date)} – {shortDate(cb.check_out_date)}</p>
                                       </div>
-                                      <p className="text-xs text-muted-foreground">{orderDetail(ord)}</p>
-                                      {subLines.length > 0 ? (
-                                        <div className="mt-2 space-y-1 border-l-2 pl-3 text-xs">
-                                          {subLines.map((line, index) => (
-                                            <div key={index} className="flex justify-between gap-4">
-                                              <span className="text-muted-foreground">{line.label}</span>
-                                              <span className="tabular-nums whitespace-nowrap">{line.amount < 0 ? '− ' : ''}{formatMoney(Math.abs(line.amount))}</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="mt-1 text-xs text-muted-foreground">No items recorded on this order.</p>
-                                      )}
-                                    </TableCell>
-                                    <TableCell className="text-right font-medium whitespace-nowrap">{formatMoney(Number(ord.confirmed_total ?? ord.total_price ?? 0))}</TableCell>
-                                  </TableRow>
+                                      <div className="shrink-0 text-right">
+                                        {amounts.paid > 0 ? (
+                                          <>
+                                            <p className="text-xs text-muted-foreground">Bill {renderChaletLkrMoney(cb, amounts.total)}</p>
+                                            <p className="text-xs text-green-700">Paid −{renderChaletLkrMoney(cb, amounts.paid)}</p>
+                                            <p className="font-semibold">Balance {renderChaletLkrMoney(cb, amounts.outstanding)}</p>
+                                          </>
+                                        ) : <p className="font-semibold">{renderChaletLkrMoney(cb, amounts.total)}</p>}
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 rounded-md bg-muted/40 px-3 py-2 text-xs">{renderChaletBillDetails(cb)}</div>
+                                  </div>
                                 );
                               })}
-                            </PaginatedTableBody>
-                          </Table>
-                        </div>
-                      )}
+                            </Section>
+                          )}
 
-                      {billData.serviceIncomes.length > 0 && (
-                        <div>
-                          <h3 className="font-semibold text-lg border-b pb-2 mb-3">Extra Services</h3>
-                          <Table>
-                            <PaginatedTableBody showSinglePage>
-                              {billData.serviceIncomes.map(svc => (
-                                <TableRow key={svc.id}>
-                                  <TableCell>
-                                    <div>{svc.service_type}: {svc.description} ({new Date(svc.date).toLocaleDateString()})</div>
-                                    {svc.line_items && svc.line_items.length > 0 && (
-                                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                        {svc.line_items.map((item, index) => (
-                                          <div key={index}>{item.description}: LKR {Number(item.amount || 0).toFixed(2)}</div>
-                                        ))}
+                          {billData.orders.length > 0 && (
+                            <Section icon={UtensilsCrossed} title="Restaurant Orders" count={billData.orders.length} total={ordersTotal}>
+                              {billData.orders.map((ord: any) => {
+                                const subLines = orderSubLines(ord);
+                                return (
+                                  <div key={ord.id} className="px-4 py-3">
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="min-w-0">
+                                        <p className="font-medium">{orderLabel(ord)}</p>
+                                        <p className="text-xs text-muted-foreground">{orderDetail(ord)}</p>
                                       </div>
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs print:hidden" onClick={() => handlePrintOrder(ord)}>
+                                          <Printer className="mr-1 h-3.5 w-3.5" />Print
+                                        </Button>
+                                        <p className="whitespace-nowrap font-semibold tabular-nums">{formatMoney(Number(ord.confirmed_total ?? ord.total_price ?? 0))}</p>
+                                      </div>
+                                    </div>
+                                    {subLines.length > 0
+                                      ? <Breakdown lines={subLines} />
+                                      : <p className="mt-1 text-xs text-muted-foreground">No items recorded on this order.</p>}
+                                  </div>
+                                );
+                              })}
+                            </Section>
+                          )}
+
+                          {incomes.length > 0 && (
+                            <Section icon={Sparkles} title="Extra Services" count={incomes.length} total={servicesTotal + otherTotal + discountTotal}>
+                              {incomes.map((svc: any) => {
+                                const isDiscount = svc.service_type === 'Discount';
+                                return (
+                                  <div key={svc.id} className="px-4 py-3">
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Badge variant="outline" className={isDiscount ? 'border-green-600 text-green-700' : ''}>{svc.service_type}</Badge>
+                                          <p className="font-medium">{svc.description}</p>
+                                        </div>
+                                        <p className="mt-0.5 text-xs text-muted-foreground">{[serviceInvoiceNumber(svc), shortDate(svc.date), svc.room_number].filter(Boolean).join(' · ')}</p>
+                                      </div>
+                                      <p className={`whitespace-nowrap font-semibold tabular-nums ${isDiscount ? 'text-green-700' : ''}`}>{signed(Number(svc.amount || 0))}</p>
+                                    </div>
+                                    {svc.line_items?.length > 1 && (
+                                      <Breakdown lines={svc.line_items.map((item: any) => ({ label: item.description, amount: Number(item.amount || 0) }))} />
                                     )}
-                                  </TableCell>
-                                  <TableCell className="text-right">LKR {Number(svc.amount || 0).toFixed(2)}</TableCell>
-                                </TableRow>
-                              ))}
-                            </PaginatedTableBody>
-                          </Table>
-                        </div>
-                      )}
+                                  </div>
+                                );
+                              })}
+                            </Section>
+                          )}
 
-                      <div className="pt-6 border-t print:hidden">
-                        <h3 className="font-semibold text-lg mb-3">Add Other Charge</h3>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <Input
-                            placeholder="Description (e.g. Minibar, Damage fee)"
-                            value={otherChargeDesc}
-                            onChange={(e) => setOtherChargeDesc(e.target.value)}
-                            className="flex-1"
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            placeholder="Amount"
-                            value={otherChargeAmount}
-                            onChange={(e) => setOtherChargeAmount(e.target.value)}
-                            className="sm:w-40"
-                          />
-                          <Button
-                            variant="outline"
-                            onClick={handleAddOtherCharge}
-                            disabled={isAddingCharge || !otherChargeDesc.trim() || !otherChargeAmount}
-                          >
-                            {isAddingCharge ? 'Adding...' : 'Add to Bill'}
-                          </Button>
-                        </div>
-                      </div>
+                          {summaryLines.length === 0 && (
+                            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No charges on this bill yet.</div>
+                          )}
 
-                      <div className="pt-6 border-t print:hidden">
-                        <h3 className="font-semibold text-lg mb-3">Add Discount</h3>
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
-                          <Input
-                            placeholder="Discount name (e.g. Loyalty Discount)"
-                            value={discountDesc}
-                            onChange={(e) => setDiscountDesc(e.target.value)}
-                            className="sm:col-span-5"
-                          />
-                          <Select value={discountType} onValueChange={(value) => setDiscountType(value as 'fixed' | 'percentage')}>
-                            <SelectTrigger className="sm:col-span-3">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="fixed">Fixed (LKR)</SelectItem>
-                              <SelectItem value="percentage">Percentage</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={discountType === 'percentage' ? 100 : undefined}
-                            step="0.01"
-                            placeholder={discountType === 'percentage' ? '%' : 'Amount'}
-                            value={discountAmount}
-                            onChange={(e) => setDiscountAmount(e.target.value)}
-                            className="sm:col-span-2"
-                          />
-                          <Button
-                            variant="outline"
-                            onClick={handleAddDiscount}
-                            disabled={isAddingDiscount || !discountDesc.trim() || !discountAmount || billData.totalOutstanding <= 0}
-                            className="sm:col-span-2"
-                          >
-                            {isAddingDiscount ? 'Adding...' : 'Add Discount'}
-                          </Button>
+                          {/* Adjustments */}
+                          <section className="rounded-xl border bg-card print:hidden">
+                            <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                              <h3 className="font-semibold">Adjust Bill</h3>
+                              <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-sm">
+                                {([['charge', 'Add charge', Plus], ['discount', 'Add discount', Tag]] as const).map(([value, label, Icon]) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    onClick={() => setBillAdjustTab(value)}
+                                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${billAdjustTab === value ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                                  >
+                                    <Icon className="h-3.5 w-3.5" />{label}
+                                  </button>
+                                ))}
+                              </div>
+                            </header>
+                            <div className="p-4">
+                              {billAdjustTab === 'charge' ? (
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                  <Input placeholder="Description (e.g. Minibar, Damage fee)" value={otherChargeDesc} onChange={(e) => setOtherChargeDesc(e.target.value)} className="flex-1" />
+                                  <Input type="number" min={0} step="0.01" placeholder="Amount (LKR)" value={otherChargeAmount} onChange={(e) => setOtherChargeAmount(e.target.value)} className="sm:w-40" />
+                                  <Button onClick={handleAddOtherCharge} disabled={isAddingCharge || !otherChargeDesc.trim() || !otherChargeAmount}>
+                                    {isAddingCharge ? 'Adding...' : 'Add to Bill'}
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
+                                  <Input placeholder="Discount name (e.g. Loyalty Discount)" value={discountDesc} onChange={(e) => setDiscountDesc(e.target.value)} className="sm:col-span-5" />
+                                  <Select value={discountType} onValueChange={(value) => setDiscountType(value as 'fixed' | 'percentage')}>
+                                    <SelectTrigger className="sm:col-span-3"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="fixed">Fixed (LKR)</SelectItem>
+                                      <SelectItem value="percentage">Percentage</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Input type="number" min={0} max={discountType === 'percentage' ? 100 : undefined} step="0.01" placeholder={discountType === 'percentage' ? '%' : 'Amount'} value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} className="sm:col-span-2" />
+                                  <Button onClick={handleAddDiscount} disabled={isAddingDiscount || !discountDesc.trim() || !discountAmount || billData.totalOutstanding <= 0} className="sm:col-span-2">
+                                    {isAddingDiscount ? 'Adding...' : 'Apply'}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </section>
                         </div>
-                      </div>
 
-                      {/* Bill summary: the same figures that make up Total Outstanding. */}
-                      {(() => {
-                        const roomTotal = billData.reservations.reduce((sum: number, res: any) => sum + (res.total_cost && res.payment_status !== 'paid' ? Number(res.total_cost) : 0), 0);
-                        const chalets = billData.chaletBookings as any[];
-                        const chaletBalance = chalets.reduce((sum, cb) => sum + Number(cb.outstanding_lkr || 0), 0);
-                        const chaletBill = chalets.reduce((sum, cb) => sum + Number(cb.bill_total_lkr_resolved || 0), 0);
-                        const chaletPaid = chalets.reduce((sum, cb) => sum + Number(cb.paid_lkr || 0), 0);
-                        const ordersTotal = billData.orders.reduce((sum: number, ord: any) => sum + Number(ord.confirmed_total ?? ord.total_price ?? 0), 0);
-                        const incomes = billData.serviceIncomes as any[];
-                        const servicesTotal = incomes.filter(inc => inc.service_type !== 'Other' && inc.service_type !== 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
-                        const otherTotal = incomes.filter(inc => inc.service_type === 'Other').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
-                        const discountTotal = incomes.filter(inc => inc.service_type === 'Discount').reduce((sum, inc) => sum + Number(inc.amount || 0), 0);
-                        const lines: { label: string; note?: string; amount: number; discount?: boolean }[] = [
-                          ...(billData.reservations.length > 0 ? [{ label: 'Room charges', amount: roomTotal }] : []),
-                          ...(chalets.length > 0 ? [{ label: 'Chalet balance', note: chaletPaid > 0 ? `${formatMoney(chaletBill)} bill − ${formatMoney(chaletPaid)} paid` : undefined, amount: chaletBalance }] : []),
-                          ...(billData.orders.length > 0 ? [{ label: `Restaurant orders (${billData.orders.length})`, amount: ordersTotal }] : []),
-                          ...(servicesTotal !== 0 ? [{ label: 'Extra services', amount: servicesTotal }] : []),
-                          ...(otherTotal !== 0 ? [{ label: 'Other charges', amount: otherTotal }] : []),
-                          ...(discountTotal !== 0 ? [{ label: 'Discounts', amount: discountTotal, discount: true }] : []),
-                        ];
-                        return (
-                          <div className="pt-6 border-t">
-                            <h3 className="font-semibold text-lg mb-3">Bill Summary</h3>
-                            <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
-                              {lines.map(line => (
+                        {/* Summary and payment */}
+                        <aside className="space-y-4 2xl:sticky 2xl:top-4 2xl:self-start">
+                          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                            <header className="flex items-center gap-2 border-b px-4 py-3">
+                              <Receipt className="h-4 w-4 text-muted-foreground" />
+                              <h3 className="font-semibold">Bill Summary</h3>
+                            </header>
+                            <div className="space-y-2 p-4 text-sm">
+                              {summaryLines.map(line => (
                                 <div key={line.label} className="flex items-start justify-between gap-4">
                                   <div>
-                                    <p>{line.label}</p>
-                                    {line.note && <p className="text-xs text-muted-foreground">{line.note}</p>}
+                                    <p className="text-muted-foreground">{line.label}</p>
+                                    {line.note && <p className="text-xs text-muted-foreground/80">{line.note}</p>}
                                   </div>
                                   <p className={`font-medium tabular-nums ${line.discount ? 'text-green-700' : ''}`}>
                                     {line.discount ? `− ${formatMoney(Math.abs(line.amount))}` : formatMoney(line.amount)}
                                   </p>
                                 </div>
                               ))}
-                              <div className="flex items-center justify-between gap-4 border-t pt-3 text-base font-bold">
-                                <p>Total to Pay</p>
-                                <p className="tabular-nums text-primary">{formatMoney(billData.totalOutstanding)}</p>
-                              </div>
                             </div>
-                          </div>
-                        );
-                      })()}
+                            <div className="flex items-center justify-between gap-4 border-t bg-primary/5 px-4 py-3">
+                              <p className="font-semibold">Total to Pay</p>
+                              <p className="text-xl font-bold tabular-nums text-primary">{formatMoney(billData.totalOutstanding)}</p>
+                            </div>
+                          </section>
 
-                      {billData.totalOutstanding === 0 ? (
-                        <div className="pt-6 border-t space-y-4">
-                          <div className="text-center py-2 text-green-600 font-medium">
-                            <CheckCircle2 className="w-8 h-8 mx-auto mb-2" />
-                            Bill is fully paid.
-                          </div>
-                          <Button onClick={handleCheckOutFromBill} disabled={isCheckingOutBill} className="w-full text-lg h-12">
-                            <Printer className="mr-2 h-5 w-5" />
-                            {isCheckingOutBill ? 'Checking Out...' : 'Check Out Guest & Print Invoice'}
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="pt-6 border-t">
-                          <Label className="mb-2 block">Payment Method for Settlement</Label>
-                          <div className="flex items-center space-x-4 mb-4">
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                              <input type="radio" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="w-4 h-4 text-primary" />
-                              <span>Cash</span>
-                            </label>
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                              <input type="radio" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} className="w-4 h-4 text-primary" />
-                              <span>Credit/Debit Card</span>
-                            </label>
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                              <input type="radio" checked={paymentMethod === 'online'} onChange={() => setPaymentMethod('online')} className="w-4 h-4 text-primary" />
-                              <span>Online</span>
-                            </label>
-                          </div>
-
-                          {paymentMethod === 'cash' && (
-                            <div className="bg-muted/50 rounded-lg p-4 mb-6 space-y-2">
-                              <div className="flex items-center gap-3">
-                                <Label htmlFor="cashReceived" className="whitespace-nowrap">Cash Received</Label>
-                                <Input
-                                  id="cashReceived"
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={cashReceived}
-                                  onChange={(e) => setCashReceived(e.target.value)}
-                                  className="w-40"
-                                />
+                          {billData.totalOutstanding === 0 ? (
+                            <section className="space-y-4 rounded-xl border border-green-200 bg-green-50 p-4 text-center">
+                              <div className="font-medium text-green-700">
+                                <CheckCircle2 className="mx-auto mb-2 h-8 w-8" />
+                                Bill is fully paid.
                               </div>
-                              {cashReceived !== '' && (
-                                (() => {
-                                  const balance = (parseFloat(cashReceived) || 0) - billData.totalOutstanding;
-                                  return balance >= 0 ? (
-                                    <p className="text-green-600 font-medium">Balance to Return: LKR {balance.toFixed(2)}</p>
-                                  ) : (
-                                    <p className="text-red-600 font-medium">Amount Short: LKR {Math.abs(balance).toFixed(2)}</p>
-                                  );
-                                })()
+                              <Button onClick={handleCheckOutFromBill} disabled={isCheckingOutBill} className="h-12 w-full text-base">
+                                <Printer className="mr-2 h-5 w-5" />
+                                {isCheckingOutBill ? 'Checking Out...' : 'Check Out & Print Invoice'}
+                              </Button>
+                            </section>
+                          ) : (
+                            <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm print:hidden">
+                              <div>
+                                <Label className="mb-2 block">Payment method</Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                  {([['cash', 'Cash', Banknote], ['card', 'Card', CreditCard], ['online', 'Online', Globe]] as const).map(([value, label, Icon]) => (
+                                    <button
+                                      key={value}
+                                      type="button"
+                                      onClick={() => setPaymentMethod(value)}
+                                      className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-sm font-medium transition-colors ${paymentMethod === value ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                                      aria-pressed={paymentMethod === value}
+                                    >
+                                      <Icon className="h-4 w-4" />{label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {paymentMethod === 'cash' && (
+                                <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+                                  <Label htmlFor="cashReceived">Cash received</Label>
+                                  <div className="flex gap-2">
+                                    <Input id="cashReceived" type="number" min={0} step="0.01" placeholder="0.00" value={cashReceived} onChange={(e) => setCashReceived(e.target.value)} />
+                                    <Button type="button" variant="outline" onClick={() => setCashReceived(billData.totalOutstanding.toFixed(2))}>Exact</Button>
+                                  </div>
+                                  {cashReceived !== '' && (() => {
+                                    const balance = (parseFloat(cashReceived) || 0) - billData.totalOutstanding;
+                                    return balance >= 0
+                                      ? <p className="flex justify-between text-sm font-medium text-green-700"><span>Change to return</span><span className="tabular-nums">{formatMoney(balance)}</span></p>
+                                      : <p className="flex justify-between text-sm font-medium text-red-600"><span>Amount short</span><span className="tabular-nums">{formatMoney(Math.abs(balance))}</span></p>;
+                                  })()}
+                                </div>
                               )}
-                            </div>
-                          )}
 
-                          <Button onClick={handlePayBill} disabled={isSettling} className="w-full text-lg h-12">
-                            {isSettling ? 'Processing...' : 'Pay Bill'}
-                          </Button>
-                          <p className="text-xs text-muted-foreground text-center mt-2">Check Out unlocks once the bill is fully paid.</p>
-                        </div>
-                      )}
+                              <Button onClick={handlePayBill} disabled={isSettling} className="h-12 w-full text-base">
+                                {isSettling ? 'Processing...' : `Pay ${formatMoney(billData.totalOutstanding)}`}
+                              </Button>
+                              <p className="text-center text-xs text-muted-foreground">Check Out unlocks once the bill is fully paid.</p>
+                            </section>
+                          )}
+                        </aside>
+                      </div>
                     </div>
-                  </div>
+                  );
+                })()
                 ) : (
                   <div className="bg-white rounded-lg shadow border p-8 text-center text-muted-foreground">
                     Select a customer to view their bill.
@@ -2712,6 +2735,16 @@ export default function FrontDeskPage() {
                 </div>
               )}
             </div>
+            {selectedChaletBooking && (
+              <BookingExtras
+                bookingId={selectedChaletBooking.id}
+                pending={checkInExtras}
+                onPendingChange={setCheckInExtras}
+                defaultPeople={Number((selectedChaletBooking as any).adults || 0) + Number((selectedChaletBooking as any).children || 0) || Number((selectedChaletBooking as any).guest_count || 1)}
+                stayFrom={selectedChaletBooking.check_in_date?.slice(0, 10)}
+                stayTo={selectedChaletBooking.check_out_date?.slice(0, 10)}
+              />
+            )}
             <div className="flex justify-end pt-4">
               <Button type="submit" disabled={isCheckingIn}>
                 {isCheckingIn ? 'Processing...' : 'Complete Check-In'}

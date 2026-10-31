@@ -306,10 +306,23 @@ export type OtherIncome = {
 export type ServiceIncomeItem = {
   description: string;
   amount: number;
+  master_id?: string;
+};
+
+export type ServiceLineItemMaster = {
+  id: string;
+  service_type: string;
+  name: string;
+  default_amount: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type ServiceIncome = {
   id: string;
+  // Running invoice number assigned by the database (EXP-/INV-).
+  invoice_number?: string | null;
   description: string;
   amount: number;
   service_type: string;
@@ -324,6 +337,8 @@ export type ServiceIncome = {
   pricing_breakdown?: {
     people: number;
     price_per_person: number | null;
+    // Experience bills: each experience with its own headcount and rate per person.
+    experiences?: { name: string; people: number; rate: number }[];
     base_amount: number;
     service_charge_rate: number;
     service_charge: number;
@@ -751,8 +766,11 @@ export type TableBooking = {
   other_charge_amount?: number;
   vat_amount?: number;
   total_amount?: number;
+  chalet_booking_id?: string | null;
   // joined
   buffet_packages?: { name: string };
+  // Room-bill charge for a buffet added on a chalet booking.
+  room_bill?: { payment_status: 'add_to_bill' | 'paid'; invoice_number: string | null; room_number: string | null };
 };
 
 // ─── Chalet Booking System ──────────────────────────────────────────────────

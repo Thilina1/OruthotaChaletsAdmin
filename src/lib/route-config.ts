@@ -108,6 +108,7 @@ export const servicesMenuItems: MenuItem[] = [
     { href: '/dashboard/services/laundry', icon: Shirt, label: 'Laundry Income', roles: ['admin'] },
     { href: '/dashboard/services/transport', icon: Car, label: 'Transport & Excursion', roles: ['admin'] },
     { href: '/dashboard/services/spa', icon: Waves, label: 'Spa/Pool Income', roles: ['admin'] },
+    { href: '/dashboard/services/line-items', icon: SlidersHorizontal, label: 'Service Line Items', roles: ['admin'] },
 ];
 
 export const eventManagementMenuItems: MenuItem[] = [
