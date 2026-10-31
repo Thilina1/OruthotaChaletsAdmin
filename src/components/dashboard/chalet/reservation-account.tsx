@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { FileText, Loader2, Printer } from 'lucide-react';
+import { CreditCard, FileText, Loader2, Plus, Printer } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { BookingExtras, emptyExtras, hasPendingExtras, saveBookingExtras, type ExtrasTab, type PendingExtras } from '@/components/dashboard/chalet/booking-extras';
 import type { ChaletBooking } from '@/lib/types';
 
 // Reservation account (ledger) for a chalet booking: one tab per kind of
@@ -60,8 +63,12 @@ export type ReservationAccountData = {
     tabs: LedgerTab[];
     receipts: Receipt[];
     customerLinked: boolean;
+    // The guest's customer record the Front Desk bills (null before one exists).
+    customerId: string | null;
     loading: boolean;
     error: string | null;
+    // Loads the ledger again (after adding charges).
+    reload: () => void;
 };
 
 // Loads the booking's ledger (used by the Account panel balances and the
@@ -70,8 +77,10 @@ export function useReservationAccount(bookingId: string | null | undefined): Res
     const [tabs, setTabs] = useState<LedgerTab[]>([]);
     const [receipts, setReceipts] = useState<Receipt[]>([]);
     const [customerLinked, setCustomerLinked] = useState(true);
+    const [customerId, setCustomerId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [version, setVersion] = useState(0);
 
     useEffect(() => {
         if (!bookingId) return;
@@ -85,14 +94,15 @@ export function useReservationAccount(bookingId: string | null | undefined): Res
                 setTabs(data.tabs || []);
                 setReceipts(data.receipts || []);
                 setCustomerLinked(!!data.customer);
+                setCustomerId(data.customer?.id || null);
                 setError(null);
             })
             .catch(err => { if (!cancelled) setError(err.message); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [bookingId]);
+    }, [bookingId, version]);
 
-    return { tabs, receipts, customerLinked, loading, error };
+    return { tabs, receipts, customerLinked, customerId, loading, error, reload: () => setVersion(current => current + 1) };
 }
 
 // The Reservation Account window (opened from the Account panel).
@@ -105,8 +115,29 @@ export function ReservationAccount({ booking, roomLabel, account, open, initialT
     onOpenChange: (open: boolean) => void;
 }) {
     const { tabs, receipts, customerLinked, loading, error } = account;
+    const { toast } = useToast();
     const [activeTab, setActiveTab] = useState(initialTab);
     const [openInvoice, setOpenInvoice] = useState<InvoiceLine | null>(null);
+    // Adding charges from a tab: each tab offers the kinds of extra it lists.
+    const [addOpen, setAddOpen] = useState(false);
+    const [pendingExtras, setPendingExtras] = useState<PendingExtras>(emptyExtras);
+    const [isSavingExtras, setIsSavingExtras] = useState(false);
+    const addTabs: ExtrasTab[] = ADD_TABS[activeTab] || ADD_TABS.all;
+    const addLabel = ADD_LABELS[activeTab] || ADD_LABELS.all;
+    const saveExtras = async () => {
+        setIsSavingExtras(true);
+        try {
+            await saveBookingExtras(booking.id, pendingExtras);
+            toast({ title: 'Added to the room bill', description: 'The account has been updated.' });
+            setPendingExtras(emptyExtras);
+            setAddOpen(false);
+            account.reload();
+        } catch (saveError: any) {
+            toast({ variant: 'destructive', title: 'Not added', description: saveError.message });
+        } finally {
+            setIsSavingExtras(false);
+        }
+    };
     useEffect(() => { if (open) setActiveTab(initialTab); }, [open, initialTab]);
 
     const allRows = useMemo(() => tabs.flatMap(tab => tab.rows), [tabs]);
@@ -140,6 +171,16 @@ export function ReservationAccount({ booking, roomLabel, account, open, initialT
                         {tab.label} {amount(tabBalance(tab.rows))}
                     </button>
                 ))}
+                <div className="mb-1 ml-auto flex gap-2">
+                    <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => { setPendingExtras(emptyExtras); setAddOpen(true); }}>
+                        <Plus className="mr-1 h-4 w-4" />{addLabel}
+                    </Button>
+                    <Button asChild size="sm" className="h-8">
+                        <Link href={frontDeskBillUrl(account.customerId, booking.customer_name)}>
+                            <CreditCard className="mr-1 h-4 w-4" />Pay at Front Desk
+                        </Link>
+                    </Button>
+                </div>
             </div>
 
             {loading ? (
@@ -225,10 +266,57 @@ export function ReservationAccount({ booking, roomLabel, account, open, initialT
                 </div>
             )}
             <InvoiceDialog invoice={openInvoice} booking={booking} roomLabel={roomLabel} onClose={() => setOpenInvoice(null)} />
+            <Dialog open={addOpen} onOpenChange={value => { if (!isSavingExtras) setAddOpen(value); }}>
+                <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{addLabel}</DialogTitle>
+                        <DialogDescription>{booking.booking_ref} · {booking.customer_name} · {roomLabel}</DialogDescription>
+                    </DialogHeader>
+                    <BookingExtras
+                        bookingId={booking.id}
+                        pending={pendingExtras}
+                        onPendingChange={setPendingExtras}
+                        defaultPeople={Number((booking as any).adults || 0) + Number((booking as any).children || 0) || Number((booking as any).guest_count || 1)}
+                        stayFrom={booking.check_in_date?.slice(0, 10)}
+                        stayTo={booking.check_out_date?.slice(0, 10)}
+                        tabs={addTabs}
+                        showSaved={false}
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAddOpen(false)} disabled={isSavingExtras}>Cancel</Button>
+                        <Button onClick={saveExtras} disabled={isSavingExtras || !hasPendingExtras(pendingExtras)}>
+                            {isSavingExtras ? 'Adding…' : 'Add to Room Bill'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </DialogContent>
         </Dialog>
     );
 }
+
+// Front Desk Check-in/out billing for this guest: their bill opens straight
+// away; before they have a customer record, the list is searched by name.
+export function frontDeskBillUrl(customerId: string | null | undefined, guestName?: string | null) {
+    const params = new URLSearchParams({ tab: 'check-out' });
+    if (customerId) params.set('customer_id', customerId);
+    else if (guestName) params.set('search', guestName);
+    return `/dashboard/front-desk?${params.toString()}`;
+}
+
+// What each account tab's Add button offers.
+const ADD_TABS: Record<string, ExtrasTab[]> = {
+    all: ['experience', 'service', 'buffet', 'adjustment'],
+    accommodation: ['adjustment'],
+    restaurant: ['buffet'],
+    services: ['experience', 'service'],
+};
+const ADD_LABELS: Record<string, string> = {
+    all: 'Add to Account',
+    accommodation: 'Add Charge / Discount',
+    restaurant: 'Add Buffet',
+    services: 'Add Experience / Service',
+};
 
 // Full bill for one invoice number: every line with its details.
 function InvoiceDialog({ invoice, booking, roomLabel, onClose }: { invoice: InvoiceLine | null; booking: ChaletBooking; roomLabel: string; onClose: () => void }) {

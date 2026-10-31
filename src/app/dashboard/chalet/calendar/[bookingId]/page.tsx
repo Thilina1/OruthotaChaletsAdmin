@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CreditCard } from 'lucide-react';
+import Link from 'next/link';
+import { formatLkr } from '@/lib/buffet-invoice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,7 +14,7 @@ import type { ChaletBooking, ChaletBookingStatus, ChaletPackage, ChaletRate, Cha
 import { DEFAULT_STAY_TIMES, type StayTimes } from '@/lib/chalet-stay';
 import { chaletLabel } from '@/components/dashboard/chalet/maintenance-dialog';
 import { BookingDetailsView, type BookingRoomLine } from '@/components/dashboard/chalet/booking-details-view';
-import { ReservationAccount, tabBalance, useReservationAccount } from '@/components/dashboard/chalet/reservation-account';
+import { ReservationAccount, frontDeskBillUrl, tabBalance, useReservationAccount } from '@/components/dashboard/chalet/reservation-account';
 
 // One chalet booking as its own page (Guest / Reservation / Account), opened
 // from a booking tile on the Booking Calendar.
@@ -139,7 +141,19 @@ export default function ChaletBookingDetailsPage() {
                         </div>
                     )}
                 </div>
-                {booking && <Badge variant="outline" className={`text-sm ${statusColors[booking.status]}`}>{statusLabels[booking.status]}</Badge>}
+                {booking && (
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={`text-sm ${statusColors[booking.status]}`}>{statusLabels[booking.status]}</Badge>
+                        {(booking.status === 'checked_in' || booking.status === 'confirmed') && (
+                            <Button asChild size="sm">
+                                <Link href={frontDeskBillUrl(account.customerId, booking.customer_name)}>
+                                    <CreditCard className="mr-1 h-4 w-4" />
+                                    Pay{!account.loading ? ` ${formatLkr(account.tabs.reduce((sum, tab) => sum + tabBalance(tab.rows), 0))}` : ''} at Front Desk
+                                </Link>
+                            </Button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {loading ? (

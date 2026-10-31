@@ -551,6 +551,8 @@ export default function FrontDeskPage() {
     if (params.get('tab') !== 'check-out') return;
     setActiveTab('check-out');
     const customerId = params.get('customer_id');
+    // From a booking whose guest has no customer record yet: search by name.
+    if (!customerId && params.get('search')) setCustomerSearch(params.get('search') || '');
     if (!customerId) return;
     fetch(`/api/admin/customers?id=${encodeURIComponent(customerId)}`)
       .then((response) => response.json())

@@ -6,7 +6,8 @@ import { calcPackageCharges } from '@/lib/buffet-invoice';
 import { getExperiencePricingDefaults } from '@/lib/experience-pricing';
 
 // Extras on a chalet booking: experiences, services (laundry, transport,
-// spa/pool) and buffet bookings added while booking or at check-in. Each is
+// spa/pool), buffet bookings, and other charges or discounts on the stay,
+// added while booking, at check-in or from the Reservation Account. Each is
 // charged to the guest's room bill (service_incomes 'add_to_bill'), so it
 // shows on the Front Desk bill and the booking Account, and also appears in
 // its own section: Experience Inquiries, the Services pages, Buffet Bookings.
@@ -125,7 +126,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         if (buffets.some((item: any) => !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !Number.isInteger(item.guests) || item.guests < 1 || !['breakfast', 'lunch', 'dinner'].includes(item.meal_type))) {
             return NextResponse.json({ error: 'Each buffet needs a date, meal type and at least 1 guest.' }, { status: 400 });
         }
-        if (experiences.length + services.length + buffets.length === 0) return NextResponse.json({ created: [] });
+        const adjustments = (Array.isArray(body.adjustments) ? body.adjustments : [])
+            .map((item: any) => ({ kind: item.kind === 'discount' ? 'discount' : 'charge', description: String(item.description || '').trim(), amount: money(Math.abs(Number(item.amount) || 0)) }))
+            .filter((item: any) => item.description);
+        if (adjustments.some((item: any) => item.amount <= 0)) {
+            return NextResponse.json({ error: 'Each charge or discount needs an amount greater than zero.' }, { status: 400 });
+        }
+        if (experiences.length + services.length + buffets.length + adjustments.length === 0) return NextResponse.json({ created: [] });
 
         const booking = await loadBooking(id);
         if (!booking) return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
@@ -251,6 +258,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
                     ],
                 }));
             }
+        }
+
+        // ── Other charges and discounts on the stay (as on the Front Desk bill) ──
+        for (const adjustment of adjustments) {
+            created.push(await insertRow('service_incomes', {
+                ...base,
+                description: adjustment.description,
+                amount: adjustment.kind === 'discount' ? -adjustment.amount : adjustment.amount,
+                service_type: adjustment.kind === 'discount' ? 'Discount' : 'Other',
+                date: today(),
+                line_items: [],
+            }));
         }
 
         return NextResponse.json({ created, customer_id: customerId }, { status: 201 });

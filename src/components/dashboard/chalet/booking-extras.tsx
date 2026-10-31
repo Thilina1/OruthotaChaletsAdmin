@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Sparkles, Shirt, UtensilsCrossed, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Sparkles, Shirt, UtensilsCrossed, Trash2, Loader2, Receipt } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,12 +19,15 @@ import type { BuffetPackage, ServiceLineItemMaster } from '@/lib/types';
 export type PendingExperience = { name: string; people: number; rate: number };
 export type PendingService = { service_type: string; description: string; amount: number; master_id?: string };
 export type PendingBuffet = { date: string; meal_type: string; guests: number; package_id: string | null; package_name?: string; estimate?: number };
-export type PendingExtras = { experiences: PendingExperience[]; services: PendingService[]; buffets: PendingBuffet[] };
+// Other charge (minibar, damage…) or discount on the stay, as on the Front Desk bill.
+export type PendingAdjustment = { kind: 'charge' | 'discount'; description: string; amount: number };
+export type PendingExtras = { experiences: PendingExperience[]; services: PendingService[]; buffets: PendingBuffet[]; adjustments?: PendingAdjustment[] };
+export type ExtrasTab = 'experience' | 'service' | 'buffet' | 'adjustment';
 
-export const emptyExtras: PendingExtras = { experiences: [], services: [], buffets: [] };
+export const emptyExtras: PendingExtras = { experiences: [], services: [], buffets: [], adjustments: [] };
 
 export const hasPendingExtras = (extras: PendingExtras) =>
-    extras.experiences.length + extras.services.length + extras.buffets.length > 0;
+    extras.experiences.length + extras.services.length + extras.buffets.length + (extras.adjustments?.length || 0) > 0;
 
 export async function saveBookingExtras(bookingId: string, extras: PendingExtras, customerId?: string | null) {
     if (!hasPendingExtras(extras)) return null;
@@ -57,16 +60,23 @@ type SavedExtra = {
 
 const money = (value: number) => `LKR ${Number(value || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeople = 1, stayFrom, stayTo }: {
+export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeople = 1, stayFrom, stayTo, tabs: shownTabs = ['experience', 'service', 'buffet'], initialTab, showSaved = true, refreshKey = 0 }: {
     bookingId?: string | null;
     pending: PendingExtras;
     onPendingChange: (extras: PendingExtras) => void;
     defaultPeople?: number;
     stayFrom?: string;
     stayTo?: string;
+    // Which kinds of extra can be added here, and the one shown first.
+    tabs?: ExtrasTab[];
+    initialTab?: ExtrasTab;
+    // List the extras already on the booking (off where the caller shows them).
+    showSaved?: boolean;
+    refreshKey?: number;
 }) {
     const { toast } = useToast();
-    const [tab, setTab] = useState<'experience' | 'service' | 'buffet'>('experience');
+    const [tab, setTab] = useState<ExtrasTab>(initialTab && shownTabs.includes(initialTab) ? initialTab : shownTabs[0]);
+    useEffect(() => { if (initialTab && shownTabs.includes(initialTab)) setTab(initialTab); }, [initialTab]);
     const [masters, setMasters] = useState<ServiceLineItemMaster[]>([]);
     const [packages, setPackages] = useState<BuffetPackage[]>([]);
     const [saved, setSaved] = useState<SavedExtra[]>([]);
@@ -77,6 +87,8 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
     const [experience, setExperience] = useState({ master_id: '', people, rate: '' });
     const [service, setService] = useState({ service_type: 'Laundry', master_id: '', description: '', amount: '', quantity: '1' });
     const [buffet, setBuffet] = useState({ date: stayFrom || '', meal_type: 'dinner', guests: people, package_id: '' });
+    const [adjustment, setAdjustment] = useState<{ kind: 'charge' | 'discount'; description: string; amount: string }>({ kind: 'charge', description: '', amount: '' });
+    const adjustments = pending.adjustments || [];
 
     useEffect(() => {
         fetch('/api/admin/service-line-items?active=true').then(r => r.json()).then(d => setMasters(d.items || [])).catch(() => undefined);
@@ -84,7 +96,7 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
     }, []);
 
     const loadSaved = () => {
-        if (!bookingId) { setSaved([]); return; }
+        if (!bookingId || !showSaved) { setSaved([]); return; }
         setIsLoadingSaved(true);
         fetch(`/api/chalet/bookings/${encodeURIComponent(bookingId)}/extras`, { cache: 'no-store' })
             .then(r => r.json())
@@ -92,7 +104,7 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
             .catch(() => setSaved([]))
             .finally(() => setIsLoadingSaved(false));
     };
-    useEffect(loadSaved, [bookingId]);
+    useEffect(loadSaved, [bookingId, showSaved, refreshKey]);
 
     // Keep the defaults in step with the booking's guests and dates.
     useEffect(() => {
@@ -111,8 +123,9 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
     const pendingTotal = useMemo(() =>
         pending.experiences.reduce((sum, item) => sum + item.people * item.rate, 0)
         + pending.services.reduce((sum, item) => sum + item.amount, 0)
-        + pending.buffets.reduce((sum, item) => sum + (item.estimate || 0), 0),
-    [pending]);
+        + pending.buffets.reduce((sum, item) => sum + (item.estimate || 0), 0)
+        + adjustments.reduce((sum, item) => sum + (item.kind === 'discount' ? -item.amount : item.amount), 0),
+    [pending, adjustments]);
 
     const addExperience = () => {
         const master = experienceMasters.find(m => m.id === experience.master_id);
@@ -166,8 +179,18 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
         setBuffet(current => ({ ...current, package_id: '' }));
     };
 
+    const addAdjustment = () => {
+        const value = Number(adjustment.amount);
+        if (!adjustment.description.trim() || !(value > 0)) {
+            toast({ variant: 'destructive', title: adjustment.kind === 'discount' ? 'Discount' : 'Charge', description: 'Enter a description and an amount greater than zero.' });
+            return;
+        }
+        onPendingChange({ ...pending, adjustments: [...adjustments, { kind: adjustment.kind, description: adjustment.description.trim(), amount: Math.round(value * 100) / 100 }] });
+        setAdjustment(current => ({ ...current, description: '', amount: '' }));
+    };
+
     const removePending = (kind: keyof PendingExtras, index: number) =>
-        onPendingChange({ ...pending, [kind]: (pending[kind] as any[]).filter((_, i) => i !== index) });
+        onPendingChange({ ...pending, [kind]: ((pending[kind] || []) as any[]).filter((_, i) => i !== index) });
 
     const removeSaved = async (extra: SavedExtra) => {
         if (!bookingId) return;
@@ -185,20 +208,21 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
         }
     };
 
-    const tabs = [
+    const tabs = ([
         { value: 'experience', label: 'Experience', icon: Sparkles },
         { value: 'service', label: 'Service', icon: Shirt },
         { value: 'buffet', label: 'Buffet', icon: UtensilsCrossed },
-    ] as const;
+        { value: 'adjustment', label: 'Charge / Discount', icon: Receipt },
+    ] as const).filter(item => shownTabs.includes(item.value));
 
     return (
         <div className="space-y-4 rounded-lg border p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h3 className="font-semibold">Extras</h3>
-                    <p className="text-xs text-muted-foreground">Experiences, services and buffets are added to the guest's room bill and paid at check-out.</p>
+                    <p className="text-xs text-muted-foreground">Everything added here goes on the guest's room bill and is paid at check-out.</p>
                 </div>
-                <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-sm">
+                {tabs.length > 1 && <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5 text-sm">
                     {tabs.map(({ value, label, icon: Icon }) => (
                         <button
                             key={value}
@@ -209,8 +233,32 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
                             <Icon className="h-3.5 w-3.5" />{label}
                         </button>
                     ))}
-                </div>
+                </div>}
             </div>
+
+            {tab === 'adjustment' && (
+                <div className="grid gap-2 sm:grid-cols-[140px_1fr_130px_auto] sm:items-end">
+                    <div className="space-y-1">
+                        <Label className="text-xs">Type</Label>
+                        <Select value={adjustment.kind} onValueChange={value => setAdjustment(c => ({ ...c, kind: value as 'charge' | 'discount' }))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="charge">Other charge</SelectItem>
+                                <SelectItem value="discount">Discount</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-1">
+                        <Label className="text-xs">Description</Label>
+                        <Input placeholder={adjustment.kind === 'discount' ? 'e.g. Loyalty discount' : 'e.g. Minibar, Late check-out'} value={adjustment.description} onChange={e => setAdjustment(c => ({ ...c, description: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                        <Label className="text-xs">Amount (LKR)</Label>
+                        <Input type="number" min={0} step="0.01" value={adjustment.amount} onChange={e => setAdjustment(c => ({ ...c, amount: e.target.value }))} />
+                    </div>
+                    <Button type="button" variant="outline" onClick={addAdjustment}><Plus className="mr-1 h-4 w-4" />Add</Button>
+                </div>
+            )}
 
             {tab === 'experience' && (
                 <div className="grid gap-2 sm:grid-cols-[1fr_90px_130px_auto] sm:items-end">
@@ -311,7 +359,7 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
                 </div>
             )}
 
-            {(pending.experiences.length + pending.services.length + pending.buffets.length > 0) && (
+            {hasPendingExtras(pending) && (
                 <div className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">To add when saved</p>
                     <div className="divide-y rounded-md border">
@@ -324,12 +372,15 @@ export function BookingExtras({ bookingId, pending, onPendingChange, defaultPeop
                         {pending.buffets.map((item, index) => (
                             <PendingRow key={`b${index}`} tag="Buffet" label={`${item.meal_type.charAt(0).toUpperCase() + item.meal_type.slice(1)} · ${item.date} · ${item.guests} guests${item.package_name ? ` · ${item.package_name}` : ''}`} amount={item.estimate || 0} note={item.package_id ? undefined : 'booking only'} onRemove={() => removePending('buffets', index)} />
                         ))}
+                        {adjustments.map((item, index) => (
+                            <PendingRow key={`a${index}`} tag={item.kind === 'discount' ? 'Discount' : 'Other'} label={item.description} amount={item.kind === 'discount' ? -item.amount : item.amount} onRemove={() => removePending('adjustments', index)} />
+                        ))}
                     </div>
                     <p className="text-right text-sm text-muted-foreground">Estimated: <span className="font-semibold text-foreground">{money(pendingTotal)}</span></p>
                 </div>
             )}
 
-            {bookingId && (isLoadingSaved || saved.length > 0) && (
+            {bookingId && showSaved && (isLoadingSaved || saved.length > 0) && (
                 <div className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Already on the room bill</p>
                     {isLoadingSaved ? (

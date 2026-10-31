@@ -182,10 +182,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
             });
 
             (servicesRes.data || []).forEach((service: any) => {
+                // Buffets sit with the restaurant, and other charges and
+                // discounts on the stay with the accommodation.
+                const target = service.service_type === 'Buffet'
+                    ? restaurant
+                    : service.service_type === 'Other' || service.service_type === 'Discount' ? accommodation : services;
                 const amount = Number(service.amount || 0);
                 const invNo = serviceInvoiceNumber(service);
                 const group = `${service.service_type}${service.description ? `: ${service.description}` : ''}`;
-                services.push({
+                target.push({
                     date: service.date || service.created_at,
                     invNo,
                     group,
@@ -196,7 +201,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
                     credit: amount < 0 ? Math.abs(amount) : 0,
                 });
                 if (service.payment_status === 'paid' && amount > 0) {
-                    services.push({
+                    target.push({
                         date: service.updated_at || service.date || service.created_at,
                         invNo,
                         group,
